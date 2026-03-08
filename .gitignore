@@ -1,0 +1,8 @@
+# dir
+.cache
+.vscode
+target
+
+# file
+log.txt
+*.cj.macrocall
