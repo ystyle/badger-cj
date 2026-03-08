@@ -5,6 +5,7 @@ import std.sync.*
 import std.collection.*
 import badgercj.table.*
 import badgercj.manifest.*
+import badgercj.vlog.*
 
 public class DB {
     private let opt: DBOptions
@@ -16,12 +17,14 @@ public class DB {
     private let version: AtomicUInt64
     private var nextFileID: AtomicUInt64
     public let oracle: Oracle
+    private let vlog: VLogManager
     
     public init(
         opt: DBOptions,
         mt: MemTable,
         manifest: Manifest,
-        lc: LevelsController
+        lc: LevelsController,
+        vlog: VLogManager
     ) {
         this.opt = opt
         this.mt = mt
@@ -32,6 +35,7 @@ public class DB {
         this.version = AtomicUInt64(1)
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
         this.oracle = Oracle()
+        this.vlog = vlog
     }
     
     public static func open(opt: DBOptions): DB {
@@ -41,11 +45,12 @@ public class DB {
         
         let manifest = Manifest()
         let lc = LevelsController(manifest: manifest)
+        let vlog = VLogManager(Path(opt.Dir))
         
         let fid = Int64(manifest.nextFileID)
         let mt = MemTable(opt, fid, false)
         
-        let db = DB(opt, mt, manifest, lc)
+        let db = DB(opt, mt, manifest, lc, vlog)
         return db
     }
     
@@ -56,6 +61,7 @@ public class DB {
             for (immMt in imm) {
                 immMt.closeWAL()
             }
+            vlog.close()
             oracle.stop()
         } finally {
             lock.unlock()
@@ -71,6 +77,11 @@ public class DB {
             if (mtResult.isSome()) {
                 if (let Some(vs) <- mtResult) {
                     if (!vs.isDelete()) {
+                        if (vs.isValuePointer()) {
+                            let vp = ValuePointer.decode(vs.value)
+                            let entry = vlog.read(vp)
+                            return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
+                        }
                         return mtResult
                     }
                 }
@@ -83,6 +94,11 @@ public class DB {
                 if (immResult.isSome()) {
                     if (let Some(vs) <- immResult) {
                         if (!vs.isDelete()) {
+                            if (vs.isValuePointer()) {
+                                let vp = ValuePointer.decode(vs.value)
+                                let entry = vlog.read(vp)
+                                return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
+                            }
                             return immResult
                         }
                     }
@@ -94,6 +110,11 @@ public class DB {
             if (lcResult.isSome()) {
                 if (let Some(vs) <- lcResult) {
                     if (!vs.isDelete()) {
+                        if (vs.isValuePointer()) {
+                            let vp = ValuePointer.decode(vs.value)
+                            let entry = vlog.read(vp)
+                            return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
+                        }
                         return lcResult
                     }
                 }
@@ -113,7 +134,15 @@ public class DB {
                 flushMemTableInternal()
             }
             
-            let vs = ValueStruct(value, meta: 0, version: version.fetchAdd(1))
+            let vs = if (Int64(value.size) >= opt.ValueThreshold) {
+                let entry = LogEntry(key, value)
+                let vp = vlog.write(entry)
+                let vpBytes = vp.encode()
+                ValueStruct(vpBytes, meta: Meta.bitValuePointer, version: version.fetchAdd(1))
+            } else {
+                ValueStruct(value, meta: 0, version: version.fetchAdd(1))
+            }
+            
             mt.put(key, vs)
         } finally {
             lock.unlock()

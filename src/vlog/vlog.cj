@@ -56,18 +56,3 @@ public class ValueLog {
         return buf.toArray()
     }
 }
-
-/**
- * ValuePointer - 指向 Value Log 中的值
- */
-public struct ValuePointer {
-    public let fid: UInt32
-    public let len: UInt32
-    public let offset: UInt32
-    
-    public init(fid: UInt32, len: UInt32, offset: UInt32) {
-        this.fid = fid
-        this.len = len
-        this.offset = offset
-    }
-}

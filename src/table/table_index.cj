@@ -9,20 +9,48 @@ import std.collection.*
  */
 public class TableIndex {
     public let offsets: ArrayList<BlockOffset>
+    public let bloomFilter: Array<Byte>
     public let maxVersion: UInt64
     public let keyCount: UInt32
     public let uncompressedSize: UInt32
     public let onDiskSize: UInt32
     public let staleDataSize: UInt32
     
-    public init(offsets: ArrayList<BlockOffset>, maxVersion: UInt64, keyCount: UInt32,
-                uncompressedSize: UInt32, onDiskSize: UInt32, staleDataSize: UInt32) {
+    public init(offsets: ArrayList<BlockOffset>, bloomFilter: Array<Byte>, maxVersion: UInt64, 
+                keyCount: UInt32, uncompressedSize: UInt32, onDiskSize: UInt32, staleDataSize: UInt32) {
         this.offsets = offsets
+        this.bloomFilter = bloomFilter
         this.maxVersion = maxVersion
         this.keyCount = keyCount
         this.uncompressedSize = uncompressedSize
         this.onDiskSize = onDiskSize
         this.staleDataSize = staleDataSize
+    }
+    
+    /**
+     * 从字节数组解析 TableIndex
+     */
+    public static func decodeFromData(data: Array<Byte>): TableIndex {
+        let size = Int64(data.size)
+        
+        let checksumSizeOffset = size - 8
+        let checksumSize = UInt32(data[checksumSizeOffset]) |
+                          (UInt32(data[checksumSizeOffset + 1]) << 8) |
+                          (UInt32(data[checksumSizeOffset + 2]) << 16) |
+                          (UInt32(data[checksumSizeOffset + 3]) << 24)
+        
+        let checksumOffset = checksumSizeOffset - Int64(checksumSize)
+        
+        let indexSizeOffset = checksumOffset - 4
+        let indexSize = UInt32(data[indexSizeOffset]) |
+                       (UInt32(data[indexSizeOffset + 1]) << 8) |
+                       (UInt32(data[indexSizeOffset + 2]) << 16) |
+                       (UInt32(data[indexSizeOffset + 3]) << 24)
+        
+        let indexStart = indexSizeOffset - Int64(indexSize)
+        let indexData = data[indexStart..indexSizeOffset]
+        
+        return decode(indexData)
     }
     
     /**
@@ -35,42 +63,43 @@ public class TableIndex {
         offset += 4
         
         let offsets = ArrayList<BlockOffset>()
-        var off: Int64 = 0
         for (_ in 0..Int64(blockCount)) {
-            let keyLen = readUInt32(data, off)
-            off += 4
+            let keyLen = readUInt32(data, offset)
+            offset += 4
             
-            let key = readBytes(data, off, Int64(keyLen))
-            off += Int64(keyLen)
+            let key = readBytes(data, offset, Int64(keyLen))
+            offset += Int64(keyLen)
             
-            let blockOffset = readUInt32(data, off)
-            off += 4
+            let blockOffset = readUInt32(data, offset)
+            offset += 4
             
-            let blockLen = readUInt32(data, off)
-            off += 4
+            let blockLen = readUInt32(data, offset)
+            offset += 4
             
             offsets.add(BlockOffset(key, blockOffset, blockLen))
         }
         
-        let bloomFilterLen = readUInt32(data, off)
-        off += 4
-        off += Int64(bloomFilterLen)
+        let bloomFilterLen = readUInt32(data, offset)
+        offset += 4
         
-        let maxVersion = readUInt64(data, off)
-        off += 8
+        let bloomFilter = readBytes(data, offset, Int64(bloomFilterLen))
+        offset += Int64(bloomFilterLen)
         
-        let keyCount = readUInt32(data, off)
-        off += 4
+        let maxVersion = readUInt64(data, offset)
+        offset += 8
         
-        let uncompressedSize = readUInt32(data, off)
-        off += 4
+        let keyCount = readUInt32(data, offset)
+        offset += 4
         
-        let onDiskSize = readUInt32(data, off)
-        off += 4
+        let uncompressedSize = readUInt32(data, offset)
+        offset += 4
         
-        let staleDataSize = readUInt32(data, off)
+        let onDiskSize = readUInt32(data, offset)
+        offset += 4
         
-        return TableIndex(offsets, maxVersion, keyCount, uncompressedSize, onDiskSize, staleDataSize)
+        let staleDataSize = readUInt32(data, offset)
+        
+        return TableIndex(offsets, bloomFilter, maxVersion, keyCount, uncompressedSize, onDiskSize, staleDataSize)
     }
     
     private static func readUInt32(data: Array<Byte>, offset: Int64): UInt32 {
