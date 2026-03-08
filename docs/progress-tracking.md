@@ -107,10 +107,11 @@
 
 | 任务 | 预计时间 | 文件 | 状态 |
 |------|---------|------|------|
-| MemTable 基础实现 | 3h | `src/db/memtable.cj` | ⏸️ 待开始 |
+| MemTable 基础实现 | 3h | `src/db/memtable.cj` | ✅ 已完成 |
+| MemTable 单元测试 | 3h | `src/db/memtable_test.cj` | ✅ 8/8 通过 |
+| MemTable 代码质量修复 | 1h | `src/table/types.cj` | ✅ 已完成 |
 | WAL 写入逻辑 | 2h | `src/db/wal.cj` | ⏸️ 待开始 |
 | WAL 恢复逻辑 | 2h | `src/db/wal.cj` | ⏸️ 待开始 |
-| MemTable 单元测试 | 3h | `src/db/memtable_test.cj` | ⏸️ 待开始 |
 | WAL 单元测试 | 2h | `src/db/wal_test.cj` | ⏸️ 待开始 |
 | 集成测试 | 2h | - | ⏸️ 待开始 |
 
@@ -274,7 +275,7 @@
 | SSTable | ✅ | ⏸️ | ❌ | ❌ |
 | Value Log | ✅ | ⏸️ | ❌ | ❌ |
 | MANIFEST | ✅ | ⏸️ | ❌ | ❌ |
-| MemTable | ⏸️ | ⏸️ | ❌ | ❌ |
+| MemTable | ✅ | ⏸️ | ❌ | ❌ |
 | WAL | ⏸️ | ⏸️ | ❌ | ❌ |
 | LevelHandler | ⏸️ | ⏸️ | ❌ | ❌ |
 | DB | ⏸️ | ⏸️ | ❌ | ❌ |
@@ -284,7 +285,8 @@
 **当前状态：**
 - Phase 1: ✅ 33 个测试全部通过
 - Phase 2: ✅ 27 个测试全部通过
-- **总计：** 60 个测试，100% 通过 ✅
+- Phase 3: ✅ 8 个测试通过（MemTable）
+- **总计：** 68 个测试，100% 通过 ✅
 
 ### Phase 3 目标
 

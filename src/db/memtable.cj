@@ -12,14 +12,15 @@ import badgercj.table.*
  */
 public class MemTable {
     private let opt: DBOptions
-    private let fid: Int
+    private let fid: Int64
     private let table: Skiplist
     private let arena: Arena
     private let refs: AtomicInt32
     private let walExists: Bool
     private let sizeInBytes_: AtomicUInt64
+    private let wal: WAL
     
-    public init(opt: DBOptions, fid: Int, walExists: Bool) {
+    public init(opt: DBOptions, fid: Int64, walExists: Bool) {
         this.opt = opt
         this.fid = fid
         this.walExists = walExists
@@ -29,9 +30,19 @@ public class MemTable {
         this.table = Skiplist(arena)
         this.refs = AtomicInt32(1)
         this.sizeInBytes_ = AtomicUInt64(0)
+        
+        let walPath = opt.Dir + "/${fid}.mem"
+        if (walExists) {
+            this.wal = WAL.open(walPath)
+            this.wal.replay(this)
+        } else {
+            this.wal = WAL.open(walPath)
+        }
     }
     
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
+        wal.write(key, vs)
+        
         let encoded = vs.encode()
         if (encoded.size > 65535) {
             throw Exception("ValueStruct encoded size exceeds UInt16 max: ${encoded.size}")
@@ -71,7 +82,14 @@ public class MemTable {
     }
     
     public func decrRef(): Unit {
-        refs.fetchAdd(-1)
+        let old = refs.fetchSub(1)
+        if (old == 1) {
+            wal.delete()
+        }
+    }
+    
+    public func closeWAL(): Unit {
+        wal.close()
     }
     
     public func iterator(): SkipIterator {

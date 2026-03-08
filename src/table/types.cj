@@ -44,6 +44,10 @@ public class ValueStruct {
         return (meta & Meta.bitValuePointer) != 0
     }
     
+    public func estimateSize(): Int64 {
+        return Int64(value.size) + 10 + 8
+    }
+    
     public func encode(): Array<Byte> {
         let buf = ArrayList<Byte>()
         
@@ -54,6 +58,11 @@ public class ValueStruct {
         
         buf.add(encodeMeta)
         buf.add(userMeta)
+        
+        let versionBytes = encodeVarint(version)
+        for (b in versionBytes) {
+            buf.add(b)
+        }
         
         if (expiresAt > 0) {
             buf.add(UInt8(expiresAt & 0xFF))
@@ -86,8 +95,20 @@ public class ValueStruct {
         let userMeta = encoded[idx]
         idx++
         
+        var version: UInt64 = 0
+        var shift: UInt64 = 0
+        while (idx < encoded.size) {
+            let b = encoded[idx]
+            idx++
+            version |= UInt64(b & 0x7F) << shift
+            if ((b & 0x80) == 0) {
+                break
+            }
+            shift += 7
+        }
+        
         var expiresAt: UInt64 = 0
-        if ((meta & Meta.bitExpiresAt) != 0 && encoded.size >= idx + 8) {
+        if ((meta & Meta.bitExpiresAt) != 0 && idx + 8 <= encoded.size) {
             expiresAt = UInt64(encoded[idx]) |
                        (UInt64(encoded[idx + 1]) << 8) |
                        (UInt64(encoded[idx + 2]) << 16) |
@@ -100,7 +121,7 @@ public class ValueStruct {
         }
         
         var valueLen: UInt64 = 0
-        var shift: UInt64 = 0
+        shift = 0
         while (idx < encoded.size) {
             let b = encoded[idx]
             idx++
@@ -112,7 +133,7 @@ public class ValueStruct {
         }
         
         let value = encoded[idx..(idx + Int64(valueLen))]
-        return ValueStruct(value, meta: meta, userMeta: userMeta, expiresAt: expiresAt)
+        return ValueStruct(value, meta: meta, userMeta: userMeta, version: version, expiresAt: expiresAt)
     }
     
     private func encodeVarint(v: UInt64): Array<Byte> {
