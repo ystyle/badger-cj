@@ -15,6 +15,7 @@ public class DB {
     private let imm: ArrayList<MemTable>
     private let version: AtomicUInt64
     private var nextFileID: AtomicUInt64
+    public let oracle: Oracle
     
     public init(
         opt: DBOptions,
@@ -30,6 +31,7 @@ public class DB {
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
+        this.oracle = Oracle()
     }
     
     public static func open(opt: DBOptions): DB {
@@ -54,6 +56,7 @@ public class DB {
             for (immMt in imm) {
                 immMt.closeWAL()
             }
+            oracle.stop()
         } finally {
             lock.unlock()
         }
@@ -144,8 +147,8 @@ public class DB {
         return version.load()
     }
     
-    public func newTransaction(): Transaction {
-        return Transaction(this)
+    public func newTransaction(update!: Bool = true): Transaction {
+        return Transaction(this, update: update)
     }
     
     private func flushMemTableInternal(): Unit {
