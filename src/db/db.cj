@@ -16,7 +16,7 @@ public class DB {
     private let version: AtomicUInt64
     private var nextFileID: AtomicUInt64
     
-    private init(
+    public init(
         opt: DBOptions,
         mt: MemTable,
         manifest: Manifest,
@@ -28,7 +28,7 @@ public class DB {
         this.lc = lc
         this.lock = Mutex()
         this.imm = ArrayList<MemTable>()
-        this.version = AtomicUInt64(0)
+        this.version = AtomicUInt64(1)
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
     }
     
@@ -138,6 +138,14 @@ public class DB {
         } finally {
             lock.unlock()
         }
+    }
+    
+    public func getVersion(): UInt64 {
+        return version.load()
+    }
+    
+    public func newTransaction(): Transaction {
+        return Transaction(this)
     }
     
     private func flushMemTableInternal(): Unit {
