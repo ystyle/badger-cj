@@ -9,14 +9,14 @@ class ManifestTest {
     @TestCase
     func testNew() {
         let manifest = Manifest()
-        @Assert(manifest.levels.size, 9)
+        @Assert(manifest.levels.size, 7)  // L0-L6 共7层
     }
     
     @TestCase
     func testApplyCreate() {
         let manifest = Manifest()
         let changes = ArrayList<ManifestChange>()
-        changes.add(ManifestChange(100, ManifestChangeOp.Create, level: 0))
+        changes.add(ManifestChange(100, ManifestChangeOp.Create, level: 1))
         
         manifest.applyChanges(changes)
         

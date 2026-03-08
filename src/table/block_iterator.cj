@@ -1,7 +1,5 @@
 package badgercj.table
 
-import std.collection.*
-
 /**
  * BlockIterator - Block 迭代器
  * 

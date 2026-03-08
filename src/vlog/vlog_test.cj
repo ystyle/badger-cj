@@ -7,8 +7,8 @@ import std.unittest.testmacro.*
 class LogEntryTest {
     @TestCase
     func testEncodeDecode() {
-        let key: Array<Byte> = [1u8, 2u8, 3u8]
-        let value: Array<Byte> = [10u8, 20u8, 30u8]
+        let key: Array<Byte> = [1, 2, 3]
+        let value: Array<Byte> = [10, 20, 30]
         let entry = LogEntry(key, value)
         
         let encoded = entry.encode()

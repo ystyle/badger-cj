@@ -2,7 +2,6 @@ package badgercj.table
 
 import std.unittest.*
 import std.unittest.testmacro.*
-import std.collection.*
 
 @Test
 class TableBuilderTest {
@@ -47,8 +46,8 @@ class TableBuilderTest {
         let builder = TableBuilder(blockSize: 256)
         
         for (i in 0..50) {
-            let key = Array<Byte>(10, {j => UInt8(i)})
-            let value = ValueStruct(Array<Byte>(50, {j => UInt8(j)}))
+            let key = Array<Byte>(10, repeat: UInt8(i))
+            let value = ValueStruct(Array<Byte>(50, repeat: UInt8(i)))
             builder.add(key, value)
         }
         
@@ -82,7 +81,7 @@ class TableBuilderTest {
             [2u8],
             [3u8],
             [4u8],
-            [5u8],
+            [5u8]
         ]
         
         for (key in keys) {

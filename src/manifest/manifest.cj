@@ -29,7 +29,8 @@ public class Manifest {
     
     public init() {
         this.levels = ArrayList<ArrayList<TableInfo>>()
-        for (_ in 0..8) {
+        // 创建 L0-L6 共7层（与 Go BadgerDB 默认 MaxLevels 一致）
+        for (_ in 0..7) {
             levels.add(ArrayList<TableInfo>())
         }
         this.keyID = 0

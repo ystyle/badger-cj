@@ -2,7 +2,6 @@ package badgercj.table
 
 import std.unittest.*
 import std.unittest.testmacro.*
-import std.collection.*
 
 @Test
 class BlockBuilderTest {
@@ -33,7 +32,7 @@ class BlockBuilderTest {
             [1u8],
             [1u8, 2u8],
             [1u8, 2u8, 3u8],
-            [1u8, 2u8, 3u8, 4u8],
+            [1u8, 2u8, 3u8, 4u8]
         ]
         
         for (i in 0..keys.size) {
@@ -75,8 +74,8 @@ class BlockBuilderTest {
         var count: Int64 = 0
         while (true) {
             let c = count
-            let key = Array<Byte>(10, {i => UInt8(c)})
-            let value = ValueStruct(Array<Byte>(20, {i => UInt8(i)}))
+            let key = Array<Byte>(10, repeat: UInt8(c))
+            let value = ValueStruct(Array<Byte>(20, {j => UInt8(j)}))
             
             if (!builder.add(key, value)) {
                 break

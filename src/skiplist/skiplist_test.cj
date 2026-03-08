@@ -56,7 +56,7 @@ class SkiplistTest {
             [2u8],
             [1u8, 2u8],
             [1u8, 2u8, 3u8],
-            [2u8, 3u8],
+            [2u8, 3u8]
         ]
         
         for (i in 0..keys.size) {
