@@ -16,7 +16,7 @@ public class Iterator {
     private let opt: IteratorOptions
     
     private var iitr: MergeIterator
-    private var item: Item
+    private var item_: Item
     private var closed: Bool
     
     public init(txn: Transaction, opt: IteratorOptions) {
@@ -27,7 +27,7 @@ public class Iterator {
         
         let iters = ArrayList<SimpleIterator>()
         this.iitr = MergeIterator(iters, reverse: opt.reverse)
-        this.item = Item([], [])
+        this.item_ = Item([], [])
     }
     
     public func rewind(): Unit {
@@ -55,7 +55,7 @@ public class Iterator {
     }
     
     public func item(): Item {
-        return item
+        return item_
     }
     
     public func seek(key: Array<Byte>): Unit {
@@ -81,7 +81,7 @@ public class Iterator {
         let key = iitr.key()
         let value = iitr.value()
         
-        item = Item(key, value)
+        item_ = Item(key, value)
         
         let fp = hashKey(key)
         txn.reads.add(fp)

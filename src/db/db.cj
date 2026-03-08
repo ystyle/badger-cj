@@ -68,6 +68,18 @@ public class DB {
         }
     }
     
+    public func getMemTable(): MemTable {
+        return mt
+    }
+    
+    public func getImmMemTables(): ArrayList<MemTable> {
+        return imm
+    }
+    
+    public func getLevelsController(): LevelsController {
+        return lc
+    }
+    
     public func get(key: Array<Byte>): Option<ValueStruct> {
         lock.lock()
         try {
@@ -78,7 +90,7 @@ public class DB {
                 if (let Some(vs) <- mtResult) {
                     if (!vs.isDelete()) {
                         if (vs.isValuePointer()) {
-                            let vp = ValuePointer.decode(vs.value)
+                            let vp = badgercj.table.ValuePointer.decode(vs.value)
                             let entry = vlog.read(vp)
                             return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
                         }
@@ -111,7 +123,7 @@ public class DB {
                 if (let Some(vs) <- lcResult) {
                     if (!vs.isDelete()) {
                         if (vs.isValuePointer()) {
-                            let vp = ValuePointer.decode(vs.value)
+                            let vp = badgercj.table.ValuePointer.decode(vs.value)
                             let entry = vlog.read(vp)
                             return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
                         }

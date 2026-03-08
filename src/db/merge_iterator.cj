@@ -108,7 +108,7 @@ public class MergeIterator {
  * 
  * 统一不同类型迭代器的接口
  */
-public class SimpleIterator {
+public open class SimpleIterator {
     private let valid_: Bool
     private let key_: Array<Byte>
     private let value_: Array<Byte>
@@ -125,27 +125,27 @@ public class SimpleIterator {
         this.value_ = value
     }
     
-    public func valid(): Bool {
+    public open func valid(): Bool {
         return valid_
     }
     
-    public func key(): Array<Byte> {
+    public open func key(): Array<Byte> {
         return key_
     }
     
-    public func value(): Array<Byte> {
+    public open func value(): Array<Byte> {
         return value_
     }
     
-    public func next(): Unit {
+    public open func next(): Unit {
         // 空实现
     }
     
-    public func rewind(): Unit {
+    public open func rewind(): Unit {
         // 空实现
     }
     
-    public func seek(key: Array<Byte>): Unit {
+    public open func seek(key: Array<Byte>): Unit {
         // 空实现
     }
 }
