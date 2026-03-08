@@ -1,7 +1,6 @@
 package badgercj.db
 
-import std.collection.*
-import badgercj.table.*
+import std.collection.ArrayList
 
 /**
  * Iterator - 事务级一致性迭代器
@@ -17,6 +16,7 @@ public class Iterator {
     
     private var iitr: MergeIterator
     private var item_: Item
+    private var lastKey: Array<Byte>
     private var closed: Bool
     
     public init(txn: Transaction, opt: IteratorOptions) {
@@ -24,6 +24,7 @@ public class Iterator {
         this.readTs = txn.readTs
         this.opt = opt
         this.closed = false
+        this.lastKey = []
         
         // 构造迭代器链
         let iters = ArrayList<SimpleIterator>()
@@ -40,7 +41,7 @@ public class Iterator {
         let db = txn.getDB()
         let tables = db.getMemTables()
         for (table in tables) {
-            iters.add(MemTableIterator(table))
+            iters.add(MemTableIterator(table, reverse: opt.reverse))
         }
         
         // 3. 添加 SSTable 迭代器
@@ -97,16 +98,37 @@ public class Iterator {
     
     private func parseItem(): Unit {
         if (!iitr.valid()) {
+            item_ = Item([], [])
             return
         }
         
         let key = iitr.key()
         let value = iitr.value()
         
+        // 去重：如果当前 key 与上一个 key 相同，跳过
+        if (lastKey.size > 0 && keysEqual(lastKey, key)) {
+            iitr.next()
+            parseItem()
+            return
+        }
+        
+        lastKey = key
         item_ = Item(key, value)
         
         let fp = hashKey(key)
         txn.reads.add(fp)
+    }
+    
+    private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
+        if (a.size != b.size) {
+            return false
+        }
+        for (i in 0..a.size) {
+            if (a[i] != b[i]) {
+                return false
+            }
+        }
+        return true
     }
     
     private func hashKey(key: Array<Byte>): UInt64 {
