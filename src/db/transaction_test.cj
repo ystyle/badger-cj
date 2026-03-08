@@ -128,6 +128,65 @@ class TransactionTest {
         db.close()
         cleanupTxnDir("/tmp/badger_txn_test5")
     }
+    
+    @TestCase
+    func testTransactionNoConflictDifferentKeys() {
+        let opt = DBOptions(dir: "/tmp/badger_txn_test7")
+        let db = DB.open(opt)
+        
+        let txn1 = db.newTransaction(update: true)
+        let _ = txn1.get("key1".toArray())
+        txn1.set("key2".toArray(), "value2".toArray())
+        txn1.commit()
+        
+        sleep(Duration.millisecond * 50)
+        
+        let txn2 = db.newTransaction(update: true)
+        let _ = txn2.get("key3".toArray())
+        txn2.set("key4".toArray(), "value4".toArray())
+        
+        var errorOccurred = false
+        try {
+            txn2.commit()
+        } catch (e: Exception) {
+            errorOccurred = true
+        }
+        
+        @Assert(errorOccurred, false)
+        
+        db.close()
+        cleanupTxnDir("/tmp/badger_txn_test7")
+    }
+    
+    @TestCase
+    func testTransactionReadOnlyMode() {
+        let opt = DBOptions(dir: "/tmp/badger_txn_test8")
+        let db = DB.open(opt)
+        
+        db.set("key1".toArray(), "value1".toArray())
+        
+        let txn = db.newTransaction(update: false)
+        let result = txn.get("key1".toArray())
+        
+        if (let Some(value) <- result) {
+            @Assert(value, "value1".toArray())
+        } else {
+            @Fail("key1 not found")
+        }
+        
+        var errorCaught = false
+        try {
+            txn.set("key2".toArray(), "value2".toArray())
+        } catch (e: Exception) {
+            errorCaught = true
+        }
+        
+        @Assert(errorCaught, true)
+        
+        txn.discard()
+        db.close()
+        cleanupTxnDir("/tmp/badger_txn_test8")
+    }
 }
 
 func cleanupTxnDir(path: String) {
