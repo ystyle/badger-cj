@@ -1,6 +1,7 @@
 package badgercj.vlog
 
 import std.collection.*
+import badgercj.table.*
 
 /**
  * ValueLog - Value Log 文件管理

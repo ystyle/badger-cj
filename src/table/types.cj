@@ -184,4 +184,23 @@ public struct ValuePointer {
         
         return buf.toArray()
     }
+    
+    public static func decode(data: Array<Byte>): ValuePointer {
+        let fid = UInt32(data[0]) |
+                 (UInt32(data[1]) << 8) |
+                 (UInt32(data[2]) << 16) |
+                 (UInt32(data[3]) << 24)
+        
+        let len = UInt32(data[4]) |
+                 (UInt32(data[5]) << 8) |
+                 (UInt32(data[6]) << 16) |
+                 (UInt32(data[7]) << 24)
+        
+        let offset = UInt32(data[8]) |
+                    (UInt32(data[9]) << 8) |
+                    (UInt32(data[10]) << 16) |
+                    (UInt32(data[11]) << 24)
+        
+        return ValuePointer(fid, len, offset)
+    }
 }

@@ -143,6 +143,14 @@ public class Transaction {
         }
     }
     
+    public func getDB(): DB {
+        return db
+    }
+    
+    public func isUpdate(): Bool {
+        return update
+    }
+    
     private func addReadKey(key: Array<Byte>): Unit {
         let fp = hashKey(key)
         reads.add(fp)
