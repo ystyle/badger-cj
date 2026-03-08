@@ -1,6 +1,7 @@
 package badgercj.db
 
 import std.collection.ArrayList
+import badgercj.table.ValueStruct
 
 public class MemTableIterator <: SimpleIterator {
     private let entries: ArrayList<(Array<Byte>, Array<Byte>)>
@@ -22,7 +23,8 @@ public class MemTableIterator <: SimpleIterator {
         let skipIter = mt.iterator()
         while (skipIter.hasNext()) {
             if (let Some((key, vs)) <- skipIter.next()) {
-                entries.add((key, vs.value))
+                // 存储完整的编码 ValueStruct（包含 meta、version 等）
+                entries.add((key, vs.encode()))
             }
         }
         
@@ -66,7 +68,7 @@ public class MemTableIterator <: SimpleIterator {
         }
         
         if (reverse) {
-            var found = -1
+            var found: Int64 = -1
             for (i in 0..entries.size) {
                 if (compareKeys(entries[i][0], key) >= 0) {
                     found = i

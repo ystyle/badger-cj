@@ -1,6 +1,8 @@
 package badgercj.db
 
 import std.collection.ArrayList
+import badgercj.table.Meta
+import badgercj.table.ValueStruct
 
 /**
  * Iterator - 事务级一致性迭代器
@@ -57,6 +59,7 @@ public class Iterator {
         if (closed) {
             return
         }
+        lastKey = []
         iitr.rewind()
         parseItem()
     }
@@ -64,6 +67,15 @@ public class Iterator {
     public func valid(): Bool {
         if (closed || !iitr.valid()) {
             return false
+        }
+        
+        // 前缀过滤检查
+        if (opt.prefix.size > 0) {
+            // 当前 key 没有时间戳，直接使用原始 key
+            let userKey = item_.key
+            if (!hasPrefix(userKey, opt.prefix)) {
+                return false
+            }
         }
         
         return true
@@ -85,7 +97,14 @@ public class Iterator {
         if (closed) {
             return
         }
-        iitr.seek(key)
+        lastKey = []
+        
+        var seekKey = key
+        if (key.isEmpty() && opt.prefix.size > 0) {
+            seekKey = opt.prefix
+        }
+        
+        iitr.seek(seekKey)
         parseItem()
     }
     
@@ -97,26 +116,98 @@ public class Iterator {
     }
     
     private func parseItem(): Unit {
-        if (!iitr.valid()) {
-            item_ = Item([], [])
+        while (iitr.valid()) {
+            let key = iitr.key()
+            let value = iitr.value()
+            
+            // 当前 key 没有时间戳，直接使用原始 key
+            let userKey = key
+            
+            // 前缀过滤：跳过不匹配前缀的 key
+            if (opt.prefix.size > 0 && !hasPrefix(userKey, opt.prefix)) {
+                iitr.next()
+                continue
+            }
+            
+            // 尝试从 value 解析 ValueStruct 以获取 meta
+            let vsOpt = tryDecodeValueStruct(value)
+            
+            // 检查删除标记
+            if (let Some(vs) <- vsOpt) {
+                if (vs.isDelete()) {
+                    // 跳过已删除的 key
+                    if (!opt.allVersions) {
+                        lastKey = safeCopy(lastKey, key)
+                    }
+                    iitr.next()
+                    continue
+                }
+            }
+            
+            // 非 allVersions 模式：去重（跳过同一 key 的旧版本）
+            if (!opt.allVersions && lastKey.size > 0) {
+                if (keysEqual(lastKey, key)) {
+                    iitr.next()
+                    continue
+                }
+            }
+            
+            // 更新 lastKey 和 item
+            lastKey = safeCopy(lastKey, key)
+            
+            // 提取实际值和元数据
+            var actualValue: Array<Byte> = value
+            var version: UInt64 = 0
+            var meta: Byte = 0
+            
+            if (let Some(vs) <- vsOpt) {
+                actualValue = vs.value
+                version = vs.version
+                meta = vs.meta
+            }
+            
+            item_ = Item(
+                userKey,
+                actualValue,
+                version: version,
+                meta: meta
+            )
+            
+            // 记录读（用于冲突检测）
+            let fp = hashKey(userKey)
+            txn.reads.add(fp)
+            
             return
         }
         
-        let key = iitr.key()
-        let value = iitr.value()
-        
-        // 去重：如果当前 key 与上一个 key 相同，跳过
-        if (lastKey.size > 0 && keysEqual(lastKey, key)) {
-            iitr.next()
-            parseItem()
-            return
+        // 迭代器无效
+        item_ = Item([], [])
+    }
+    
+    private func tryDecodeValueStruct(value: Array<Byte>): ?ValueStruct {
+        // ValueStruct 编码格式: [meta:1][userMeta:1][version:varint][expiresAt:8?][valueLen:varint][value...]
+        // 最小长度: meta(1) + userMeta(1) + version(1) + valueLen(1) = 4
+        if (value.size < 4) {
+            return None
         }
         
-        lastKey = key
-        item_ = Item(key, value)
-        
-        let fp = hashKey(key)
-        txn.reads.add(fp)
+        try {
+            return Some(ValueStruct.decode(value))
+        } catch (e: Exception) {
+            return None
+        }
+    }
+    
+    private func hasPrefix(key: Array<Byte>, prefix: Array<Byte>): Bool {
+        if (key.size < prefix.size) {
+            return false
+        }
+        for (i in 0..prefix.size) {
+            if (key[i] != prefix[i]) {
+                return false
+            }
+        }
+        return true
     }
     
     private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {

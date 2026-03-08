@@ -37,12 +37,16 @@ public class Transaction {
     private var committed: Bool
     private var discarded: Bool
     
-    public init(db: DB, update!: Bool = true) {
+    public init(db: DB, update!: Bool = true, readTs!: UInt64 = 0) {
         this.db = db
         this.update = update
         this.oracle = db.oracle
         
-        this.readTs = oracle.readTs()
+        if (readTs > 0) {
+            this.readTs = readTs
+        } else {
+            this.readTs = oracle.readTs()
+        }
         this.commitTs = 0
         
         this.reads = HashSet<UInt64>()

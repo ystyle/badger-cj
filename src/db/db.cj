@@ -256,4 +256,8 @@ public class DB {
     public func getLevelHandler(level: Int64): LevelHandler {
         return lc.getLevelHandler(level)
     }
+    
+    public func newSnapshot(): Snapshot {
+        return Snapshot(this)
+    }
 }

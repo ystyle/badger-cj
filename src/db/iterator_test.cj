@@ -242,6 +242,109 @@ class IteratorTest {
         db.close()
         cleanupIterDir("/tmp/badger_iter_test11")
     }
+    
+    @TestCase
+    func testIteratorPrefix() {
+        let opt = DBOptions(dir: "/tmp/badger_iter_test12")
+        let db = DB.open(opt)
+        
+        // 写入不同前缀的数据
+        db.set("prefix1/key1".toArray(), "value1".toArray())
+        db.set("prefix1/key2".toArray(), "value2".toArray())
+        db.set("prefix2/other".toArray(), "value3".toArray())
+        
+        // 前缀过滤迭代
+        let txn = db.newTransaction(update: false)
+        let iterOpts = IteratorOptions(prefix: "prefix1/".toArray())
+        let iter = txn.newIterator(opt: iterOpts)
+        
+        let keys = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            keys.add(bytesToString(item.key))
+            iter.next()
+        }
+        
+        iter.close()
+        
+        @Assert(keys.size, 2)
+        @Assert(keys[0], "prefix1/key1")
+        @Assert(keys[1], "prefix1/key2")
+        
+        db.close()
+        cleanupIterDir("/tmp/badger_iter_test12")
+    }
+    
+    @TestCase
+    func testIteratorDelete() {
+        let opt = DBOptions(dir: "/tmp/badger_iter_test14")
+        let db = DB.open(opt)
+        
+        // 写入数据
+        db.set("key1".toArray(), "value1".toArray())
+        db.set("key2".toArray(), "value2".toArray())
+        db.set("key3".toArray(), "value3".toArray())
+        
+        // 删除 key2
+        db.delete("key2".toArray())
+        
+        // 迭代应该跳过已删除的 key
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator()
+        
+        let keys = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            keys.add(bytesToString(item.key))
+            iter.next()
+        }
+        
+        iter.close()
+        
+        @Assert(keys.size, 2)
+        @Assert(keys[0], "key1")
+        @Assert(keys[1], "key3")  // key2 被删除，应该跳过
+        
+        db.close()
+        cleanupIterDir("/tmp/badger_iter_test14")
+    }
+    
+    @TestCase
+    func testIteratorConsistency() {
+        let opt = DBOptions(dir: "/tmp/badger_iter_test15")
+        let db = DB.open(opt)
+        
+        // 事务 1：写入数据
+        let txn1 = db.newTransaction(update: true)
+        txn1.set("key1".toArray(), "value1".toArray())
+        txn1.commit()
+        
+        // 创建只读事务和迭代器
+        let txn2 = db.newTransaction(update: false)
+        let iter = txn2.newIterator()
+        
+        // 事务 3：写入更多数据
+        let txn3 = db.newTransaction(update: true)
+        txn3.set("key2".toArray(), "value2".toArray())
+        txn3.commit()
+        
+        // 迭代器应该只能看到 key1（基于 txn2 的 readTs）
+        var count: Int64 = 0
+        iter.rewind()
+        while (iter.valid()) {
+            count++
+            iter.next()
+        }
+        
+        iter.close()
+        
+        @Assert(count, 1)  // 只能看到 key1
+        
+        db.close()
+        cleanupIterDir("/tmp/badger_iter_test15")
+    }
 }
 
 func bytesToString(bytes: Array<Byte>): String {
