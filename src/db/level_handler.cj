@@ -116,4 +116,10 @@ public class LevelHandler {
             return total
         }
     }
+    
+    public func clearTables(): Unit {
+        synchronized(lock) {
+            tables.clear()
+        }
+    }
 }

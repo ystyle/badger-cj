@@ -175,4 +175,8 @@ public class DB {
         
         mt.decrRef()
     }
+    
+    public func getLevelHandler(level: Int64): LevelHandler {
+        return lc.getLevelHandler(level)
+    }
 }
