@@ -187,6 +187,42 @@ class TransactionTest {
         db.close()
         cleanupTxnDir("/tmp/badger_txn_test8")
     }
+    
+    @TestCase
+    func testTransactionViewAPI() {
+        let opt = DBOptions(dir: "/tmp/badger_txn_test9")
+        let db = DB.open(opt)
+        
+        db.set("key1".toArray(), "value1".toArray())
+        
+        let result = db.view<Array<Byte>>({ txn =>
+            txn.get("key1".toArray()).getOrThrow()
+        })
+        
+        @Assert(result, "value1".toArray())
+        
+        db.close()
+        cleanupTxnDir("/tmp/badger_txn_test9")
+    }
+    
+    @TestCase
+    func testTransactionUpdateAPI() {
+        let opt = DBOptions(dir: "/tmp/badger_txn_test10")
+        let db = DB.open(opt)
+        
+        db.update<Unit>({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+        })
+        
+        let result = db.get("key1".toArray())
+        @Assert(result.isSome(), true)
+        if (let Some(vs) <- result) {
+            @Assert(vs.value, "value1".toArray())
+        }
+        
+        db.close()
+        cleanupTxnDir("/tmp/badger_txn_test10")
+    }
 }
 
 func cleanupTxnDir(path: String) {

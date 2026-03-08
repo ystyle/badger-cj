@@ -151,6 +151,30 @@ public class DB {
         return Transaction(this, update: update)
     }
     
+    public func view<T>(fn: (Transaction) -> T): T {
+        let txn = newTransaction(update: false)
+        try {
+            let result = fn(txn)
+            txn.discard()
+            return result
+        } catch (e: Exception) {
+            txn.discard()
+            throw e
+        }
+    }
+    
+    public func update<T>(fn: (Transaction) -> T): T {
+        let txn = newTransaction(update: true)
+        try {
+            let result = fn(txn)
+            txn.commit()
+            return result
+        } catch (e: Exception) {
+            txn.rollback()
+            throw e
+        }
+    }
+    
     private func flushMemTableInternal(): Unit {
         imm.add(mt)
         
