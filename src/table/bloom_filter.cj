@@ -1,8 +1,5 @@
 package badgercj.table
 
-import std.collection.*
-import std.random.*
-
 /**
  * BloomFilter - 布隆过滤器
  * 
@@ -11,7 +8,7 @@ import std.random.*
  * 参考：github.com/dgraph-io/badger/v4/util/bloom.go
  */
 public class BloomFilter {
-    private let bits: ArrayList<Byte>
+    private let bits: Array<Byte>
     private let numBits: Int64
     private let numHashes: Int64
     
@@ -19,14 +16,11 @@ public class BloomFilter {
         this.numBits = numBits
         this.numHashes = 7
         let numBytes = (numBits + 7) / 8
-        this.bits = ArrayList<Byte>(numBytes, {_ => 0})
+        this.bits = Array<Byte>(numBytes, repeat: 0)
     }
     
     public init(data: Array<Byte>) {
-        this.bits = ArrayList<Byte>()
-        for (b in data) {
-            this.bits.add(b)
-        }
+        this.bits = data
         this.numBits = Int64(bits.size) * 8
         this.numHashes = 7
     }

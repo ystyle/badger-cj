@@ -8,13 +8,14 @@ import badgercj.table.*
  * 
  * 将 table.TableIterator 包装成统一接口
  */
-public class TableIteratorWrapper {
-    private let tableIter: badgercj.table.TableIterator
+public class TableIteratorWrapper <: SimpleIterator {
+    private let tableIter: TableIterator
     private var currentKey: Array<Byte>
     private var currentValue: Array<Byte>
     private var valid_: Bool
     
     public init(table: Table) {
+        super()
         this.tableIter = table.newIterator()
         this.currentKey = []
         this.currentValue = []
@@ -24,29 +25,29 @@ public class TableIteratorWrapper {
         updateCurrent()
     }
     
-    public func valid(): Bool {
+    public override func valid(): Bool {
         return valid_
     }
     
-    public func key(): Array<Byte> {
+    public override func key(): Array<Byte> {
         return currentKey
     }
     
-    public func value(): Array<Byte> {
+    public override func value(): Array<Byte> {
         return currentValue
     }
     
-    public func next(): Unit {
+    public override func next(): Unit {
         tableIter.next()
         updateCurrent()
     }
     
-    public func rewind(): Unit {
+    public override func rewind(): Unit {
         tableIter.seekToFirst()
         updateCurrent()
     }
     
-    public func seek(key: Array<Byte>): Unit {
+    public override func seek(key: Array<Byte>): Unit {
         tableIter.seek(key)
         updateCurrent()
     }

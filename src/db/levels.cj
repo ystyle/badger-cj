@@ -48,4 +48,10 @@ public class LevelsController {
     public func getNextFileID(): UInt64 {
         return nextFileID
     }
+    
+    public func appendIterators(iters: ArrayList<SimpleIterator>, opt: IteratorOptions): Unit {
+        for (handler in levels) {
+            handler.appendIterators(iters, opt.reverse)
+        }
+    }
 }

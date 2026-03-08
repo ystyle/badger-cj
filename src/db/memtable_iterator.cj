@@ -8,13 +8,16 @@ import badgercj.table.*
  * 
  * 将 SkipIterator 包装成 SimpleIterator 接口
  */
-public class MemTableIterator {
-    private let skipIter: SkipIterator
+public class MemTableIterator <: SimpleIterator {
+    private let mt: MemTable
+    private var skipIter: SkipIterator
     private var currentKey: Array<Byte>
     private var currentValue: Array<Byte>
     private var valid_: Bool
     
     public init(mt: MemTable) {
+        super()
+        this.mt = mt
         this.skipIter = mt.iterator()
         this.currentKey = []
         this.currentValue = []
@@ -23,28 +26,31 @@ public class MemTableIterator {
         advance()
     }
     
-    public func valid(): Bool {
+    public override func valid(): Bool {
         return valid_
     }
     
-    public func key(): Array<Byte> {
+    public override func key(): Array<Byte> {
         return currentKey
     }
     
-    public func value(): Array<Byte> {
+    public override func value(): Array<Byte> {
         return currentValue
     }
     
-    public func next(): Unit {
+    public override func next(): Unit {
         advance()
     }
     
-    public func rewind(): Unit {
-        // SkipIterator 不支持 rewind，需要重新创建
+    public override func rewind(): Unit {
+        // 重新创建 SkipIterator 以重置到开头
+        this.skipIter = mt.iterator()
+        advance()
     }
     
-    public func seek(key: Array<Byte>): Unit {
-        // SkipIterator 不支持 seek
+    public override func seek(key: Array<Byte>): Unit {
+        // SkipIterator 不支持 seek，从头开始
+        rewind()
     }
     
     private func advance(): Unit {

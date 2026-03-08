@@ -25,7 +25,29 @@ public class Iterator {
         this.opt = opt
         this.closed = false
         
+        // 构造迭代器链
         let iters = ArrayList<SimpleIterator>()
+        
+        // 1. 添加 pending writes 迭代器（如果是 update 事务）
+        if (txn.isUpdate()) {
+            let writes = txn.getWrites()
+            if (!writes.isEmpty()) {
+                iters.add(PendingWritesIterator(writes, reverse: opt.reverse))
+            }
+        }
+        
+        // 2. 添加 MemTable 迭代器
+        let db = txn.getDB()
+        let tables = db.getMemTables()
+        for (table in tables) {
+            iters.add(MemTableIterator(table))
+        }
+        
+        // 3. 添加 SSTable 迭代器
+        let lc = db.getLevelsController()
+        lc.appendIterators(iters, opt)
+        
+        // 合并迭代器
         this.iitr = MergeIterator(iters, reverse: opt.reverse)
         this.item_ = Item([], [])
     }

@@ -6,7 +6,7 @@ import std.sync.*
 let TxnMetaValue: Byte = 0x00
 let TxnMetaDelete: Byte = 0x01
 
-struct TxnEntry {
+public struct TxnEntry {
     public let key: Array<Byte>
     public let value: Array<Byte>
     public let meta: Byte
@@ -149,6 +149,17 @@ public class Transaction {
     
     public func isUpdate(): Bool {
         return update
+    }
+    
+    public func newIterator(opt!: IteratorOptions = IteratorOptions(reverse: false)): Iterator {
+        if (discarded) {
+            throw Exception("Transaction discarded")
+        }
+        return Iterator(this, opt)
+    }
+    
+    public func getWrites(): ArrayList<TxnEntry> {
+        return writes
     }
     
     private func addReadKey(key: Array<Byte>): Unit {

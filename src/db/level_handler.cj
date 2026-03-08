@@ -122,4 +122,12 @@ public class LevelHandler {
             tables.clear()
         }
     }
+    
+    public func appendIterators(iters: ArrayList<SimpleIterator>, reverse: Bool): Unit {
+        synchronized(lock) {
+            for (table in tables) {
+                iters.add(MockTableIterator(table))
+            }
+        }
+    }
 }

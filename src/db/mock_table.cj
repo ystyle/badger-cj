@@ -61,4 +61,8 @@ public class MockTable {
         }
         return s
     }
+    
+    public func getEntries(): ArrayList<(Array<Byte>, ValueStruct)> {
+        return entries
+    }
 }

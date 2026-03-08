@@ -16,10 +16,6 @@ public struct IteratorOptions {
     public var prefix: Array<Byte>
     public var sinceTs: UInt64 = 0
     
-    public init() {
-        this.prefix = []
-    }
-    
     public init(
         reverse!: Bool = false,
         prefix!: Array<Byte> = [],
