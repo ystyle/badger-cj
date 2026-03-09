@@ -6,6 +6,7 @@ import std.collection.*
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
+import std.collection.concurrent.*
 
 public class DB {
     private let opt: DBOptions
@@ -18,6 +19,9 @@ public class DB {
     private var nextFileID: AtomicUInt64
     public let oracle: Oracle
     private let vlog: VLogManager
+    private var writeCh: ConcurrentLinkedQueue<WriteRequest>
+    private var running: AtomicBool
+    private var flushFut: ?Future<Unit>
     
     public init(
         opt: DBOptions,
@@ -36,6 +40,9 @@ public class DB {
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
         this.oracle = Oracle()
         this.vlog = vlog
+        this.writeCh = ConcurrentLinkedQueue<WriteRequest>()
+        this.running = AtomicBool(false)
+        this.flushFut = None
     }
     
     public static func open(opt: DBOptions): DB {
@@ -51,6 +58,12 @@ public class DB {
         let mt = MemTable(opt, fid, false)
         
         let db = DB(opt, mt, manifest, lc, vlog)
+        db.writeCh = ConcurrentLinkedQueue<WriteRequest>()
+        db.running = AtomicBool(true)
+        let fut = spawn { 
+            db.flushLoop()
+        }
+        db.flushFut = Some(fut)
         return db
     }
     
@@ -152,44 +165,38 @@ public class DB {
         }
     }
     
-    // 内部方法：带 commitTs 的 set (用于 Transaction)
     public func putWithCommitTs(key: Array<Byte>, value: Array<Byte>, commitTs: UInt64): Unit {
+        let keyWithTimestamp = keyWithTs(key, commitTs)
+        
+        let vs = if (Int64(value.size) >= opt.ValueThreshold) {
+            let entry = LogEntry(key, value)
+            let vp = vlog.write(entry)
+            let vpBytes = vp.encode()
+            ValueStruct(vpBytes, meta: Meta.bitValuePointer, version: commitTs)
+        } else {
+            ValueStruct(value, meta: 0, version: commitTs)
+        }
+        
         lock.lock()
         try {
             if (mt.shouldFlush()) {
                 flushMemTableInternal()
             }
-            
-            // 将时间戳嵌入 key
-            let keyWithTimestamp = keyWithTs(key, commitTs)
-            
-            let vs = if (Int64(value.size) >= opt.ValueThreshold) {
-                let entry = LogEntry(key, value)
-                let vp = vlog.write(entry)
-                let vpBytes = vp.encode()
-                ValueStruct(vpBytes, meta: Meta.bitValuePointer, version: commitTs)
-            } else {
-                ValueStruct(value, meta: 0, version: commitTs)
-            }
-            
             mt.put(keyWithTimestamp, vs)
         } finally {
             lock.unlock()
         }
     }
     
-    // 内部方法：带 commitTs 的 delete (用于 Transaction)
     public func deleteWithCommitTs(key: Array<Byte>, commitTs: UInt64): Unit {
+        let keyWithTimestamp = keyWithTs(key, commitTs)
+        let vs = ValueStruct([], meta: Meta.bitDelete, version: commitTs)
+        
         lock.lock()
         try {
             if (mt.shouldFlush()) {
                 flushMemTableInternal()
             }
-            
-            // 将时间戳嵌入 key
-            let keyWithTimestamp = keyWithTs(key, commitTs)
-            
-            let vs = ValueStruct([], meta: Meta.bitDelete, version: commitTs)
             mt.put(keyWithTimestamp, vs)
         } finally {
             lock.unlock()
