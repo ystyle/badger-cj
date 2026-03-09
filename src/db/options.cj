@@ -7,7 +7,7 @@ public class DBOptions {
     public let Dir: String
     public let ValueDir: String
     public let MemTableSize: UInt64
-    public let ValueThreshold: Int
+    public let ValueThreshold: UInt64
     public let MaxLevels: Int
     public let NumLevelZeroTables: Int
     public let TableSize: UInt64
@@ -16,7 +16,7 @@ public class DBOptions {
         dir!: String = "",
         valueDir!: String = "",
         memTableSize!: UInt64 = 1 * 1024 * 1024u64,
-        valueThreshold!: Int = 32,
+        valueThreshold!: UInt64 = 1 * 1024 * 1024u64,  // 1 MB (match Go BadgerDB default)
         maxLevels!: Int = 7,
         numLevelZeroTables!: Int = 4,
         tableSize!: UInt64 = 2 * 1024 * 1024u64

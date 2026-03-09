@@ -301,7 +301,7 @@ public class DB {
     
     private func writeRequests(reqs: ArrayList<WriteRequest>): Unit {
         for (req in reqs) {
-            if (Int64(req.value.size) >= opt.ValueThreshold && !req.isDelete) {
+            if (UInt64(req.value.size) >= opt.ValueThreshold && !req.isDelete) {
                 let entry = LogEntry(req.key, req.value)
                 req.vp = Some(vlog.write(entry))
             }
