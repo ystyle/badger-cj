@@ -101,6 +101,24 @@ class MemTableTest {
     }
     
     @TestCase
+    func testMemTableShouldFlushByArenaUsage() {
+        let opt = DBOptions(dir: "/tmp/badger_memtable_test_flush", memTableSize: 1024)
+        let mt = MemTable(opt, 1, false)
+        
+        for (i in 0..50) {
+            let key = "key_${i}".toArray()
+            let value = Array<Byte>(20, repeat: 65)
+            mt.put(key, ValueStruct(value))
+        }
+        
+        @Assert(mt.shouldFlush())
+        
+        if (File.exists(Path("/tmp/badger_memtable_test_flush"))) {
+            remove("/tmp/badger_memtable_test_flush")
+        }
+    }
+    
+    @TestCase
     func testMemTableIterator() {
         let opt = DBOptions(dir: "/tmp/badger_test")
         let mt = MemTable(opt, 0, false)

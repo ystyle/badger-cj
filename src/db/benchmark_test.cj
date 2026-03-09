@@ -41,12 +41,6 @@ class MemTableBenchmark {
         let v = Array<Byte>(keySize, repeat: 65)
         db.set(k, v)
         counter++
-        
-        if (counter % 100 == 0) {
-            db.close()
-            cleanupBenchDir("/tmp/badger_bench_memtable")
-            db = DB.open(DBOptions(dir: "/tmp/badger_bench_memtable"))
-        }
     }
     
     @Bench[valueSize in [100, 1000, 10000]]
@@ -55,12 +49,6 @@ class MemTableBenchmark {
         let v = Array<Byte>(valueSize, repeat: 65)
         db.set(k, v)
         counter++
-        
-        if (counter % 100 == 0) {
-            db.close()
-            cleanupBenchDir("/tmp/badger_bench_memtable")
-            db = DB.open(DBOptions(dir: "/tmp/badger_bench_memtable"))
-        }
     }
     
     @Bench

@@ -94,7 +94,19 @@ public class MemTable {
     }
     
     public func shouldFlush(): Bool {
-        return sizeInBytes() >= opt.MemTableSize
+        let dataSize = sizeInBytes()
+        let arenaUsed = UInt64(arena.usedSize())
+        let arenaSize = UInt64(arena.size)
+        
+        if (dataSize >= opt.MemTableSize) {
+            return true
+        }
+        
+        if (arenaUsed > arenaSize * 75 / 100) {
+            return true
+        }
+        
+        return false
     }
     
     public func incrRef(): Unit {
