@@ -23,9 +23,13 @@ public class WriteRequest {
     
     public func wait(): Unit {
         var retries = 0
-        while (!done.load() && retries < 1000000) {
+        let maxRetries = 1000000
+        while (!done.load() && retries < maxRetries) {
             sleep(Duration.nanosecond * 100)
             retries++
+        }
+        if (!done.load()) {
+            throw Exception("WriteRequest.wait() timeout after 100ms")
         }
     }
     

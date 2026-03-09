@@ -303,9 +303,25 @@ public class DB {
             }
             
             if (reqs.size > 0) {
-                writeRequests(reqs)
+                try {
+                    writeRequests(reqs)
+                } catch (e: Exception) {
+                    for (req in reqs) {
+                        req.signal()
+                    }
+                }
             } else if (running.load()) {
                 sleep(Duration.millisecond * 1)
+            }
+        }
+        
+        while (!writeCh.isEmpty()) {
+            if (let Some(req) <- writeCh.remove()) {
+                try {
+                    writeRequests(ArrayList<WriteRequest>([req]))
+                } catch (e: Exception) {
+                    req.signal()
+                }
             }
         }
     }
