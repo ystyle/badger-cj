@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-03-09  
-**当前阶段：** ✅ Phase 4 完成 - 完整事务与 MVCC（120/120 测试通过）
+**当前阶段：** ✅ Phase 4 完成 - 完整事务与 MVCC（126/126 测试通过）
 
 ---
 
@@ -219,16 +219,19 @@
 | Snapshot | `src/db/snapshot.cj` | ✅ 2/2 通过 | 一致性快照 |
 | Snapshot 测试 | `src/db/snapshot_test.cj` | ✅ 2/2 通过 | 快照隔离验证 |
 | Test Helpers | `src/db/test_helpers.cj` | - | 共享工具函数 |
+| Concurrent Test | `src/db/concurrent_test.cj` | ✅ 5/5 通过 | 并发压力测试 |
+| Simple Concurrent | `src/db/simple_concurrent_test.cj` | ✅ 1/1 通过 | 简化并发测试 |
 
 **关键成就：**
 - ✅ MVCC 时间戳嵌入（XOR 反转）
 - ✅ 版本过滤正确
 - ✅ Snapshot 快照隔离
-- ✅ 120 个测试全部通过
+- ✅ 并发测试通过（1000-4000 次并发操作）
+- ✅ 126 个测试全部通过
 
 ### Phase 4 统计
 
-**总测试数：** 120  
+**总测试数：** 126  
 **通过率：** 100% ✅
 
 **关键实现决策：**
@@ -237,6 +240,16 @@
 3. **WaterMark 同步**: `bumpCommitTs()` 直接调用 `setDoneUntil()` 避免异步延迟
 4. **Iterator.valid()**: 移除冗余 `parseKey()` 调用修复前缀匹配 bug
 5. **Snapshot readTs**: 创建时锁定，后续读取使用固定时间戳
+6. **Integer Overflow**: 使用 `std.overflow.*` 的 `wrappingMul/wrappingAdd` 处理溢出
+7. **Spawn Return Type**: spawn 返回 `Future<Unit>`，使用 `let _ =` 确保 Unit 类型
+
+**并发测试验证：**
+1. ✅ **testConcurrentWrites** - 10线程 × 100写入 = 1000次操作
+2. ✅ **testConcurrentReadWriteMix** - 5写 + 5读 × 50操作
+3. ✅ **testConcurrentTransactions** - 20并发事务（有冲突检测）
+4. ✅ **testConcurrentIterators** - 5并发迭代器扫描100键
+5. ✅ **testStressConcurrentWrites** - 20线程 × 200写入 = 4000次操作
+6. ✅ **testConcurrentWritesSimple** - 100操作 × 10键 = 1000次写入
 
 **核心特性：**
 1. ✅ **Oracle 时间戳管理** - 全局单调递增
