@@ -169,42 +169,38 @@ class WALTest {
         let opt = DBOptions(dir: testDir.toString(), memTableSize: 1024 * 1024u64)
         
         let mt1 = MemTable(opt, 1, false)
-        try {
-            mt1.put("key1".toArray(), ValueStruct("value1".toArray()))
-            mt1.put("key2".toArray(), ValueStruct("value2".toArray(), meta: 0x01))
-            mt1.put("key3".toArray(), ValueStruct("value3".toArray(), userMeta: 0x02, version: 100))
-            
-            let mt2 = MemTable(opt, 1, true)
-            try {
-                let result1 = mt2.get("key1".toArray())
-                if (let Some(vs1) <- result1) {
-                    @Assert(vs1.value, "value1".toArray())
-                } else {
-                    @Fail("key1 not found after recovery")
-                }
-                
-                let result2 = mt2.get("key2".toArray())
-                if (let Some(vs2) <- result2) {
-                    @Assert(vs2.value, "value2".toArray())
-                    @Assert(vs2.meta, 0x01)
-                } else {
-                    @Fail("key2 not found after recovery")
-                }
-                
-                let result3 = mt2.get("key3".toArray())
-                if (let Some(vs3) <- result3) {
-                    @Assert(vs3.value, "value3".toArray())
-                    @Assert(vs3.userMeta, 0x02)
-                    @Assert(vs3.version, 100)
-                } else {
-                    @Fail("key3 not found after recovery")
-                }
-            } finally {
-                mt2.decrRef()
-            }
-        } finally {
-            mt1.decrRef()
+        mt1.put("key1".toArray(), ValueStruct("value1".toArray()))
+        mt1.put("key2".toArray(), ValueStruct("value2".toArray(), meta: 0x01))
+        mt1.put("key3".toArray(), ValueStruct("value3".toArray(), userMeta: 0x02, version: 100))
+        mt1.closeWAL()
+        
+        let mt2 = MemTable(opt, 1, true)
+        let result1 = mt2.get("key1".toArray())
+        if (let Some(vs1) <- result1) {
+            @Assert(vs1.value, "value1".toArray())
+        } else {
+            @Fail("key1 not found after recovery")
         }
+        
+        let result2 = mt2.get("key2".toArray())
+        if (let Some(vs2) <- result2) {
+            @Assert(vs2.value, "value2".toArray())
+            @Assert(vs2.meta, 0x01)
+        } else {
+            @Fail("key2 not found after recovery")
+        }
+        
+        let result3 = mt2.get("key3".toArray())
+        if (let Some(vs3) <- result3) {
+            @Assert(vs3.value, "value3".toArray())
+            @Assert(vs3.userMeta, 0x02)
+            @Assert(vs3.version, 100)
+        } else {
+            @Fail("key3 not found after recovery")
+        }
+        
+        mt1.decrRef()
+        mt2.decrRef()
         
         if (exists(testDir)) {
             remove(testDir, recursive: true)
