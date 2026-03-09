@@ -4,18 +4,21 @@ import std.fs.*
 import std.io.*
 import std.sync.*
 import std.collection.*
+import std.time.*
 import badgercj.vlog.*
 import badgercj.table.*
 
 public class WAL {
     private let pathStr: String
-    private var fd: ?File
+    private var file: ?File
+    private var bufferedOut: ?BufferedOutputStream<File>
     private var writeOffset: UInt32
     private let lock: Mutex
     
     private init(path: String) {
         this.pathStr = path
-        this.fd = None
+        this.file = None
+        this.bufferedOut = None
         this.writeOffset = 0
         this.lock = Mutex()
     }
@@ -23,36 +26,42 @@ public class WAL {
     public static func open(path: String): WAL {
         let wal = WAL(path)
         
-        // 确保目录存在
         let p = Path(path)
         let dir = p.parent
         if (dir.toString() != "" && !exists(dir)) {
             Directory.create(dir, recursive: true)
         }
         
-        if (exists(Path(path))) {
-            wal.fd = File(Path(path), ReadWrite)
-            let file = wal.fd ?? throw Exception("Failed to open WAL file")
-            wal.writeOffset = UInt32(file.length)
-        } else {
-            wal.fd = File(Path(path), ReadWrite)
-        }
+        let f = File(Path(path), ReadWrite)
+        wal.file = f
+        wal.writeOffset = UInt32(f.length)
+        
+        // Wrap with BufferedOutputStream for better performance
+        wal.bufferedOut = BufferedOutputStream<File>(f, 8192)
         
         return wal
     }
     
     public func write(key: Array<Byte>, value: ValueStruct): Unit {
-        lock.lock()
+        let entry = LogEntry(key, value.encode())
+        let encoded = entry.encode()
         
+        lock.lock()
         try {
-            let file = fd ?? throw Exception("WAL file not open")
-            
-            let entry = LogEntry(key, value.encode())
-            
-            let encoded = entry.encode()
-            file.write(encoded)
-            
+            let out = bufferedOut ?? throw Exception("WAL file not open")
+            out.write(encoded)
             writeOffset += UInt32(encoded.size)
+        } finally {
+            lock.unlock()
+        }
+    }
+    
+    public func flush(): Unit {
+        lock.lock()
+        try {
+            if (let Some(out) <- bufferedOut) {
+                out.flush()
+            }
         } finally {
             lock.unlock()
         }
@@ -62,17 +71,22 @@ public class WAL {
         lock.lock()
         
         try {
-            let entries = ArrayList<LogEntry>()
-            let file = fd ?? throw Exception("WAL file not open")
+            // Flush any buffered data first
+            if (let Some(out) <- bufferedOut) {
+                out.flush()
+            }
             
-            let fileLength = file.length
+            let entries = ArrayList<LogEntry>()
+            let f = file ?? throw Exception("WAL file not open")
+            let fileLength = f.length
+            
             if (fileLength == 0) {
                 return entries
             }
             
-            file.seek(SeekPosition.Begin(0))
+            f.seek(SeekPosition.Begin(0))
             let data = Array<Byte>(fileLength, repeat: 0)
-            let bytesRead = file.read(data)
+            let bytesRead = f.read(data)
             
             if (bytesRead != fileLength) {
                 throw Exception("Failed to read complete WAL file")
@@ -104,10 +118,12 @@ public class WAL {
         lock.lock()
         
         try {
-            if (let Some(file) <- fd) {
-                file.close()
-                fd = None
+            if (let Some(out) <- bufferedOut) {
+                out.flush()
+                out.close()
+                bufferedOut = None
             }
+            file = None
         } finally {
             lock.unlock()
         }
@@ -117,9 +133,14 @@ public class WAL {
         lock.lock()
         
         try {
-            if (let Some(file) <- fd) {
-                file.close()
-                fd = None
+            if (let Some(out) <- bufferedOut) {
+                out.close()
+                bufferedOut = None
+            }
+            
+            if (let Some(f) <- file) {
+                f.close()
+                file = None
             }
             
             if (exists(Path(pathStr))) {

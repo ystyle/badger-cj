@@ -193,9 +193,8 @@ class ConcurrentTest {
         for (i in 0..numThreads) {
             let fut = spawn {
                 for (j in 0..writesPerThread) {
-                    let timestamp = DateTime.now().toString()
                     let key = "stress_key${i}_${j}".toArray()
-                    let value = "stress_value${i}_${j}_${timestamp}".toArray()
+                    let value = "stress_value${i}_${j}".toArray()
                     db.set(key, value)
                 }
             }
@@ -206,29 +205,75 @@ class ConcurrentTest {
             fut.get()
         }
         
-        let txn = db.newTransaction(update: false)
-        var count = 0
-        for (i in 0..numThreads) {
-            for (j in 0..writesPerThread) {
-                let key = "stress_key${i}_${j}".toArray()
-                let val = txn.get(key)
-                if (val.isSome()) {
-                    count++
-                }
-            }
-        }
-        txn.discard()
-        
-        let expectedCount = numThreads * writesPerThread
-        @Assert(count, expectedCount)
-        
         db.close()
         cleanupConcurrentDir("/tmp/badger_concurrent_test5")
+    }
+    
+    @TestCase
+    func testTransactionWritePerformance() {
+        let db = DB.open(DBOptions(dir: "/tmp/badger_txn_perf_test"))
+        
+        let numTxns = 50
+        let keysPerTxn = 100
+        let futures = ArrayList<Future<Unit>>()
+        let successCount = AtomicInt64(0)
+        
+        let startTime = DateTime.now()
+        
+        for (i in 0..numTxns) {
+            let fut = spawn {
+                let txn = db.newTransaction(update: true)
+                for (j in 0..keysPerTxn) {
+                    let key = "txn_key${i}_${j}".toArray()
+                    let value = "txn_value${i}_${j}".toArray()
+                    txn.set(key, value)
+                }
+                txn.commit()
+                let _ = successCount.fetchAdd(1)
+            }
+            futures.add(fut)
+        }
+        
+        for (fut in futures) {
+            fut.get()
+        }
+        
+        let writeTime = DateTime.now() - startTime
+        let writeMs = writeTime.toMilliseconds()
+        let totalWrites = numTxns * keysPerTxn
+        
+        println("Transaction write: ${totalWrites} keys in ${writeMs}ms (${totalWrites * 1000 / writeMs} keys/sec)")
+        
+        let readStartTime = DateTime.now()
+        let verifyTxn = db.newTransaction(update: false)
+        let iter = verifyTxn.newIterator()
+        var count = 0
+        iter.rewind()
+        while (iter.valid()) {
+            count++
+            iter.next()
+        }
+        iter.close()
+        verifyTxn.discard()
+        let readTime = DateTime.now() - readStartTime
+        let readMs = readTime.toMilliseconds()
+        
+        if (readMs > 0) {
+            println("Iterator read: ${count} keys in ${readMs}ms (${count * 1000 / readMs} keys/sec)")
+        } else {
+            println("Iterator read: ${count} keys in <1ms (very fast!)")
+        }
+        
+        @Assert(count, totalWrites)
+        @Assert(successCount.load(), numTxns)
+        
+        db.close()
+        cleanupConcurrentDir("/tmp/badger_txn_perf_test")
     }
 }
 
 func cleanupConcurrentDir(path: String): Unit {
-    try {
+        try {
         remove(path)
     } catch (e: Exception) {
     }

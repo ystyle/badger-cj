@@ -11,6 +11,7 @@ public class DBOptions {
     public let MaxLevels: Int
     public let NumLevelZeroTables: Int
     public let TableSize: UInt64
+    public let DisableWAL: Bool  // For performance testing - disables WAL writes
     
     public init(
         dir!: String = "",
@@ -19,7 +20,8 @@ public class DBOptions {
         valueThreshold!: UInt64 = 1 * 1024 * 1024u64,  // 1 MB (match Go BadgerDB default)
         maxLevels!: Int = 7,
         numLevelZeroTables!: Int = 4,
-        tableSize!: UInt64 = 2 * 1024 * 1024u64
+        tableSize!: UInt64 = 2 * 1024 * 1024u64,
+        disableWAL!: Bool = false
     ) {
         this.Dir = dir
         this.ValueDir = valueDir
@@ -28,6 +30,7 @@ public class DBOptions {
         this.MaxLevels = maxLevels
         this.NumLevelZeroTables = numLevelZeroTables
         this.TableSize = tableSize
+        this.DisableWAL = disableWAL
     }
     
     public func levelMaxSize(level: Int): UInt64 {

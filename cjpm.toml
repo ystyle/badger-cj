@@ -6,10 +6,13 @@
   version = "1.0.0"
   target-dir = ""
   script-dir = ""
-  output-type = "executable"
-  compile-option = "-Woff unused"
+  output-type = "static"
+  compile-option = "-O2 -Woff unused"
   override-compile-option = ""
   link-option = ""
   package-configuration = {}
+
+[package.package-configuration."badgercj.examples.perf"]
+output-type = "executable"
 
 [dependencies]

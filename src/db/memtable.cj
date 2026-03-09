@@ -41,7 +41,9 @@ public class MemTable {
     }
     
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
-        wal.write(key, vs)
+        if (!opt.DisableWAL) {
+            wal.write(key, vs)
+        }
         
         let encoded = vs.encode()
         if (encoded.size > 65535) {
