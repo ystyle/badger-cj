@@ -2,6 +2,7 @@ package badgercj.db
 
 import std.collection.*
 import std.sync.*
+import std.overflow.*
 
 let TxnMetaValue: Byte = 0x00
 let TxnMetaDelete: Byte = 0x01
@@ -73,7 +74,7 @@ public class Transaction {
         
         addReadKey(key)
         
-        let result = db.get(key)
+        let result = db.get(key, readTsOpt: Some(readTs))
         if (result.isSome()) {
             if (let Some(vs) <- result) {
                 return Some(vs.value)
@@ -125,9 +126,9 @@ public class Transaction {
         
         for (entry in writes) {
             if (entry.isDelete()) {
-                db.delete(entry.key)
+                db.deleteWithCommitTs(entry.key, commitTs)
             } else {
-                db.set(entry.key, entry.value)
+                db.putWithCommitTs(entry.key, entry.value, commitTs)
             }
         }
         
@@ -179,7 +180,7 @@ public class Transaction {
     private func hashKey(key: Array<Byte>): UInt64 {
         var hash: UInt64 = 5381
         for (b in key) {
-            hash = ((hash << 5) + hash) + UInt64(b)
+            hash = hash.wrappingMul(33).wrappingAdd(UInt64(b))
         }
         return hash
     }

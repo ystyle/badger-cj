@@ -70,10 +70,9 @@ public class Iterator {
         }
         
         // 前缀过滤检查
+        // item_.key 已经是 userKey（去掉时间戳），不需要再调用 parseKey
         if (opt.prefix.size > 0) {
-            // 当前 key 没有时间戳，直接使用原始 key
-            let userKey = item_.key
-            if (!hasPrefix(userKey, opt.prefix)) {
+            if (!hasPrefix(item_.key, opt.prefix)) {
                 return false
             }
         }
@@ -104,6 +103,11 @@ public class Iterator {
             seekKey = opt.prefix
         }
         
+        // 为 seek key 添加时间戳 0（取反后为 max，确保能找到最新版本）
+        if (seekKey.size > 0) {
+            seekKey = keyWithTs(seekKey, 0)
+        }
+        
         iitr.seek(seekKey)
         parseItem()
     }
@@ -120,8 +124,17 @@ public class Iterator {
             let key = iitr.key()
             let value = iitr.value()
             
-            // 当前 key 没有时间戳，直接使用原始 key
-            let userKey = key
+            // 解析时间戳
+            let ts = parseTs(key)
+            
+            // 版本过滤：跳过超过 readTs 的版本
+            if (ts > readTs && ts != 0) {
+                iitr.next()
+                continue
+            }
+            
+            // 解析用户 key（去掉时间戳）
+            let userKey = parseKey(key)
             
             // 前缀过滤：跳过不匹配前缀的 key
             if (opt.prefix.size > 0 && !hasPrefix(userKey, opt.prefix)) {
@@ -146,7 +159,7 @@ public class Iterator {
             
             // 非 allVersions 模式：去重（跳过同一 key 的旧版本）
             if (!opt.allVersions && lastKey.size > 0) {
-                if (keysEqual(lastKey, key)) {
+                if (sameKey(lastKey, key)) {
                     iitr.next()
                     continue
                 }
@@ -157,7 +170,7 @@ public class Iterator {
             
             // 提取实际值和元数据
             var actualValue: Array<Byte> = value
-            var version: UInt64 = 0
+            var version: UInt64 = ts
             var meta: Byte = 0
             
             if (let Some(vs) <- vsOpt) {
@@ -204,18 +217,6 @@ public class Iterator {
         }
         for (i in 0..prefix.size) {
             if (key[i] != prefix[i]) {
-                return false
-            }
-        }
-        return true
-    }
-    
-    private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
-        if (a.size != b.size) {
-            return false
-        }
-        for (i in 0..a.size) {
-            if (a[i] != b[i]) {
                 return false
             }
         }

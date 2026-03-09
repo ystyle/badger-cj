@@ -248,12 +248,10 @@ class IteratorTest {
         let opt = DBOptions(dir: "/tmp/badger_iter_test12")
         let db = DB.open(opt)
         
-        // 写入不同前缀的数据
         db.set("prefix1/key1".toArray(), "value1".toArray())
         db.set("prefix1/key2".toArray(), "value2".toArray())
         db.set("prefix2/other".toArray(), "value3".toArray())
         
-        // 前缀过滤迭代
         let txn = db.newTransaction(update: false)
         let iterOpts = IteratorOptions(prefix: "prefix1/".toArray())
         let iter = txn.newIterator(opt: iterOpts)
@@ -345,14 +343,6 @@ class IteratorTest {
         db.close()
         cleanupIterDir("/tmp/badger_iter_test15")
     }
-}
-
-func bytesToString(bytes: Array<Byte>): String {
-    let sb = StringBuilder()
-    for (b in bytes) {
-        sb.append(Rune(b))
-    }
-    return sb.toString()
 }
 
 func cleanupIterDir(path: String) {

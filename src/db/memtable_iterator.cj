@@ -67,41 +67,28 @@ public class MemTableIterator <: SimpleIterator {
             return
         }
         
-        if (reverse) {
-            var found: Int64 = -1
-            for (i in 0..entries.size) {
-                if (compareKeys(entries[i][0], key) >= 0) {
-                    found = i
-                }
-            }
-            if (found >= 0) {
-                index = found
-                updateCurrent()
+        // 对于按 ~ts 降序排列的 key，seek 需要找最后一个 >= seekKey 的 entry
+        // 因为时间戳被取反，高版本排在前面，所以需要从后向前找
+        var lo: Int64 = 0
+        var hi: Int64 = entries.size - 1
+        var found: Int64 = -1
+        
+        while (lo <= hi) {
+            let mid = (lo + hi) / 2
+            let cmp = compareKeys(entries[mid][0], key)
+            if (cmp <= 0) {
+                found = mid
+                lo = mid + 1
             } else {
-                valid_ = false
+                hi = mid - 1
             }
+        }
+        
+        if (found >= 0) {
+            index = found
+            updateCurrent()
         } else {
-            var lo: Int64 = 0
-            var hi: Int64 = entries.size - 1
-            var found: Int64 = -1
-            
-            while (lo <= hi) {
-                let mid = (lo + hi) / 2
-                let cmp = compareKeys(entries[mid][0], key)
-                if (cmp < 0) {
-                    lo = mid + 1
-                } else {
-                    found = mid
-                    hi = mid - 1
-                }
-            }
-            
-            if (found >= 0) {
-                index = found
-                updateCurrent()
-            } else {
-                valid_ = false
-            }
+            valid_ = false
         }
     }
     

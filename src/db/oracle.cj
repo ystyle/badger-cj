@@ -89,6 +89,18 @@ public class Oracle {
         return ts
     }
     
+    public func bumpCommitTs(ts: UInt64): Unit {
+        lock.lock()
+        if (ts >= nextTxnTs) {
+            nextTxnTs = ts + 1
+            txnMark.begin(ts)
+            txnMark.done(ts)
+            // 直接设置 doneUntil，避免异步延迟
+            txnMark.setDoneUntil(ts)
+        }
+        lock.unlock()
+    }
+    
     public func newCommitTs(txn: TxnState): UInt64 {
         lock.lock()
         

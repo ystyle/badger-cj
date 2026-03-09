@@ -69,6 +69,26 @@ public class MemTable {
         None
     }
     
+    public func getWithTs(userKey: Array<Byte>, readTs: UInt64): ?ValueStruct {
+        var bestVs: ?ValueStruct = None
+        var bestTs: UInt64 = 0
+        
+        let iter = SkipIterator(table)
+        while (iter.hasNext()) {
+            if (let Some((key, vs)) <- iter.next()) {
+                if (sameKey(key, keyWithTs(userKey, readTs))) {
+                    let ts = parseTs(key)
+                    if (ts <= readTs && ts > bestTs) {
+                        bestTs = ts
+                        bestVs = Some(vs)
+                    }
+                }
+            }
+        }
+        
+        bestVs
+    }
+    
     public func sizeInBytes(): UInt64 {
         return sizeInBytes_.load()
     }

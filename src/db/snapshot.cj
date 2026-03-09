@@ -31,7 +31,7 @@ public class Snapshot {
         return None
     }
     
-    public func newIterator(opt: IteratorOptions): Iterator {
+    public func newIterator(opt!: IteratorOptions = IteratorOptions(reverse: false)): Iterator {
         if (discarded) {
             throw Exception("Snapshot discarded")
         }

@@ -89,12 +89,16 @@ public class DB {
         return lc
     }
     
-    public func get(key: Array<Byte>): Option<ValueStruct> {
+    public func get(key: Array<Byte>, readTsOpt!: ?UInt64 = None): Option<ValueStruct> {
         lock.lock()
         try {
-            let readTs = version.load()
+            let readTs = if (let Some(ts) <- readTsOpt) {
+                ts
+            } else {
+                version.load()
+            }
             
-            let mtResult = mt.get(key)
+            let mtResult = mt.getWithTs(key, readTs)
             if (mtResult.isSome()) {
                 if (let Some(vs) <- mtResult) {
                     if (!vs.isDelete()) {
@@ -111,7 +115,7 @@ public class DB {
             
             for (i in 0..imm.size) {
                 let immMt = imm[imm.size - 1 - i]
-                let immResult = immMt.get(key)
+                let immResult = immMt.getWithTs(key, readTs)
                 if (immResult.isSome()) {
                     if (let Some(vs) <- immResult) {
                         if (!vs.isDelete()) {
@@ -148,40 +152,60 @@ public class DB {
         }
     }
     
-    public func set(key: Array<Byte>, value: Array<Byte>): Unit {
+    // 内部方法：带 commitTs 的 set (用于 Transaction)
+    public func putWithCommitTs(key: Array<Byte>, value: Array<Byte>, commitTs: UInt64): Unit {
         lock.lock()
         try {
             if (mt.shouldFlush()) {
                 flushMemTableInternal()
             }
+            
+            // 将时间戳嵌入 key
+            let keyWithTimestamp = keyWithTs(key, commitTs)
             
             let vs = if (Int64(value.size) >= opt.ValueThreshold) {
                 let entry = LogEntry(key, value)
                 let vp = vlog.write(entry)
                 let vpBytes = vp.encode()
-                ValueStruct(vpBytes, meta: Meta.bitValuePointer, version: version.fetchAdd(1))
+                ValueStruct(vpBytes, meta: Meta.bitValuePointer, version: commitTs)
             } else {
-                ValueStruct(value, meta: 0, version: version.fetchAdd(1))
+                ValueStruct(value, meta: 0, version: commitTs)
             }
             
-            mt.put(key, vs)
+            mt.put(keyWithTimestamp, vs)
         } finally {
             lock.unlock()
         }
     }
     
-    public func delete(key: Array<Byte>): Unit {
+    // 内部方法：带 commitTs 的 delete (用于 Transaction)
+    public func deleteWithCommitTs(key: Array<Byte>, commitTs: UInt64): Unit {
         lock.lock()
         try {
             if (mt.shouldFlush()) {
                 flushMemTableInternal()
             }
             
-            let vs = ValueStruct([], meta: Meta.bitDelete, version: version.fetchAdd(1))
-            mt.put(key, vs)
+            // 将时间戳嵌入 key
+            let keyWithTimestamp = keyWithTs(key, commitTs)
+            
+            let vs = ValueStruct([], meta: Meta.bitDelete, version: commitTs)
+            mt.put(keyWithTimestamp, vs)
         } finally {
             lock.unlock()
         }
+    }
+    
+    public func set(key: Array<Byte>, value: Array<Byte>): Unit {
+        let ts = version.fetchAdd(1)
+        oracle.bumpCommitTs(ts)
+        putWithCommitTs(key, value, ts)
+    }
+    
+    public func delete(key: Array<Byte>): Unit {
+        let ts = version.fetchAdd(1)
+        oracle.bumpCommitTs(ts)
+        deleteWithCommitTs(key, ts)
     }
     
     public func flushMemTable(): Unit {

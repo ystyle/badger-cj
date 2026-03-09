@@ -11,27 +11,27 @@ import std.collection.*
 private let badgerPrefix: ArrayList<Byte> = ArrayList<Byte>([98, 97, 100, 103, 101, 114])  // "badger"
 
 /**
- * keyWithTs - 在 key 后追加时间戳
+ * keyWithTs - 在 key 后追加时间戳（取反，使高版本排在字典序前面）
  * 
- * BadgerDB 的 key 格式: [原始key][8字节时间戳]
+ * BadgerDB 的 key 格式: [原始key][8字节时间戳(取反)]
  */
 public func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
     let result = ArrayList<Byte>()
     
-    // 复制原始 key
     for (b in key) {
         result.add(b)
     }
     
-    // 追加时间戳（大端序）
-    result.add(UInt8((ts >> 56) & 0xFF))
-    result.add(UInt8((ts >> 48) & 0xFF))
-    result.add(UInt8((ts >> 40) & 0xFF))
-    result.add(UInt8((ts >> 32) & 0xFF))
-    result.add(UInt8((ts >> 24) & 0xFF))
-    result.add(UInt8((ts >> 16) & 0xFF))
-    result.add(UInt8((ts >> 8) & 0xFF))
-    result.add(UInt8(ts & 0xFF))
+    // 取反时间戳（~ts），使高版本排在字典序前面
+    let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ ts
+    result.add(UInt8((invTs >> 56) & 0xFF))
+    result.add(UInt8((invTs >> 48) & 0xFF))
+    result.add(UInt8((invTs >> 40) & 0xFF))
+    result.add(UInt8((invTs >> 32) & 0xFF))
+    result.add(UInt8((invTs >> 24) & 0xFF))
+    result.add(UInt8((invTs >> 16) & 0xFF))
+    result.add(UInt8((invTs >> 8) & 0xFF))
+    result.add(UInt8(invTs & 0xFF))
     
     return result.toArray()
 }
@@ -56,15 +56,18 @@ public func parseTs(key: Array<Byte>): UInt64 {
     ts = (ts << 8) | UInt64(key[offset + 6])
     ts = (ts << 8) | UInt64(key[offset + 7])
     
-    return ts
+    // 取反还原
+    return 0xFFFFFFFFFFFFFFFFu64 ^ ts
 }
 
 /**
  * parseKey - 从 key 中提取原始 key（去掉时间戳）
+ * 如果 key 太短（<= 8 字节），假设没有时间戳，直接返回原 key
  */
 public func parseKey(key: Array<Byte>): Array<Byte> {
     if (key.size <= 8) {
-        return []
+        // 没有时间戳，直接返回原 key
+        return key
     }
     
     let result = ArrayList<Byte>()
@@ -77,18 +80,18 @@ public func parseKey(key: Array<Byte>): Array<Byte> {
 
 /**
  * sameKey - 检查两个 key 是否相同（忽略时间戳）
+ * 支持一个 key 带时间戳、另一个不带的情况
  */
 public func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
-    if (a.size < 8 || b.size < 8) {
-        return a == b
-    }
+    let userKeyA = parseKey(a)
+    let userKeyB = parseKey(b)
     
-    if (a.size != b.size) {
+    if (userKeyA.size != userKeyB.size) {
         return false
     }
     
-    for (i in 0..a.size - 8) {
-        if (a[i] != b[i]) {
+    for (i in 0..userKeyA.size) {
+        if (userKeyA[i] != userKeyB[i]) {
             return false
         }
     }
