@@ -3,6 +3,7 @@ package badgercj.db
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.collection.ArrayList
+import std.fs.{remove, exists, Path}
 import badgercj.table.*
 
 @Test
@@ -102,10 +103,12 @@ class MemTableTest {
     
     @TestCase
     func testMemTableShouldFlushByArenaUsage() {
-        let opt = DBOptions(dir: "/tmp/badger_memtable_test_flush", memTableSize: 1024)
+        let opt = DBOptions(dir: "/tmp/badger_memtable_test_flush", memTableSize: 4 * 1024u64)
         let mt = MemTable(opt, 1, false)
         
-        for (i in 0..50) {
+        @Assert(mt.shouldFlush(), false)
+        
+        for (i in 0..100) {
             let key = "key_${i}".toArray()
             let value = Array<Byte>(20, repeat: 65)
             mt.put(key, ValueStruct(value))
@@ -113,8 +116,11 @@ class MemTableTest {
         
         @Assert(mt.shouldFlush())
         
-        if (File.exists(Path("/tmp/badger_memtable_test_flush"))) {
-            remove("/tmp/badger_memtable_test_flush")
+        try {
+            if (exists(Path("/tmp/badger_memtable_test_flush"))) {
+                remove("/tmp/badger_memtable_test_flush", recursive: true)
+            }
+        } catch (e: Exception) {
         }
     }
     
