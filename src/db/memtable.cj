@@ -72,23 +72,26 @@ public class MemTable {
     }
     
     public func getWithTs(userKey: Array<Byte>, readTs: UInt64): ?ValueStruct {
-        var bestVs: ?ValueStruct = None
-        var bestTs: UInt64 = 0
+        let seekKey = keyWithTs(userKey, readTs)
         
-        let iter = SkipIterator(table)
-        while (iter.hasNext()) {
-            if (let Some((key, vs)) <- iter.next()) {
-                if (sameKey(key, keyWithTs(userKey, readTs))) {
-                    let ts = parseTs(key)
-                    if (ts <= readTs && ts > bestTs) {
-                        bestTs = ts
-                        bestVs = Some(vs)
-                    }
+        // 用 findGe 找 >= seekKey 的节点 (类似 Go 的 findNear)
+        let node = table.findGe(seekKey)
+        if (let Some(n) <- node) {
+            let key = n.getKey()
+            // 只比较 userKey，忽略时间戳
+            if (sameKey(key, seekKey)) {
+                let ts = parseTs(key)
+                if (ts <= readTs) {
+                    let value = n.getValue()
+                    let offset = UInt32(value >> 32)
+                    let size = UInt16(value & 0xFFFFu64)
+                    let encoded = arena.getBytes(offset, size)
+                    return ValueStruct.decode(encoded)
                 }
             }
         }
         
-        bestVs
+        None
     }
     
     public func sizeInBytes(): UInt64 {

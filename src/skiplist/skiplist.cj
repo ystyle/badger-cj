@@ -65,7 +65,7 @@ public class Skiplist {
     }
     
     /**
-     * 查找节点
+     * 查找节点 (精确匹配)
      * 
      * 返回：找到返回节点，未找到返回 None
      */
@@ -101,6 +101,45 @@ public class Skiplist {
         
         // 未找到
         None
+    }
+    
+    /**
+     * 查找 >= key 的节点 (类似 Go 的 findNear(key, false, true))
+     * 
+     * 用于版本查找：key 格式是 userKey + inverted_ts
+     * 高 ts 的 inverted_ts 更小，排在前面
+     * 所以 findGe(key) 能找到 ts <= readTs 的最新版本
+     */
+    public func findGe(key: Array<Byte>): ?Node {
+        var x = head
+        var level = getHeight() - 1
+        
+        while (level >= 0) {
+            let nextOffset = x.getNextOffset(level)
+            
+            if (nextOffset == 0) {
+                level--
+                continue
+            }
+            
+            let n = Node(arena, nextOffset)
+            let cmp = compareKeys(key, n.getKey())
+            
+            if (cmp > 0) {
+                x = n
+            } else if (cmp == 0) {
+                return Some(n)
+            } else {
+                level--
+            }
+        }
+        
+        // 返回 x 的下一个节点 (>= key)
+        let nextOffset = x.getNextOffset(0)
+        if (nextOffset == 0) {
+            return None
+        }
+        Some(Node(arena, nextOffset))
     }
     
     /**
