@@ -13,14 +13,14 @@ public class DB {
     private let opt: DBOptions
     private let manifest: Manifest
     private let lc: LevelsController
-    private let lock: Mutex
+    private let lock: ReadWriteLock
     private var mt: MemTable
     private let imm: ArrayList<MemTable>
     private let version: AtomicUInt64
     private var nextFileID: AtomicUInt64
     public let oracle: Oracle
     private let vlog: VLogManager
-    public let writeCh: ConcurrentLinkedQueue<WriteRequest>
+    public let writeCh: LinkedBlockingQueue<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
     
@@ -35,13 +35,13 @@ public class DB {
         this.mt = mt
         this.manifest = manifest
         this.lc = lc
-        this.lock = Mutex()
+        this.lock = ReadWriteLock()
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
         this.oracle = Oracle()
         this.vlog = vlog
-        this.writeCh = ConcurrentLinkedQueue<WriteRequest>()
+        this.writeCh = LinkedBlockingQueue<WriteRequest>(1000)
         this.running = AtomicBool(false)
         this.flushFut = None
     }
@@ -54,15 +54,12 @@ public class DB {
         let manifest = Manifest()
         let lc = LevelsController(manifest: manifest)
         let vlog = VLogManager(Path(opt.Dir))
-        
         let fid = Int64(manifest.nextFileID)
         let mt = MemTable(opt, fid, false)
         
         let db = DB(opt, mt, manifest, lc, vlog)
         db.running = AtomicBool(true)
-        let fut = spawn { 
-            db.flushLoop()
-        }
+        let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
         return db
     }
@@ -73,7 +70,7 @@ public class DB {
             fut.get()
         }
         
-        lock.lock()
+        lock.writeLock.lock()
         try {
             mt.closeWAL()
             for (immMt in imm) {
@@ -82,98 +79,72 @@ public class DB {
             vlog.close()
             oracle.stop()
         } finally {
-            lock.unlock()
+            lock.writeLock.unlock()
         }
     }
     
-    public func getMemTable(): MemTable {
-        return mt
-    }
-    
-    public func getImmMemTables(): ArrayList<MemTable> {
-        return imm
-    }
+    public func getMemTable(): MemTable { mt }
+    public func getImmMemTables(): ArrayList<MemTable> { imm }
     
     public func getMemTables(): ArrayList<MemTable> {
         let tables = ArrayList<MemTable>()
         tables.add(mt)
-        for (immMt in imm) {
-            tables.add(immMt)
-        }
+        for (immMt in imm) { tables.add(immMt) }
         return tables
     }
     
-    public func getLevelsController(): LevelsController {
-        return lc
-    }
+    public func getLevelsController(): LevelsController { lc }
     
     public func get(key: Array<Byte>, readTsOpt!: ?UInt64 = None): Option<ValueStruct> {
-        lock.lock()
+        lock.readLock.lock()
         try {
-            let readTs = if (let Some(ts) <- readTsOpt) {
-                ts
-            } else {
-                version.load()
-            }
+            let readTs = readTsOpt ?? version.load()
             
-            let mtResult = mt.getWithTs(key, readTs)
-            if (mtResult.isSome()) {
-                if (let Some(vs) <- mtResult) {
-                    if (!vs.isDelete()) {
-                        if (vs.isValuePointer()) {
-                            let vp = ValuePointer.decode(vs.value)
-                            let entry = vlog.read(vp)
-                            return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
-                        }
-                        return mtResult
-                    }
+            // Check memtable
+            if (let Some(vs) <- mt.getWithTs(key, readTs)) {
+                if (vs.isDelete()) { return None }
+                if (vs.isValuePointer()) {
+                    let vp = ValuePointer.decode(vs.value)
+                    let entry = vlog.read(vp)
+                    return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
                 }
-                return None
+                return Some(vs)
             }
             
+            // Check immutable memtables
             for (i in 0..imm.size) {
                 let immMt = imm[imm.size - 1 - i]
-                let immResult = immMt.getWithTs(key, readTs)
-                if (immResult.isSome()) {
-                    if (let Some(vs) <- immResult) {
-                        if (!vs.isDelete()) {
-                            if (vs.isValuePointer()) {
-                                let vp = ValuePointer.decode(vs.value)
-                                let entry = vlog.read(vp)
-                                return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
-                            }
-                            return immResult
-                        }
+                if (let Some(vs) <- immMt.getWithTs(key, readTs)) {
+                    if (vs.isDelete()) { return None }
+                    if (vs.isValuePointer()) {
+                        let vp = ValuePointer.decode(vs.value)
+                        let entry = vlog.read(vp)
+                        return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
                     }
-                    return None
+                    return Some(vs)
                 }
             }
             
-            let lcResult = lc.get(key, readTs)
-            if (lcResult.isSome()) {
-                if (let Some(vs) <- lcResult) {
-                    if (!vs.isDelete()) {
-                        if (vs.isValuePointer()) {
-                            let vp = ValuePointer.decode(vs.value)
-                            let entry = vlog.read(vp)
-                            return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
-                        }
-                        return lcResult
-                    }
+            // Check levels
+            if (let Some(vs) <- lc.get(key, readTs)) {
+                if (vs.isDelete()) { return None }
+                if (vs.isValuePointer()) {
+                    let vp = ValuePointer.decode(vs.value)
+                    let entry = vlog.read(vp)
+                    return Some(ValueStruct(entry.value, meta: 0, version: vs.version))
                 }
-                return None
+                return Some(vs)
             }
             
             return None
         } finally {
-            lock.unlock()
+            lock.readLock.unlock()
         }
     }
     
     public func set(key: Array<Byte>, value: Array<Byte>): Unit {
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
-        
         let req = WriteRequest(key, value, ts, isDelete: false)
         writeCh.add(req)
         req.wait()
@@ -182,27 +153,21 @@ public class DB {
     public func delete(key: Array<Byte>): Unit {
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
-        
         let req = WriteRequest(key, [], ts, isDelete: true)
         writeCh.add(req)
         req.wait()
     }
     
     public func flushMemTable(): Unit {
-        lock.lock()
-        try {
-            flushMemTableInternal()
-        } finally {
-            lock.unlock()
-        }
+        lock.writeLock.lock()
+        try { flushMemTableInternal() }
+        finally { lock.writeLock.unlock() }
     }
     
-    public func getVersion(): UInt64 {
-        return version.load()
-    }
+    public func getVersion(): UInt64 { version.load() }
     
     public func newTransaction(update!: Bool = true): Transaction {
-        return Transaction(this, update: update)
+        Transaction(this, update: update)
     }
     
     public func view<T>(fn: (Transaction) -> T): T {
@@ -210,7 +175,7 @@ public class DB {
         try {
             let result = fn(txn)
             txn.discard()
-            return result
+            result
         } catch (e: Exception) {
             txn.discard()
             throw e
@@ -222,7 +187,7 @@ public class DB {
         try {
             let result = fn(txn)
             txn.commit()
-            return result
+            result
         } catch (e: Exception) {
             txn.rollback()
             throw e
@@ -231,114 +196,67 @@ public class DB {
     
     private func flushMemTableInternal(): Unit {
         imm.add(mt)
-        
         let fid = Int64(nextFileID.fetchAdd(1))
         mt = MemTable(opt, fid, false)
-        
-        let flushedMt = imm[imm.size - 1]
-        flushToLevel(flushedMt)
+        flushToLevel(imm[imm.size - 1])
     }
     
     private func flushToLevel(mt: MemTable): Unit {
         let entries = ArrayList<(Array<Byte>, ValueStruct)>()
         let iter = mt.iterator()
-        
         while (iter.hasNext()) {
-            if (let Some((key, vs)) <- iter.next()) {
-                entries.add((key, vs))
-            }
+            if (let Some(e) <- iter.next()) { entries.add(e) }
         }
-        
         let tableID = nextFileID.fetchAdd(1)
-        let table = MockTable(tableID, entries)
-        
-        lc.addTable(0, table)
-        
+        lc.addTable(0, MockTable(tableID, entries))
         mt.decrRef()
     }
     
+    // Simple loop: block on remove(timeout), process one request
     private func flushLoop(): Unit {
-        while (running.load() || !writeCh.isEmpty()) {
-            var reqs = ArrayList<WriteRequest>()
-            
-            // Batch up to 100 requests (matching Go's writeCh design)
-            while (reqs.size < 100) {
-                if (let Some(req) <- writeCh.remove()) {
-                    reqs.add(req)
-                } else {
-                    break
-                }
-            }
-            
-            if (reqs.size > 0) {
-                // Create let copy for spawn (spawned lambda cannot capture var)
-                let capturedReqs = reqs
-                spawn {
-                    try {
-                        this.writeRequests(capturedReqs)
-                    } catch (e: Exception) {
-                        for (req in capturedReqs) {
-                            req.signal()
-                        }
-                    }
-                }
-            } else if (running.load()) {
-                sleep(Duration.microsecond * 100)
+        let timeout = Duration.millisecond * 1  // Short timeout for low latency
+        
+        while (running.load()) {
+            if (let Some(req) <- writeCh.remove(timeout)) {
+                writeOneRequest(req)
             }
         }
         
-        // Drain remaining items synchronously
-        while (!writeCh.isEmpty()) {
-            if (let Some(req) <- writeCh.remove()) {
-                try {
-                    writeRequests(ArrayList<WriteRequest>([req]))
-                } catch (e: Exception) {
-                    req.signal()
-                }
+        // Drain remaining
+        while (writeCh.size > 0) {
+            if (let Some(req) <- writeCh.tryRemove()) {
+                writeOneRequest(req)
             }
         }
     }
     
-    private func writeRequests(reqs: ArrayList<WriteRequest>): Unit {
-        for (req in reqs) {
-            if (UInt64(req.value.size) >= opt.ValueThreshold && !req.isDelete) {
-                let entry = LogEntry(req.key, req.value)
-                req.vp = Some(vlog.write(entry))
-            }
+    private func writeOneRequest(req: WriteRequest): Unit {
+        // Write to vlog if needed
+        if (UInt64(req.value.size) >= opt.ValueThreshold && !req.isDelete) {
+            req.vp = Some(vlog.write(LogEntry(req.key, req.value)))
         }
         
-        lock.lock()
+        // Write to memtable
+        lock.writeLock.lock()
         try {
-            for (req in reqs) {
-                if (mt.shouldFlush()) {
-                    flushMemTableInternal()
-                }
-                
-                let keyWithTs = keyWithTs(req.key, req.commitTs)
-                let vs = if (req.isDelete) {
-                    ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
-                } else if (let Some(vp) <- req.vp) {
-                    ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
-                } else {
-                    ValueStruct(req.value, meta: 0, version: req.commitTs)
-                }
-                
-                mt.put(keyWithTs, vs)
+            if (mt.shouldFlush()) { flushMemTableInternal() }
+            
+            let keyWithTs = keyWithTs(req.key, req.commitTs)
+            let vs = if (req.isDelete) {
+                ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
+            } else if (let Some(vp) <- req.vp) {
+                ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+            } else {
+                ValueStruct(req.value, meta: 0, version: req.commitTs)
             }
+            mt.put(keyWithTs, vs)
         } finally {
-            lock.unlock()
+            lock.writeLock.unlock()
         }
         
-        for (req in reqs) {
-            req.signal()
-        }
+        req.signal()
     }
     
-    public func getLevelHandler(level: Int64): LevelHandler {
-        return lc.getLevelHandler(level)
-    }
-    
-    public func newSnapshot(): Snapshot {
-        return Snapshot(this)
-    }
+    public func getLevelHandler(level: Int64): LevelHandler { lc.getLevelHandler(level) }
+    public func newSnapshot(): Snapshot { Snapshot(this) }
 }
