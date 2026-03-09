@@ -261,7 +261,8 @@ public class DB {
         while (running.load() || !writeCh.isEmpty()) {
             var reqs = ArrayList<WriteRequest>()
             
-            while (reqs.size < 10) {
+            // Batch up to 100 requests (matching Go's writeCh design)
+            while (reqs.size < 100) {
                 if (let Some(req) <- writeCh.remove()) {
                     reqs.add(req)
                 } else {
@@ -270,18 +271,23 @@ public class DB {
             }
             
             if (reqs.size > 0) {
-                try {
-                    writeRequests(reqs)
-                } catch (e: Exception) {
-                    for (req in reqs) {
-                        req.signal()
+                // Create let copy for spawn (spawned lambda cannot capture var)
+                let capturedReqs = reqs
+                spawn {
+                    try {
+                        this.writeRequests(capturedReqs)
+                    } catch (e: Exception) {
+                        for (req in capturedReqs) {
+                            req.signal()
+                        }
                     }
                 }
             } else if (running.load()) {
-                sleep(Duration.millisecond * 1)
+                sleep(Duration.microsecond * 100)
             }
         }
         
+        // Drain remaining items synchronously
         while (!writeCh.isEmpty()) {
             if (let Some(req) <- writeCh.remove()) {
                 try {
