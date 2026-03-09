@@ -3,6 +3,7 @@ package badgercj.db
 import std.fs.*
 import std.sync.*
 import std.collection.*
+import std.time.*
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
@@ -68,6 +69,11 @@ public class DB {
     }
     
     public func close(): Unit {
+        running.store(false)
+        if (let Some(fut) <- flushFut) {
+            fut.get()
+        }
+        
         lock.lock()
         try {
             mt.closeWAL()
@@ -282,6 +288,61 @@ public class DB {
         lc.addTable(0, table)
         
         mt.decrRef()
+    }
+    
+    private func flushLoop(): Unit {
+        while (running.load() || !writeCh.isEmpty()) {
+            var reqs = ArrayList<WriteRequest>()
+            
+            while (reqs.size < 10) {
+                if (let Some(req) <- writeCh.remove()) {
+                    reqs.add(req)
+                } else {
+                    break
+                }
+            }
+            
+            if (reqs.size > 0) {
+                writeRequests(reqs)
+            } else if (running.load()) {
+                sleep(Duration.millisecond * 1)
+            }
+        }
+    }
+    
+    private func writeRequests(reqs: ArrayList<WriteRequest>): Unit {
+        for (req in reqs) {
+            if (Int64(req.value.size) >= opt.ValueThreshold && !req.isDelete) {
+                let entry = LogEntry(req.key, req.value)
+                req.vp = Some(vlog.write(entry))
+            }
+        }
+        
+        lock.lock()
+        try {
+            for (req in reqs) {
+                if (mt.shouldFlush()) {
+                    flushMemTableInternal()
+                }
+                
+                let keyWithTs = keyWithTs(req.key, req.commitTs)
+                let vs = if (req.isDelete) {
+                    ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
+                } else if (let Some(vp) <- req.vp) {
+                    ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+                } else {
+                    ValueStruct(req.value, meta: 0, version: req.commitTs)
+                }
+                
+                mt.put(keyWithTs, vs)
+            }
+        } finally {
+            lock.unlock()
+        }
+        
+        for (req in reqs) {
+            req.signal()
+        }
     }
     
     public func getLevelHandler(level: Int64): LevelHandler {
