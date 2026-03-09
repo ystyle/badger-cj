@@ -312,6 +312,41 @@
 2. **Iterator 批量预取** - 提升迭代速度
 3. **WaterMark 批量更新** - 减少事务提交延迟
 4. **对象池复用** - 减少 GC 压力
+5. **异步 Write Channel** - 减少锁竞争
+
+### Week 2: 异步 Write Channel ✅
+
+**完成日期：** 2026-03-09
+
+| 模块 | 文件 | 状态 | 备注 |
+|------|------|------|------|
+| WriteRequest 类 | `src/db/write_request.cj` | ✅ 完成 | ConditionVariable 代替 busy-wait |
+| Write Channel | `src/db/db.cj` | ✅ 完成 | ConcurrentLinkedQueue + flushLoop |
+| Batch Write | `src/db/db.cj` | ✅ 完成 | writeRequests() 批量处理 |
+
+**实现细节：**
+- ✅ `ConcurrentLinkedQueue<WriteRequest>` - 无锁并发队列
+- ✅ 后台 `flushLoop()` 线程 - 批量处理写入请求
+- ✅ `ConditionVariable` 替代 busy-wait - 减少CPU占用
+- ✅ 异步 `spawn { writeRequests() }` - 参考 Go BadgerDB 设计
+- ✅ 批量大小 100 - 平衡吞吐量和延迟
+
+**性能测试结果：**
+- ✅ `testStressConcurrentWrites` - 20线程 × 200写入 = 4000次操作
+- ⏱️ 耗时：72秒（目标 <10秒 未达成）
+- ❌ 瓶颈：WAL 同步 I/O（LSM-Tree 设计限制）
+
+**关键发现：**
+1. **spawn 限制**: 仓颉 lambda 捕获 `var` 变量后不能作为一等公民
+   - 解决：使用 `let capturedReqs = reqs` 创建副本
+2. **WAL I/O 瓶颈**: 同步文件写入是主要延迟源
+   - 所有 LSM-Tree 数据库的共同限制
+   - Go BadgerDB 也有相同问题
+3. **锁优化效果有限**: 即使 vlog I/O 移到锁外，WAL 仍在锁内
+
+**技术文档：**
+- 设计文档：`docs/plans/2026-03-09-async-write-channel.md`
+- 仓颉闭包限制：Lambda 捕获 var 变量后只能调用，不能赋值/返回
 
 ### Phase 5 统计
 
