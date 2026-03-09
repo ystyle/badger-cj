@@ -20,7 +20,7 @@ public class DB {
     private var nextFileID: AtomicUInt64
     public let oracle: Oracle
     private let vlog: VLogManager
-    private var writeCh: ConcurrentLinkedQueue<WriteRequest>
+    public let writeCh: ConcurrentLinkedQueue<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
     
@@ -59,7 +59,6 @@ public class DB {
         let mt = MemTable(opt, fid, false)
         
         let db = DB(opt, mt, manifest, lc, vlog)
-        db.writeCh = ConcurrentLinkedQueue<WriteRequest>()
         db.running = AtomicBool(true)
         let fut = spawn { 
             db.flushLoop()
@@ -171,54 +170,22 @@ public class DB {
         }
     }
     
-    public func putWithCommitTs(key: Array<Byte>, value: Array<Byte>, commitTs: UInt64): Unit {
-        let keyWithTimestamp = keyWithTs(key, commitTs)
-        
-        let vs = if (Int64(value.size) >= opt.ValueThreshold) {
-            let entry = LogEntry(key, value)
-            let vp = vlog.write(entry)
-            let vpBytes = vp.encode()
-            ValueStruct(vpBytes, meta: Meta.bitValuePointer, version: commitTs)
-        } else {
-            ValueStruct(value, meta: 0, version: commitTs)
-        }
-        
-        lock.lock()
-        try {
-            if (mt.shouldFlush()) {
-                flushMemTableInternal()
-            }
-            mt.put(keyWithTimestamp, vs)
-        } finally {
-            lock.unlock()
-        }
-    }
-    
-    public func deleteWithCommitTs(key: Array<Byte>, commitTs: UInt64): Unit {
-        let keyWithTimestamp = keyWithTs(key, commitTs)
-        let vs = ValueStruct([], meta: Meta.bitDelete, version: commitTs)
-        
-        lock.lock()
-        try {
-            if (mt.shouldFlush()) {
-                flushMemTableInternal()
-            }
-            mt.put(keyWithTimestamp, vs)
-        } finally {
-            lock.unlock()
-        }
-    }
-    
     public func set(key: Array<Byte>, value: Array<Byte>): Unit {
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
-        putWithCommitTs(key, value, ts)
+        
+        let req = WriteRequest(key, value, ts, isDelete: false)
+        writeCh.add(req)
+        req.wait()
     }
     
     public func delete(key: Array<Byte>): Unit {
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
-        deleteWithCommitTs(key, ts)
+        
+        let req = WriteRequest(key, [], ts, isDelete: true)
+        writeCh.add(req)
+        req.wait()
     }
     
     public func flushMemTable(): Unit {

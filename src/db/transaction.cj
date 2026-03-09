@@ -124,12 +124,15 @@ public class Transaction {
         
         commitTs = oracle.newCommitTs(txnState)
         
+        var reqs = ArrayList<WriteRequest>()
         for (entry in writes) {
-            if (entry.isDelete()) {
-                db.deleteWithCommitTs(entry.key, commitTs)
-            } else {
-                db.putWithCommitTs(entry.key, entry.value, commitTs)
-            }
+            let req = WriteRequest(entry.key, entry.value, commitTs, isDelete: entry.isDelete())
+            reqs.add(req)
+            db.writeCh.add(req)
+        }
+        
+        for (req in reqs) {
+            req.wait()
         }
         
         oracle.doneCommit(commitTs)
