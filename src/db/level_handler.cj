@@ -130,4 +130,17 @@ public class LevelHandler {
             }
         }
     }
+    
+    public func getMaxVersion(): UInt64 {
+        synchronized(lock) {
+            var maxVer: UInt64 = 0
+            for (table in tables) {
+                let ver = table.getMaxVersion()
+                if (ver > maxVer) {
+                    maxVer = ver
+                }
+            }
+            return maxVer
+        }
+    }
 }

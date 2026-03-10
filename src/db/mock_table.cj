@@ -69,4 +69,14 @@ public class MockTable <: TableInterface {
     public func getEntries(): ArrayList<(Array<Byte>, ValueStruct)> {
         return entries
     }
+    
+    public func getMaxVersion(): UInt64 {
+        var maxVer: UInt64 = 0
+        for (entry in entries) {
+            if (entry[1].version > maxVer) {
+                maxVer = entry[1].version
+            }
+        }
+        return maxVer
+    }
 }

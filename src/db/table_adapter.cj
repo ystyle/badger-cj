@@ -23,14 +23,39 @@ public class TableAdapter <: TableInterface {
     }
     
     public func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct> {
-        let result = table.get(key)
-        match (result) {
-            case Some(data) => return Some(ValueStruct(data, version: readTs))
-            case None => return None
+        let seekKey = keyWithTs(key, readTs)
+        
+        let idx = table.findBlock(seekKey)
+        if (idx < 0) {
+            return None
         }
+        
+        let iter = table.blockIterator(idx)
+        iter.seek(seekKey)
+        
+        while (iter.isValid()) {
+            let iterKey = iter.key()
+            if (sameKey(iterKey, key)) {
+                let ts = parseTs(iterKey)
+                if (ts <= readTs) {
+                    if (let Some(vs) <- iter.valueStruct()) {
+                        return Some(vs)
+                    }
+                }
+            } else {
+                break
+            }
+            iter.next()
+        }
+        
+        return None
     }
     
     public func size(): Int64 {
         Int64(table.keyCount)
+    }
+    
+    public func getMaxVersion(): UInt64 {
+        table.maxVersion
     }
 }

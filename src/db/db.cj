@@ -67,7 +67,12 @@ public class DB {
         let vlog = VLogManager(Path(opt.Dir))
         let db = DB(opt, mt, manifest, manifestFile, lc, vlog)
         
-        let recoveredVersion = mt.getMaxVersion()
+        var recoveredVersion = mt.getMaxVersion()
+        let lcVersion = lc.getMaxVersion()
+        if (lcVersion > recoveredVersion) {
+            recoveredVersion = lcVersion
+        }
+        
         if (recoveredVersion > 0) {
             db.version.store(recoveredVersion + 1)
         }
@@ -86,17 +91,50 @@ public class DB {
         
         lock.writeLock.lock()
         try {
-            mt.flushWAL()
-            mt.closeWAL()
-            for (immMt in imm) {
-                immMt.flushWAL()
-                immMt.closeWAL()
+            if (!mt.isEmpty()) {
+                let changes = flushMemTableToDisk(mt)
+                manifestFile.saveChanges(changes)
             }
+            
+            for (immMt in imm) {
+                let changes = flushMemTableToDisk(immMt)
+                manifestFile.saveChanges(changes)
+            }
+            imm.clear()
+            
+            mt.deleteWAL()
+            
             vlog.close()
             oracle.stop()
+            manifestFile.close()
         } finally {
             lock.writeLock.unlock()
         }
+    }
+    
+    private func flushMemTableToDisk(mt: MemTable): ManifestChangeSet {
+        let builder = TableBuilder()
+        let iter = mt.iterator()
+        while (iter.hasNext()) {
+            if (let Some(e) <- iter.next()) {
+                let (key, vs) = e
+                builder.add(key, vs)
+            }
+        }
+        let data = builder.finish()
+        
+        let tableID = nextFileID.fetchAdd(1)
+        let path = sstablePath(opt.Dir, tableID)
+        let f = File(Path(path), Write)
+        f.write(data)
+        f.close()
+        
+        let table = Table(tableID, data)
+        lc.addTable(0, TableAdapter(table))
+        
+        let changes = ManifestChangeSet()
+        changes.add(ManifestChange(tableID, ManifestChangeOp.Create, level: 0))
+        return changes
     }
     
     public func getMemTable(): MemTable { mt }

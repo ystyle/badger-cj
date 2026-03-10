@@ -41,6 +41,13 @@ public class LevelsController {
         levels[level].addTable(table)
     }
     
+    public func addTable(level: Int, table: TableInterface): Unit {
+        if (level < 0 || level >= levels.size) {
+            return
+        }
+        levels[level].addTable(table)
+    }
+    
     public func getLevelHandler(level: Int): LevelHandler {
         return levels[level]
     }
@@ -76,5 +83,16 @@ public class LevelsController {
                 }
             }
         }
+    }
+    
+    public func getMaxVersion(): UInt64 {
+        var maxVer: UInt64 = 0
+        for (handler in levels) {
+            let ver = handler.getMaxVersion()
+            if (ver > maxVer) {
+                maxVer = ver
+            }
+        }
+        return maxVer
     }
 }

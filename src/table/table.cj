@@ -15,6 +15,7 @@ public class Table {
     public let smallest: Array<Byte>
     public let biggest: Array<Byte>
     public let keyCount: UInt32
+    public let maxVersion: UInt64
     
     public init(id: UInt64, data: Array<Byte>) {
         this.id = id
@@ -29,6 +30,7 @@ public class Table {
             this.biggest = []
         }
         this.keyCount = index.keyCount
+        this.maxVersion = index.maxVersion
     }
     
     public func get(key: Array<Byte>): Option<Array<Byte>> {
@@ -66,26 +68,30 @@ public class Table {
     }
     
     public func findBlock(key: Array<Byte>): Int64 {
+        if (index.offsets.size == 0) {
+            return -1
+        }
+        
         var left: Int64 = 0
         var right: Int64 = index.offsets.size - 1
         
-        while (left <= right) {
+        while (left < right) {
             let mid = (left + right) / 2
             let cmp = compareKeys(key, index.offsets[mid].key)
             
-            if (cmp == 0) {
-                return mid
-            } else if (cmp < 0) {
-                right = mid - 1
-            } else {
+            if (cmp > 0) {
                 left = mid + 1
+            } else {
+                right = mid
             }
         }
         
-        if (left > 0) {
-            return left - 1
+        let cmp = compareKeys(key, index.offsets[left].key)
+        if (cmp >= 0 || left == 0) {
+            return left
         }
-        return -1
+        
+        return left - 1
     }
     
     private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {

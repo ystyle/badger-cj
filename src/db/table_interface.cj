@@ -9,4 +9,5 @@ public interface TableInterface {
     func biggest(): Array<Byte>
     func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct>
     func size(): Int64
+    func getMaxVersion(): UInt64
 }
