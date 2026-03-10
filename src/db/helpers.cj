@@ -144,3 +144,25 @@ public func isBadgerKey(key: Array<Byte>): Bool {
     
     return true
 }
+
+public func manifestPath(dir: String): String {
+    "${dir}/MANIFEST"
+}
+
+// 将文件ID补零为6位数字，如 1 -> "000001"，1234567 -> "1234567"
+private func padFid(fid: UInt64): String {
+    let fidStr = fid.toString()
+    if (fidStr.size < 6) {
+        StringBuilder(r'0', 6i64 - fidStr.size).toString() + fidStr
+    } else {
+        fidStr
+    }
+}
+
+public func walPath(dir: String, fid: UInt64): String {
+    "${dir}/${padFid(fid)}.wal"
+}
+
+public func sstablePath(dir: String, fid: UInt64): String {
+    "${dir}/${padFid(fid)}.sst"
+}
