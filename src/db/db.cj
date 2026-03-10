@@ -12,6 +12,7 @@ import std.collection.concurrent.*
 public class DB {
     private let opt: DBOptions
     private let manifest: Manifest
+    private let manifestFile: ManifestFile
     private let lc: LevelsController
     private let lock: ReadWriteLock
     private var mt: MemTable
@@ -28,12 +29,14 @@ public class DB {
         opt: DBOptions,
         mt: MemTable,
         manifest: Manifest,
+        manifestFile: ManifestFile,
         lc: LevelsController,
         vlog: VLogManager
     ) {
         this.opt = opt
         this.mt = mt
         this.manifest = manifest
+        this.manifestFile = manifestFile
         this.lc = lc
         this.lock = ReadWriteLock()
         this.imm = ArrayList<MemTable>()
@@ -51,13 +54,15 @@ public class DB {
             Directory.create(Path(opt.Dir), recursive: true)
         }
         
-        let manifest = Manifest()
+        let manifestPath = Path(opt.Dir).join("MANIFEST").toString()
+        let manifestFile = ManifestFile.open(manifestPath)
+        let manifest = manifestFile.getManifest()
         let lc = LevelsController(manifest: manifest)
         let vlog = VLogManager(Path(opt.Dir))
         let fid = Int64(manifest.nextFileID)
         let mt = MemTable(opt, fid, false)
         
-        let db = DB(opt, mt, manifest, lc, vlog)
+        let db = DB(opt, mt, manifest, manifestFile, lc, vlog)
         db.running = AtomicBool(true)
         let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
