@@ -3,6 +3,9 @@ package badgercj.db
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.collection.*
+import std.fs.*
+import std.io.*
+import std.time.*
 import badgercj.table.*
 import badgercj.manifest.*
 
@@ -112,6 +115,38 @@ class LevelsTest {
         let lc = LevelsController(manifest: manifest, dir: "/tmp/test")
         
         @Assert(lc.getDir() == "/tmp/test")
+    }
+    
+    @TestCase
+    func testLoadTables(): Unit {
+        let dir = "/tmp/badger_test_loadtables_${DateTime.now().hashCode()}"
+        Directory.create(Path(dir), recursive: true)
+        
+        let builder = TableBuilder()
+        builder.add([0x61, 0x62], ValueStruct([0x76], version: 1))
+        let data = builder.finish()
+        
+        let tablePath = sstablePath(dir, 1)
+        let f = File(Path(tablePath), Write)
+        f.write(data)
+        f.close()
+        
+        let manifest = Manifest()
+        manifest.levels[0].add(TableInfo(1))
+        
+        let lc = LevelsController(manifest: manifest, dir: dir)
+        lc.loadTables()
+        
+        let handler = lc.getLevelHandler(0)
+        @Assert(handler.numTables() == 1)
+        
+        cleanupDir(dir)
+    }
+    
+    private func cleanupDir(dir: String): Unit {
+        if (exists(Path(dir))) {
+            remove(Path(dir), recursive: true)
+        }
     }
 }
 

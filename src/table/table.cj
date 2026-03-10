@@ -9,7 +9,7 @@ import std.io.*
  */
 public class Table {
     private let data: Array<Byte>
-    private let id: UInt64
+    public let id: UInt64
     private let index: TableIndex
     
     public let smallest: Array<Byte>
@@ -19,7 +19,7 @@ public class Table {
     public init(id: UInt64, data: Array<Byte>) {
         this.id = id
         this.data = data
-        this.index = TableIndex.decode(data)
+        this.index = TableIndex.decodeFromData(data)
         
         if (index.offsets.size > 0) {
             this.smallest = index.offsets[0].key

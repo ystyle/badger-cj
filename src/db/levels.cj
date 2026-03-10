@@ -3,6 +3,8 @@ package badgercj.db
 import badgercj.table.*
 import badgercj.manifest.*
 import std.collection.*
+import std.fs.*
+import std.io.*
 
 public class LevelsController {
     private let levels: ArrayList<LevelHandler>
@@ -58,6 +60,21 @@ public class LevelsController {
     public func appendIterators(iters: ArrayList<SimpleIterator>, opt: IteratorOptions): Unit {
         for (handler in levels) {
             handler.appendIterators(iters, opt.reverse)
+        }
+    }
+    
+    public func loadTables(): Unit {
+        for (level in 0..7) {
+            let tables = manifest.levels[level]
+            for (tableInfo in tables) {
+                let path = sstablePath(dir, tableInfo.id)
+                if (exists(Path(path))) {
+                    let data = File.readFrom(Path(path))
+                    let table = Table(tableInfo.id, data)
+                    let adapter = TableAdapter(table)
+                    levels[level].addTable(adapter)
+                }
+            }
         }
     }
 }

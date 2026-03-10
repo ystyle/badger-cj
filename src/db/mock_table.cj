@@ -3,7 +3,7 @@ package badgercj.db
 import badgercj.table.*
 import std.collection.*
 
-public class MockTable {
+public class MockTable <: TableInterface {
     public let id: UInt64
     public let smallestKey: Array<Byte>
     public let biggestKey: Array<Byte>
@@ -27,6 +27,10 @@ public class MockTable {
         let lastEntry = this.entries[this.entries.size - 1]
         this.smallestKey = firstEntry[0]
         this.biggestKey = lastEntry[0]
+    }
+    
+    public func getId(): UInt64 {
+        return id
     }
     
     public func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct> {

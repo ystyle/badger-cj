@@ -6,24 +6,24 @@ import std.sync.*
 
 public class LevelHandler {
     private let level: Int
-    private var tables: ArrayList<MockTable>
+    private var tables: ArrayList<TableInterface>
     private let lock: Mutex
     
     public init(level: Int) {
         this.level = level
-        this.tables = ArrayList<MockTable>()
+        this.tables = ArrayList<TableInterface>()
         this.lock = Mutex()
     }
     
-    public func addTable(table: MockTable): Unit {
+    public func addTable(table: TableInterface): Unit {
         synchronized(lock) {
             tables.add(table)
         }
     }
     
-    public func getTables(): ArrayList<MockTable> {
+    public func getTables(): ArrayList<TableInterface> {
         synchronized(lock) {
-            let result = ArrayList<MockTable>()
+            let result = ArrayList<TableInterface>()
             for (t in tables) {
                 result.add(t)
             }
@@ -126,7 +126,7 @@ public class LevelHandler {
     public func appendIterators(iters: ArrayList<SimpleIterator>, reverse: Bool): Unit {
         synchronized(lock) {
             for (table in tables) {
-                iters.add(MockTableIterator(table))
+                iters.add(TableInterfaceIterator(table))
             }
         }
     }
