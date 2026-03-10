@@ -7,10 +7,12 @@ import std.collection.*
 public class LevelsController {
     private let levels: ArrayList<LevelHandler>
     private let manifest: Manifest
+    private let dir: String
     private let nextFileID: UInt64
     
-    public init(manifest!: Manifest = Manifest()) {
+    public init(manifest!: Manifest = Manifest(), dir!: String = "") {
         this.manifest = manifest
+        this.dir = dir
         this.nextFileID = manifest.nextFileID
         this.levels = ArrayList<LevelHandler>()
         
@@ -47,6 +49,10 @@ public class LevelsController {
     
     public func getNextFileID(): UInt64 {
         return nextFileID
+    }
+    
+    public func getDir(): String {
+        dir
     }
     
     public func appendIterators(iters: ArrayList<SimpleIterator>, opt: IteratorOptions): Unit {

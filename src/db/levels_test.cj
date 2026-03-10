@@ -4,6 +4,7 @@ import std.unittest.*
 import std.unittest.testmacro.*
 import std.collection.*
 import badgercj.table.*
+import badgercj.manifest.*
 
 @Test
 class LevelsTest {
@@ -103,6 +104,14 @@ class LevelsTest {
         if (let Some(v) <- result) {
             @Fail("Should not find key")
         }
+    }
+    
+    @TestCase
+    func testConstructorWithDir(): Unit {
+        let manifest = Manifest()
+        let lc = LevelsController(manifest: manifest, dir: "/tmp/test")
+        
+        @Assert(lc.getDir() == "/tmp/test")
     }
 }
 
