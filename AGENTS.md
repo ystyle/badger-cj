@@ -23,15 +23,26 @@ cjpm build
 # 运行
 ./target/release/bin/main
 
-# 运行所有测试
-cjpm test 
+# 运行所有测试(-j并发测试)
+cjpm test -j 16
 
 # 运行指定测试
 cjpm test --show-all-output --filter 'ParserTest.testParseRestParameter'
 cjpm test --show-all-output --filter 'ParserTest.*'
 
+# 基准测试
+cjpm bench
+
 # 清理构建缓存 
 cjpm clean
+```
+
+### 创建环境变量
+>如果找不到cjpm的话，执行以下命令
+
+```shell
+source ~/.config/cjvs/store/1.0.4/envsetup.sh
+export CANGJIE_STDX_PATH="/home/ystyle/.config/cjvs/stdx/1.0.4/linux_x86_64_llvm/static/stdx"
 ```
 
 ### 项目结构

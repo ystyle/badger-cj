@@ -184,7 +184,9 @@ class ConcurrentTest {
     
     @TestCase
     func testStressConcurrentWrites() {
-        let db = DB.open(DBOptions(dir: "/tmp/badger_concurrent_test5"))
+        let dir = "/tmp/badger_concurrent_test5"
+        cleanupConcurrentDir(dir)
+        let db = DB.open(DBOptions(dir: dir))
         
         let numThreads = 20
         let writesPerThread = 200
@@ -209,9 +211,12 @@ class ConcurrentTest {
         cleanupConcurrentDir("/tmp/badger_concurrent_test5")
     }
     
+    @Tag[stress]
     @TestCase
     func testTransactionWritePerformance() {
-        let db = DB.open(DBOptions(dir: "/tmp/badger_txn_perf_test"))
+        let dir = "/tmp/badger_txn_perf_test"
+        cleanupConcurrentDir(dir)
+        let db = DB.open(DBOptions(dir: dir))
         
         let numTxns = 50
         let keysPerTxn = 100
@@ -273,8 +278,7 @@ class ConcurrentTest {
 }
 
 func cleanupConcurrentDir(path: String): Unit {
-        try {
-        remove(path)
-    } catch (e: Exception) {
+    if (exists(Path(path))) {
+        remove(Path(path), recursive: true)
     }
 }

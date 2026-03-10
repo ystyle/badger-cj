@@ -3,6 +3,8 @@
  * 
  * 基于 Arena 的并发安全跳表
  * 支持 O(log n) 的查找和插入
+ * 
+ * 使用分离的 AtomicStorage 实现真正的无锁并发
  */
 package badgercj.skiplist
 
@@ -10,43 +12,31 @@ import std.sync.*
 import std.random.*
 import badgercj.arena.*
 
-// Skiplist 常量
-private let HEIGHT_INCREASE: UInt32 = 1431655765u32  // UInt32.Max / 3 ≈ 1/3 概率
+private let HEIGHT_INCREASE: UInt32 = 1431655765u32
 
-/**
- * Skiplist 并发跳表
- */
 public class Skiplist {
-    // Arena 内存池
     private let arena: Arena
-    
-    // 头节点
+    private let atomicStorage: AtomicStorage
     private let head: Node
-    
-    // 当前最大高度
     private let height: AtomicInt32
-    
-    // 随机数生成器
     private let random: Random
     
-    public init(arena: Arena) {
+    public init(arena: Arena, atomicStorage: AtomicStorage) {
         this.arena = arena
+        this.atomicStorage = atomicStorage
         this.height = AtomicInt32(1)
         this.random = Random()
         
-        // 创建头节点（高度 = MAX_HEIGHT）
+        let headAtomicIdx = atomicStorage.allocNode()
         let headOffset = arena.putNode(MAX_HEIGHT)
-        this.head = Node(arena, headOffset)
+        this.head = Node(arena, headOffset, atomicStorage)
+        head.setAtomicIdx(headAtomicIdx)
         
-        // 初始化头节点的 tower 为 0（null）
         for (i in 0..MAX_HEIGHT) {
             head.setNextOffset(i, 0)
         }
     }
     
-    /**
-     * 生成随机高度
-     */
     private func randomHeight(): Int64 {
         var h: Int64 = 1
         
@@ -57,72 +47,54 @@ public class Skiplist {
         return h
     }
     
-    /**
-     * 获取当前高度
-     */
     public func getHeight(): Int64 {
         return Int64(height.load())
     }
     
-    /**
-     * 查找节点 (精确匹配)
-     * 
-     * 返回：找到返回节点，未找到返回 None
-     */
+    private func getNode(offset: UInt32): Node {
+        Node(arena, offset, atomicStorage)
+    }
+    
     public func get(key: Array<Byte>): ?Node {
-        // 从最高层开始查找
         var x = head
         var level = getHeight() - 1
         
         while (level >= 0) {
-            // 获取下一节点
-            let nextOffset = x.getNextOffset(level)
+            var nextOffset = x.getNextOffset(level)
             
             if (nextOffset == 0) {
-                // 没有下一节点，下降一层
                 level--
                 continue
             }
             
-            let n = Node(arena, nextOffset)
+            let n = getNode(nextOffset)
             let cmp = compareKeys(key, n.getKey())
             
             if (cmp > 0) {
-                // key > node.key，继续向右
                 x = n
             } else if (cmp == 0) {
-                // 找到
                 return Some(n)
             } else {
-                // key < node.key，下降一层
                 level--
             }
         }
         
-        // 未找到
         None
     }
     
-    /**
-     * 查找 >= key 的节点 (类似 Go 的 findNear(key, false, true))
-     * 
-     * 用于版本查找：key 格式是 userKey + inverted_ts
-     * 高 ts 的 inverted_ts 更小，排在前面
-     * 所以 findGe(key) 能找到 ts <= readTs 的最新版本
-     */
     public func findGe(key: Array<Byte>): ?Node {
         var x = head
         var level = getHeight() - 1
         
         while (level >= 0) {
-            let nextOffset = x.getNextOffset(level)
+            var nextOffset = x.getNextOffset(level)
             
             if (nextOffset == 0) {
                 level--
                 continue
             }
             
-            let n = Node(arena, nextOffset)
+            let n = getNode(nextOffset)
             let cmp = compareKeys(key, n.getKey())
             
             if (cmp > 0) {
@@ -134,24 +106,16 @@ public class Skiplist {
             }
         }
         
-        // 返回 x 的下一个节点 (>= key)
-        let nextOffset = x.getNextOffset(0)
-        if (nextOffset == 0) {
+        let finalNext = x.getNextOffset(0)
+        if (finalNext == 0) {
             return None
         }
-        Some(Node(arena, nextOffset))
+        Some(getNode(finalNext))
     }
     
-    /**
-     * 插入节点
-     * 
-     * 如果 key 已存在，更新 value
-     */
     public func add(key: Array<Byte>, value: UInt64): Unit {
-        // 生成随机高度
         let h = randomHeight()
         
-        // 更新全局高度
         while (true) {
             let currentHeight = height.load()
             if (h <= Int64(currentHeight)) {
@@ -162,26 +126,24 @@ public class Skiplist {
             }
         }
         
-        // 查找插入位置
-        var prev = Array<Node>(MAX_HEIGHT, repeat: head)
-        var next = Array<UInt32>(MAX_HEIGHT, repeat: 0)
+        var prevOffsets = Array<UInt32>(MAX_HEIGHT, { _ => head.getOffset() })
+        var nextOffsets = Array<UInt32>(MAX_HEIGHT, { _ => 0u32 })
         
+        let listHeight = getHeight()
         var x = head
-        var level = getHeight() - 1
+        var level = listHeight - 1
         
         while (level >= 0) {
-            // 查找第 level 层的插入位置
             var nextOffset = x.getNextOffset(level)
             
             while (nextOffset != 0) {
-                let n = Node(arena, nextOffset)
+                let n = getNode(nextOffset)
                 let cmp = compareKeys(key, n.getKey())
                 
                 if (cmp > 0) {
                     x = n
                     nextOffset = x.getNextOffset(level)
                 } else if (cmp == 0) {
-                    // key 已存在，更新 value
                     n.setValue(value)
                     return
                 } else {
@@ -189,35 +151,78 @@ public class Skiplist {
                 }
             }
             
-            prev[level] = x
-            next[level] = nextOffset
+            prevOffsets[level] = x.getOffset()
+            nextOffsets[level] = nextOffset
             level--
         }
         
-        // 分配新节点
+        let atomicIdx = atomicStorage.allocNode()
         let nodeOffset = arena.putNode(h)
-        let newNode = Node(arena, nodeOffset)
+        let newNode = Node(arena, nodeOffset, atomicStorage)
+        newNode.setAtomicIdx(atomicIdx)
         
-        // 存储 key
         let keyOffset = arena.putBytes(key)
         let keySize = UInt16(key.size)
         
-        // 设置节点字段
         newNode.setValue(value)
         arena.putU32(keyOffset, nodeOffset + 8)
         arena.putU16(keySize, nodeOffset + 12)
         arena.putU16(UInt16(h), nodeOffset + 14)
         
-        // 逐层插入（从底层到顶层）
         for (i in 0..h) {
-            newNode.setNextOffset(i, next[i])
-            prev[i].setNextOffset(i, nodeOffset)
+            newNode.setNextOffset(i, nextOffsets[i])
+            
+            while (true) {
+                let prevOff = prevOffsets[i]
+                let prevNode = getNode(prevOff)
+                
+                if (prevNode.casNextOffset(i, nextOffsets[i], nodeOffset)) {
+                    break
+                }
+                
+                let (p, n) = findSpliceForLevel(key, prevOff, i)
+                prevOffsets[i] = p
+                nextOffsets[i] = n
+                
+                if (p == n && p != 0u32) {
+                    let existingNode = getNode(p)
+                    existingNode.setValue(value)
+                    return
+                }
+                
+                newNode.setNextOffset(i, n)
+            }
         }
     }
     
-    /**
-     * 比较两个 key
-     */
+    private func findSpliceForLevel(key: Array<Byte>, before: UInt32, level: Int64): (UInt32, UInt32) {
+        var prev = before
+        var next: UInt32 = 0
+        var found = false
+        
+        while (!found) {
+            let prevNode = getNode(prev)
+            next = prevNode.getNextOffset(level)
+            
+            if (next == 0) {
+                return (prev, 0u32)
+            }
+            
+            let nextNode = getNode(next)
+            let nextKey = nextNode.getKey()
+            let cmp = compareKeys(key, nextKey)
+            
+            if (cmp == 0) {
+                return (next, next)
+            }
+            if (cmp < 0) {
+                return (prev, next)
+            }
+            prev = next
+        }
+        return (prev, next)
+    }
+    
     private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
         let minLen = if (a.size < b.size) { a.size } else { b.size }
         
@@ -238,17 +243,15 @@ public class Skiplist {
         return 0
     }
     
-    /**
-     * 获取 Arena
-     */
     public func getArena(): Arena {
         return arena
     }
     
-    /**
-     * 获取头节点
-     */
     public func getHead(): Node {
         return head
+    }
+    
+    public func getAtomicStorage(): AtomicStorage {
+        return atomicStorage
     }
 }

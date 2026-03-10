@@ -15,6 +15,7 @@ public class MemTable {
     private let fid: Int64
     private let table: Skiplist
     private let arena: Arena
+    private let atomicStorage: AtomicStorage
     private let refs: AtomicInt32
     private let walExists: Bool
     private let sizeInBytes_: AtomicUInt64
@@ -29,7 +30,8 @@ public class MemTable {
         
         let arenaSize = Int64(opt.MemTableSize * 2)
         this.arena = Arena(arenaSize)
-        this.table = Skiplist(arena)
+        this.atomicStorage = AtomicStorage(4096)
+        this.table = Skiplist(arena, atomicStorage)
         this.refs = AtomicInt32(1)
         this.sizeInBytes_ = AtomicUInt64(0)
         this.replaying = AtomicBool(false)
@@ -83,11 +85,9 @@ public class MemTable {
     public func getWithTs(userKey: Array<Byte>, readTs: UInt64): ?ValueStruct {
         let seekKey = keyWithTs(userKey, readTs)
         
-        // 用 findGe 找 >= seekKey 的节点 (类似 Go 的 findNear)
         let node = table.findGe(seekKey)
         if (let Some(n) <- node) {
             let key = n.getKey()
-            // 只比较 userKey，忽略时间戳
             if (sameKey(key, seekKey)) {
                 let ts = parseTs(key)
                 if (ts <= readTs) {
@@ -164,16 +164,18 @@ public class MemTable {
  */
 public class SkipIterator {
     private let table: Skiplist
+    private let atomicStorage: AtomicStorage
     private var current: ?Node
     
     public init(table: Skiplist) {
         this.table = table
+        this.atomicStorage = table.getAtomicStorage()
         this.current = None
         
         let head = table.getHead()
         let firstOffset = head.getNextOffset(0)
         if (firstOffset != 0) {
-            current = Some(Node(table.getArena(), firstOffset))
+            current = Some(Node(table.getArena(), firstOffset, atomicStorage))
         }
     }
     
@@ -195,7 +197,7 @@ public class SkipIterator {
             
             let nextOffset = node.getNextOffset(0)
             if (nextOffset != 0) {
-                current = Some(Node(table.getArena(), nextOffset))
+                current = Some(Node(table.getArena(), nextOffset, atomicStorage))
             } else {
                 current = None
             }

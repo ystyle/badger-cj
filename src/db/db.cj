@@ -220,6 +220,10 @@ public class DB {
     
     public func getVersion(): UInt64 { version.load() }
     
+    public func flushWAL(): Unit {
+        mt.flushWAL()
+    }
+    
     public func newTransaction(update!: Bool = true): Transaction {
         Transaction(this, update: update)
     }

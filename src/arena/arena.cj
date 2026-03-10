@@ -196,6 +196,36 @@ public class Arena {
     }
     
     /**
+     * 读取 Int64（Little-Endian）
+     */
+    public func getI64(offset: UInt32): Int64 {
+        let v = UInt64(buf[Int64(offset)]) |
+               (UInt64(buf[Int64(offset) + 1]) << 8u64) |
+               (UInt64(buf[Int64(offset) + 2]) << 16u64) |
+               (UInt64(buf[Int64(offset) + 3]) << 24u64) |
+               (UInt64(buf[Int64(offset) + 4]) << 32u64) |
+               (UInt64(buf[Int64(offset) + 5]) << 40u64) |
+               (UInt64(buf[Int64(offset) + 6]) << 48u64) |
+               (UInt64(buf[Int64(offset) + 7]) << 56u64)
+        return Int64(v)
+    }
+    
+    /**
+     * 写入 Int64（Little-Endian）
+     */
+    public func putI64(value: Int64, offset: UInt32): Unit {
+        let v = UInt64(value)
+        buf[Int64(offset)] = UInt8(v & 0xFFu64)
+        buf[Int64(offset) + 1] = UInt8((v >> 8u64) & 0xFFu64)
+        buf[Int64(offset) + 2] = UInt8((v >> 16u64) & 0xFFu64)
+        buf[Int64(offset) + 3] = UInt8((v >> 24u64) & 0xFFu64)
+        buf[Int64(offset) + 4] = UInt8((v >> 32u64) & 0xFFu64)
+        buf[Int64(offset) + 5] = UInt8((v >> 40u64) & 0xFFu64)
+        buf[Int64(offset) + 6] = UInt8((v >> 48u64) & 0xFFu64)
+        buf[Int64(offset) + 7] = UInt8((v >> 56u64) & 0xFFu64)
+    }
+    
+    /**
      * 获取当前已使用的大小
      */
     public func usedSize(): UInt32 {

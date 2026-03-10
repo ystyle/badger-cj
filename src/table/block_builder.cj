@@ -108,7 +108,7 @@ public class BlockBuilder {
         
 let numEntries = UInt32(entryOffsets.size)
         for (i in 0..Int64(numEntries)) {
-            let offset = entryOffsets[Int64(numEntries) - 1 - i]
+            let offset = entryOffsets[i]
             buf.add(UInt8(offset & 0xFF))
             buf.add(UInt8((offset >> 8) & 0xFF))
             buf.add(UInt8((offset >> 16) & 0xFF))

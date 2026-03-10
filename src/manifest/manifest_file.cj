@@ -35,6 +35,7 @@ public class ManifestFile {
         }
         
         let f = File(p, ReadWrite)
+        f.seek(SeekPosition.End(0))
         mf.file = f
         mf.bufferedOut = BufferedOutputStream<File>(f, 4096)
         

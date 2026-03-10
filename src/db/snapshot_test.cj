@@ -10,7 +10,9 @@ class SnapshotTest {
     
     @TestCase
     func testSnapshotBasic() {
-        let db = DB.open(DBOptions(dir: "/tmp/snapshot_test1"))
+        let dir = "/tmp/snapshot_test1"
+        cleanupSnapshotDir(dir)
+        let db = DB.open(DBOptions(dir: dir))
         
         db.set("key1".toArray(), "value1".toArray())
         db.set("key2".toArray(), "value2".toArray())
@@ -30,12 +32,14 @@ class SnapshotTest {
         
         snap.discard()
         db.close()
-        cleanupSnapshotDir("/tmp/snapshot_test1")
+        cleanupSnapshotDir(dir)
     }
     
     @TestCase
     func testSnapshotIterator() {
-        let db = DB.open(DBOptions(dir: "/tmp/snapshot_test2"))
+        let dir = "/tmp/snapshot_test2"
+        cleanupSnapshotDir(dir)
+        let db = DB.open(DBOptions(dir: dir))
         
         db.set("key1".toArray(), "value1".toArray())
         db.set("key2".toArray(), "value2".toArray())
@@ -69,13 +73,12 @@ class SnapshotTest {
         iter.close()
         snap.discard()
         db.close()
-        cleanupSnapshotDir("/tmp/snapshot_test2")
+        cleanupSnapshotDir(dir)
     }
 }
 
 func cleanupSnapshotDir(path: String): Unit {
-    try {
-        remove(path)
-    } catch (e: Exception) {
+    if (exists(Path(path))) {
+        remove(Path(path), recursive: true)
     }
 }

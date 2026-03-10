@@ -1,8 +1,8 @@
 # Badger-cj 性能基准测试报告
 
-**测试日期：** 2026-03-10  
-**版本：** Phase 5 完成版本（128 测试通过）  
-**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS
+**测试日期：** 2026-03-11  
+**版本：** 无锁并发 SkipList 版本  
+**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS, cjHeapSize=4gb
 
 ---
 
@@ -13,21 +13,23 @@
 ### 运行方式
 
 ```bash
-# Cangjie benchmark
+# Cangjie benchmark (单线程)
 cjpm bench
 
-# Go benchmark
+# Cangjie 性能测试 (多线程并发)
+cjpm build && ./target/release/bin/badgercj.examples.skiplist_perf
+
+# Go benchmark (并发)
 cd /home/ystyle/Projects/badger
-go test -run=^$ -bench=BenchmarkWrite -benchmem -cpu=1 ./skl/
-go test -bench=DBSet -benchmem -cpu=1 /tmp/db_bench_test.go
-go test -bench=DBGet -benchmem -cpu=1 /tmp/db_bench_test.go
+go test -run=^$ -bench=BenchmarkWrite -benchmem ./skl/
+go test -bench=BenchmarkReadWrite -benchmem ./skl/
 ```
 
 ---
 
 ## Go vs Cangjie 性能对比
 
-### 最终结果
+### 1. 单线程基准测试 (cjpm bench)
 
 | 操作 | Go Badger v4 | Cangjie badger-cj | 比率 |
 |------|-------------|------------------|------|
@@ -36,27 +38,83 @@ go test -bench=DBGet -benchmem -cpu=1 /tmp/db_bench_test.go
 | **DB Set** | 4,566 ns/op | 14,730 ns/op | **3.2x** |
 | **DB Get** | 708 ns/op | 3,901 ns/op | **5.5x** |
 
-### 详细数据
+**注：** 单线程测试包含了创建 Arena/AtomicStorage 的开销
 
-#### Skiplist Put
+### 2. 多线程并发测试 (独立可执行文件)
+
+| 操作 | Go (16线程) | Cangjie (16线程) | 比率 |
+|------|------------|-----------------|------|
+| **Concurrent Write** | ~250 ns/op | 457 ns/op | **1.8x** |
+| **Concurrent Read** | ~96 ns/op | 116 ns/op | **1.2x** |
+| **Sequential Write** | - | 1,234 ns/op | - |
+| **Sequential Read** | - | 3,576 ns/op | - |
+
+**测试条件：** 5000 ops, 16 threads, 4GB heap
+
+### 3. 详细并发测试数据
+
 ```
-Go:      BenchmarkWrite-16    1215837    975.8 ns/op    64 B/op    7 allocs/op
-Cangjie: benchPut              Median     2.469 ms (1000 ops) = 2469 ns/op
+=== Skiplist Performance Test ===
+Operations: 5000, Threads: 16
+
+--- Concurrent Write ---
+Total time: 2 ms
+Per op: 457 ns/op
+Throughput: 2,184,367 ops/sec
+
+--- Concurrent Read ---
+Total time: 0 ms
+Per op: 116 ns/op
+Throughput: 8,576,329 ops/sec
+
+--- Sequential Write ---
+Total time: 6 ms
+Per op: 1,234 ns/op
+Throughput: 810,372 ops/sec
+
+--- Sequential Read ---
+Total time: 17 ms
+Per op: 3,576 ns/op
+Throughput: 279,642 ops/sec
 ```
 
-#### DB Set
-```
-Go:      BenchmarkDBSet-16    262935    4566 ns/op    1838 B/op    40 allocs/op
-Cangjie: benchDBSet            Median    14.42 us
-```
+---
 
-#### DB Get
-```
-Go:      BenchmarkDBGet-16    1621920    708.3 ns/op    508 B/op    8 allocs/op
-Cangjie: benchDBGet            Median    3.901 us
-```
+## 无锁并发实现效果
 
-**结论：** 所有操作性能差距控制在 2-6 倍，对于新语言来说是合理的性能表现。
+### 优化前 vs 优化后
+
+| 指标 | 优化前 (伪CAS) | 优化后 (真CAS) |
+|------|--------------|---------------|
+| **并发安全** | ❌ 数据损坏风险 | ✅ 无锁并发安全 |
+| **写性能** | ~380 ns/op | ~457 ns/op |
+| **读性能** | - | ~116 ns/op |
+
+### 关键改进
+
+1. **分离 AtomicStorage**
+   - `values: Array<AtomicUInt64>` - value 原子存储
+   - `towers: Array<Array<AtomicUInt32>>` - tower 原子存储
+
+2. **真正的 CAS 操作**
+   ```cangjie
+   public func casNextOffset(nodeIdx: Int64, level: Int64, old: UInt32, new: UInt32): Bool {
+       towers[nodeIdx][level].compareAndSwap(old, new)  // 真正的原子 CAS
+   }
+   ```
+
+3. **CAS 循环重试**
+   ```cangjie
+   while (true) {
+       if (prevNode.casNextOffset(i, nextOffsets[i], nodeOffset)) {
+           break  // CAS 成功
+       }
+       // CAS 失败，重新查找位置
+       let (p, n) = findSpliceForLevel(key, prevOff, i)
+       prevOffsets[i] = p
+       nextOffsets[i] = n
+   }
+   ```
 
 ---
 

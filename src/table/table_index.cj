@@ -33,22 +33,36 @@ public class TableIndex {
     public static func decodeFromData(data: Array<Byte>): TableIndex {
         let size = Int64(data.size)
         
-        let checksumSizeOffset = size - 8
-        let checksumSize = UInt32(data[checksumSizeOffset]) |
-                          (UInt32(data[checksumSizeOffset + 1]) << 8) |
-                          (UInt32(data[checksumSizeOffset + 2]) << 16) |
-                          (UInt32(data[checksumSizeOffset + 3]) << 24)
+        if (size < 12) {
+            return TableIndex(ArrayList<BlockOffset>(), [], 0, 0, 0, 0, 0)
+        }
         
-        let checksumOffset = checksumSizeOffset - Int64(checksumSize)
+        let checksumSize = UInt32(data[size - 4]) |
+                          (UInt32(data[size - 3]) << 8) |
+                          (UInt32(data[size - 2]) << 16) |
+                          (UInt32(data[size - 1]) << 24)
         
-        let indexSizeOffset = checksumOffset - 4
-        let indexSize = UInt32(data[indexSizeOffset]) |
-                       (UInt32(data[indexSizeOffset + 1]) << 8) |
-                       (UInt32(data[indexSizeOffset + 2]) << 16) |
-                       (UInt32(data[indexSizeOffset + 3]) << 24)
+        let checksumEnd = size - 4
+        let checksumStart = checksumEnd - Int64(checksumSize)
         
-        let indexStart = indexSizeOffset - Int64(indexSize)
-        let indexData = data[indexStart..indexSizeOffset]
+        if (checksumStart < 4) {
+            return TableIndex(ArrayList<BlockOffset>(), [], 0, 0, 0, 0, 0)
+        }
+        
+        let indexSizeEnd = checksumStart
+        let indexSize = UInt32(data[indexSizeEnd - 4]) |
+                       (UInt32(data[indexSizeEnd - 3]) << 8) |
+                       (UInt32(data[indexSizeEnd - 2]) << 16) |
+                       (UInt32(data[indexSizeEnd - 1]) << 24)
+        
+        let indexEnd = indexSizeEnd - 4
+        let indexStart = indexEnd - Int64(indexSize)
+        
+        if (indexStart < 0 || indexEnd > size) {
+            return TableIndex(ArrayList<BlockOffset>(), [], 0, 0, 0, 0, 0)
+        }
+        
+        let indexData = data[indexStart..indexEnd]
         
         return decode(indexData)
     }

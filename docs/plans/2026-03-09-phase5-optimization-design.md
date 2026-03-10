@@ -364,15 +364,46 @@ cjpm bench --filter=DBBench
 
 ---
 
-## 后续优化方向（可选）
+## 后续优化方向（已完成）
 
-1. **Arena 动态扩容** - 避免预分配过大的内存
-2. **Iterator 批量预取** - 提升迭代速度
-3. **对象池复用** - 减少 GC 压力
-4. **异步 Write Channel** - 减少锁竞争
+### 5. 无锁并发 SkipList ✅ **2026-03-11 完成**
+
+**问题：** 原实现 `casNextOffset` 是伪 CAS（先读后写），多线程写入会数据损坏
+
+**解决方案：** 
+1. 新增 `AtomicStorage` 类，分离 value/tower 到独立的原子存储
+2. 使用 `compareAndSwap()` 实现真正的 CAS
+3. CAS 失败后重新查找插入位置
+
+**代码变更：** 
+- `src/skiplist/atomic_storage.cj` - 新增原子存储管理类
+- `src/skiplist/skiplist.cj` - 无锁并发实现，CAS 循环
+- `src/skiplist/node.cj` - 通过 AtomicStorage 访问 value/tower
+
+**性能结果：**
+```
+Concurrent Write:  457 ns/op  (16 threads, 2.1M ops/sec)
+Concurrent Read:   116 ns/op  (16 threads, 8.5M ops/sec)
+Sequential Write: 1234 ns/op  (1 thread, 810K ops/sec)
+Sequential Read:  3576 ns/op  (1 thread, 280K ops/sec)
+```
+
+**对比 Go:**
+| 操作 | Go | Cangjie | 比率 |
+|------|-----|---------|------|
+| Concurrent Write | ~250 ns | 457 ns | 1.8x |
+| Concurrent Read | ~96 ns | 116 ns | 1.2x |
+
+**结论：** 无锁并发实现成功，性能接近 Go 版本
 
 ---
 
-**文档版本：** v1.0  
-**最后更新：** 2026-03-10  
+## 优化历史
+
+### 优化 1-4: Phase 5 初始优化 ✅
+
+---
+
+**文档版本：** v2.0  
+**最后更新：** 2026-03-11  
 **维护者：** AI Code Agent

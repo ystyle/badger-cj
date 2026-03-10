@@ -15,4 +15,7 @@
 [package.package-configuration."badgercj.examples.perf"]
 output-type = "executable"
 
+[package.package-configuration."badgercj.examples.skiplist_perf"]
+output-type = "executable"
+
 [dependencies]

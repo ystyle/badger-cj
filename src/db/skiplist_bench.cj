@@ -1,22 +1,29 @@
+/**
+ * SkiplistBench - 与 Go 版本对齐的基准测试
+ */
 package badgercj.db
 
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.random.*
+import std.sync.*
+import std.collection.*
 import badgercj.arena.*
 import badgercj.skiplist.*
 
-func benchPadNum(n: Int64, digits: Int64): String {
-    let s = n.toString()
-    if (s.size >= digits) {
-        return s
-    }
-    return "0" * (digits - s.size) + s
-}
-
 func benchRandomKey(rng: Random): Array<Byte> {
-    let key = rng.nextInt64(100000000)
-    return "k${benchPadNum(key, 16)}".toArray()
+    let key = rng.nextUInt32()
+    let key2 = rng.nextUInt32()
+    let arr = Array<Byte>(8, repeat: 0)
+    arr[0] = UInt8(key & 0xFF)
+    arr[1] = UInt8((key >> 8) & 0xFF)
+    arr[2] = UInt8((key >> 16) & 0xFF)
+    arr[3] = UInt8((key >> 24) & 0xFF)
+    arr[4] = UInt8(key2 & 0xFF)
+    arr[5] = UInt8((key2 >> 8) & 0xFF)
+    arr[6] = UInt8((key2 >> 16) & 0xFF)
+    arr[7] = UInt8((key2 >> 24) & 0xFF)
+    return arr
 }
 
 @Test
@@ -25,8 +32,9 @@ class SkiplistBench {
     @Bench
     func benchPut() {
         let arena = Arena(64 * 1024 * 1024)
-        let list = Skiplist(arena)
-        let rng = Random(42)
+        let atomicStorage = AtomicStorage(100000)
+        let list = Skiplist(arena, atomicStorage)
+        let rng = Random(42u64)
         
         for (_ in 0..1000) {
             let key = benchRandomKey(rng)
@@ -37,15 +45,16 @@ class SkiplistBench {
     @Bench
     func benchGet() {
         let arena = Arena(64 * 1024 * 1024)
-        let list = Skiplist(arena)
-        let rng = Random(42)
+        let atomicStorage = AtomicStorage(100000)
+        let list = Skiplist(arena, atomicStorage)
+        let rng = Random(42u64)
         
         for (_ in 0..1000) {
             let key = benchRandomKey(rng)
             list.add(key, 100u64)
         }
         
-        let rng2 = Random(42)
+        let rng2 = Random(42u64)
         for (_ in 0..1000) {
             let key = benchRandomKey(rng2)
             list.get(key)
