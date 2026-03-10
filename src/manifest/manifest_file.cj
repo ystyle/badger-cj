@@ -3,18 +3,21 @@ package badgercj.manifest
 import std.fs.*
 import std.io.*
 import std.collection.*
+import std.sync.*
 
 public class ManifestFile {
     private let path: String
     private var file: ?File
     private var bufferedOut: ?BufferedOutputStream<File>
     private let manifest: Manifest
+    private let mutex: Mutex
     
     private init(path: String, manifest: Manifest) {
         this.path = path
         this.file = None
         this.bufferedOut = None
         this.manifest = manifest
+        this.mutex = Mutex()
     }
     
     public static func open(path: String): ManifestFile {
@@ -71,6 +74,28 @@ public class ManifestFile {
     
     public func getManifest(): Manifest {
         manifest
+    }
+    
+    public func saveChanges(changes: ManifestChangeSet): Unit {
+        mutex.lock()
+        try {
+            let encoded = changes.encode()
+            
+            let out = bufferedOut ?? throw Exception("ManifestFile not open")
+            
+            let len = UInt32(encoded.size)
+            out.write(UInt8(len & 0xFF))
+            out.write(UInt8((len >> 8) & 0xFF))
+            out.write(UInt8((len >> 16) & 0xFF))
+            out.write(UInt8((len >> 24) & 0xFF))
+            
+            out.write(encoded)
+            out.flush()
+            
+            manifest.applyChanges(changes.changes)
+        } finally {
+            mutex.unlock()
+        }
     }
     
     public func close(): Unit {

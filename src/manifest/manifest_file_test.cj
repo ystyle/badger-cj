@@ -63,4 +63,36 @@ class ManifestFileTest {
             remove(testDir, recursive: true)
         }
     }
+    
+    @TestCase
+    func testSaveAndLoadChanges() {
+        let testDir = Path("/tmp/badger_manifest_test_save")
+        if (exists(testDir)) {
+            remove(testDir, recursive: true)
+        }
+        Directory.create(testDir.toString())
+        
+        let path = testDir.toString() + "/MANIFEST"
+        
+        let mf1 = ManifestFile.open(path)
+        let changes = ManifestChangeSet()
+        changes.add(ManifestChange(1, ManifestChangeOp.Create, level: 0))
+        changes.add(ManifestChange(2, ManifestChangeOp.Create, level: 1))
+        mf1.saveChanges(changes)
+        mf1.close()
+        
+        let mf2 = ManifestFile.open(path)
+        let m = mf2.getManifest()
+        
+        @Assert(m.levels[0].size, 1)
+        @Assert(m.levels[0][0].id, 1)
+        @Assert(m.levels[1].size, 1)
+        @Assert(m.levels[1][0].id, 2)
+        
+        mf2.close()
+        
+        if (exists(testDir)) {
+            remove(testDir, recursive: true)
+        }
+    }
 }
