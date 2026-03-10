@@ -19,6 +19,8 @@ public class MemTable {
     private let walExists: Bool
     private let sizeInBytes_: AtomicUInt64
     private let wal: WAL
+    private let replaying: AtomicBool
+    private let maxVersion: AtomicUInt64
     
     public init(opt: DBOptions, fid: Int64, walExists: Bool) {
         this.opt = opt
@@ -30,19 +32,26 @@ public class MemTable {
         this.table = Skiplist(arena)
         this.refs = AtomicInt32(1)
         this.sizeInBytes_ = AtomicUInt64(0)
+        this.replaying = AtomicBool(false)
+        this.maxVersion = AtomicUInt64(0)
         
         let walPath = opt.Dir + "/${fid}.mem"
+        this.wal = WAL.open(walPath)
+        
         if (walExists) {
-            this.wal = WAL.open(walPath)
+            replaying.store(true)
             this.wal.replay(this)
-        } else {
-            this.wal = WAL.open(walPath)
+            replaying.store(false)
         }
     }
     
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
-        if (!opt.DisableWAL) {
+        if (!opt.DisableWAL && !replaying.load()) {
             wal.write(key, vs)
+        }
+        
+        if (vs.version > maxVersion.load()) {
+            maxVersion.store(vs.version)
         }
         
         let encoded = vs.encode()
@@ -129,6 +138,10 @@ public class MemTable {
         wal.close()
     }
     
+    public func flushWAL(): Unit {
+        wal.flush()
+    }
+    
     public func iterator(): SkipIterator {
         return SkipIterator(table)
     }
@@ -139,6 +152,10 @@ public class MemTable {
     
     public func deleteWAL(): Unit {
         wal.delete()
+    }
+    
+    public func getMaxVersion(): UInt64 {
+        maxVersion.load()
     }
 }
 

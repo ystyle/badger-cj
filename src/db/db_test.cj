@@ -97,6 +97,38 @@ class DBTest {
         db.close()
         cleanupDir("/tmp/badger_db_test5")
     }
+    
+    @TestCase
+    func testOpenRecovery() {
+        let dir = "/tmp/badger_db_test_recovery"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        db1.set("key1".toArray(), "value1".toArray())
+        db1.set("key2".toArray(), "value2".toArray())
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        
+        let v1 = db2.get("key1".toArray())
+        if (let Some(vs) <- v1) {
+            @Assert(vs.value, "value1".toArray())
+        } else {
+            @Fail("Key key1 not found after recovery")
+        }
+        
+        let v2 = db2.get("key2".toArray())
+        if (let Some(vs) <- v2) {
+            @Assert(vs.value, "value2".toArray())
+        } else {
+            @Fail("Key key2 not found after recovery")
+        }
+        
+        db2.close()
+        cleanupDir(dir)
+    }
 }
 
 func cleanupDir(path: String) {

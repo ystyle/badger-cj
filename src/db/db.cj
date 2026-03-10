@@ -54,15 +54,24 @@ public class DB {
             Directory.create(Path(opt.Dir), recursive: true)
         }
         
-        let manifestPath = Path(opt.Dir).join("MANIFEST").toString()
+        let manifestPath = manifestPath(opt.Dir)
         let manifestFile = ManifestFile.open(manifestPath)
         let manifest = manifestFile.getManifest()
-        let lc = LevelsController(manifest: manifest)
-        let vlog = VLogManager(Path(opt.Dir))
-        let fid = Int64(manifest.nextFileID)
-        let mt = MemTable(opt, fid, false)
         
+        let lc = LevelsController(manifest: manifest, dir: opt.Dir)
+        lc.loadTables()
+        
+        let fid = Int64(manifest.nextFileID)
+        let mt = MemTable(opt, fid, true)
+        
+        let vlog = VLogManager(Path(opt.Dir))
         let db = DB(opt, mt, manifest, manifestFile, lc, vlog)
+        
+        let recoveredVersion = mt.getMaxVersion()
+        if (recoveredVersion > 0) {
+            db.version.store(recoveredVersion + 1)
+        }
+        
         db.running = AtomicBool(true)
         let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
@@ -77,8 +86,10 @@ public class DB {
         
         lock.writeLock.lock()
         try {
+            mt.flushWAL()
             mt.closeWAL()
             for (immMt in imm) {
+                immMt.flushWAL()
                 immMt.closeWAL()
             }
             vlog.close()
