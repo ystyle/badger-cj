@@ -207,4 +207,16 @@ class MemTableTest {
             @Fail("Key not found")
         }
     }
+    
+    @TestCase
+    func testIsEmpty() {
+        let opt = DBOptions(dir: "/tmp/badger_test")
+        let mt = MemTable(opt, 1, false)
+        
+        @Assert(mt.isEmpty(), true)
+        
+        mt.put([0x61, 0x62], ValueStruct([0x76], version: 1))
+        
+        @Assert(mt.isEmpty(), false)
+    }
 }

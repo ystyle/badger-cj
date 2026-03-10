@@ -132,6 +132,14 @@ public class MemTable {
     public func iterator(): SkipIterator {
         return SkipIterator(table)
     }
+    
+    public func isEmpty(): Bool {
+        table.getHead().getNextOffset(0) == 0
+    }
+    
+    public func deleteWAL(): Unit {
+        wal.delete()
+    }
 }
 
 /**
