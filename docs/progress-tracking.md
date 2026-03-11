@@ -9,7 +9,7 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 181/181 通过 ✅ |
+| **测试** | 182/182 通过 ✅ |
 | **性能** | Write 457ns/op (Go 1.8x), Read 116ns/op (Go 1.2x) |
 | **核心功能** | 全部完成（见下方清单） |
 
@@ -128,6 +128,9 @@
 | getWithTs O(n) 性能 | 使用 findGe O(log n) | `src/skiplist/skiplist.cj` |
 | SkipList 伪 CAS 不安全 | 新增 AtomicStorage 真正 CAS | `src/skiplist/atomic_storage.cj` |
 | DB 不支持持久化 | close() flush + open() 恢复 | `src/db/db.cj` |
+| AtomicStorage 容量不足 | 动态计算 `arenaSize / 32` | `src/db/memtable.cj` |
+| MemTableSize 默认太小 | 改为 64MB (与 Go badger 一致) | `src/db/options.cj` |
+| hashKey 整数溢出 | 添加 `@OverflowWrapping` 注解 | `src/db/iterator.cj` |
 
 ### 仓颉语法注意事项
 
