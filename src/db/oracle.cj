@@ -40,7 +40,7 @@ public class Oracle {
     private let detectConflicts: Bool
     
     private let lock: Mutex
-    private var nextTxnTs: UInt64
+    private let nextTxnTs: AtomicUInt64
     
     private let txnMark: WaterMark
     private let readMark: WaterMark
@@ -55,7 +55,7 @@ public class Oracle {
         this.detectConflicts = detectConflicts
         
         this.lock = Mutex()
-        this.nextTxnTs = 1
+        this.nextTxnTs = AtomicUInt64(1)
         
         this.txnMark = WaterMark("badger.TxnTimestamp")
         this.readMark = WaterMark("badger.PendingReads")
@@ -71,37 +71,44 @@ public class Oracle {
             throw IllegalStateException("ReadTs should not be called for managed DB")
         }
         
-        lock.lock()
-        let ts = nextTxnTs - 1
-        lock.unlock()
-        
+        let ts = nextTxnTs.load() - 1
         readMark.begin(ts)
-        
-        waitForTxnMark(ts)
         
         return ts
     }
     
     public func nextTs(): UInt64 {
-        lock.lock()
-        let ts = nextTxnTs
-        lock.unlock()
-        return ts
+        return nextTxnTs.load()
     }
     
     public func bumpCommitTs(ts: UInt64): Unit {
         lock.lock()
-        if (ts >= nextTxnTs) {
-            nextTxnTs = ts + 1
+        if (ts >= nextTxnTs.load()) {
+            nextTxnTs.store(ts + 1)
             txnMark.begin(ts)
             txnMark.done(ts)
-            // 直接设置 doneUntil，避免异步延迟
             txnMark.setDoneUntil(ts)
         }
         lock.unlock()
     }
     
     public func newCommitTs(txn: TxnState): UInt64 {
+        if (isManaged) {
+            lock.lock()
+            if (hasConflict(txn)) {
+                lock.unlock()
+                throw TxnConflict()
+            }
+            lock.unlock()
+            return txn.commitTs
+        }
+        
+        if (!detectConflicts || txn.reads.isEmpty()) {
+            let ts = nextTxnTs.fetchAdd(1)
+            txnMark.begin(ts)
+            return ts
+        }
+        
         lock.lock()
         
         if (hasConflict(txn)) {
@@ -109,24 +116,18 @@ public class Oracle {
             throw TxnConflict()
         }
         
-        if (!isManaged) {
-            doneReadInternal(txn)
-            cleanupCommittedTransactions()
-            
-            let ts = nextTxnTs
-            nextTxnTs++
-            txnMark.begin(ts)
-            
-            if (detectConflicts) {
-                committedTxns.add(CommittedTxn(ts, txn.conflictKeys))
-            }
-            
-            lock.unlock()
-            return ts
-        } else {
-            lock.unlock()
-            return txn.commitTs
+        doneReadInternal(txn)
+        cleanupCommittedTransactions()
+        
+        let ts = nextTxnTs.fetchAdd(1)
+        
+        if (detectConflicts) {
+            committedTxns.add(CommittedTxn(ts, txn.conflictKeys))
         }
+        
+        lock.unlock()
+        txnMark.begin(ts)
+        return ts
     }
     
     public func doneRead(txn: TxnState): Unit {
@@ -146,6 +147,7 @@ public class Oracle {
     public func doneCommit(commitTs: UInt64): Unit {
         if (!isManaged) {
             txnMark.done(commitTs)
+            txnMark.setDoneUntil(commitTs)
         }
     }
     
@@ -202,11 +204,5 @@ public class Oracle {
             sleep(Duration.millisecond * 1)
             retries++
         }
-    }
-}
-
-class IllegalStateException <: Exception {
-    public init(message: String) {
-        super(message)
     }
 }

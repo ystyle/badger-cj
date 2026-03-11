@@ -1,64 +1,58 @@
 package badgercj.db
 
 import std.sync.*
-import std.time.*
+import std.collection.*
 import badgercj.table.*
 
-public class WriteRequest {
+public struct WriteEntry {
     public let key: Array<Byte>
     public let value: Array<Byte>
-    public let commitTs: UInt64
     public let isDelete: Bool
     public var vp: ?ValuePointer
-    private let mutex: Mutex
-    private var cond: ?Condition
-    private let done: AtomicBool
     
-    public init(key: Array<Byte>, value: Array<Byte>, commitTs: UInt64, isDelete!: Bool = false) {
+    public init(key: Array<Byte>, value: Array<Byte>, isDelete!: Bool = false) {
         this.key = key
         this.value = value
-        this.commitTs = commitTs
         this.isDelete = isDelete
         this.vp = None
-        this.mutex = Mutex()
-        this.cond = None
-        this.done = AtomicBool(false)
+    }
+}
+
+public class WriteRequest {
+    public let commitTs: UInt64
+    private let entries: ArrayList<WriteEntry>
+    private let counter: SyncCounter
+    
+    public init(commitTs: UInt64) {
+        this.commitTs = commitTs
+        this.entries = ArrayList<WriteEntry>()
+        this.counter = SyncCounter(1)
     }
     
-    private func getCondition(): Condition {
-        if (cond.isNone()) {
-            mutex.lock()
-            try {
-                if (cond.isNone()) {
-                    cond = Some(mutex.condition())
-                }
-            } finally {
-                mutex.unlock()
-            }
-        }
-        return cond.getOrThrow()
+    public init(key: Array<Byte>, value: Array<Byte>, commitTs: UInt64, isDelete!: Bool = false) {
+        this.commitTs = commitTs
+        this.entries = ArrayList<WriteEntry>()
+        this.entries.add(WriteEntry(key, value, isDelete: isDelete))
+        this.counter = SyncCounter(1)
+    }
+    
+    public func addEntry(key: Array<Byte>, value: Array<Byte>, isDelete!: Bool = false): Unit {
+        entries.add(WriteEntry(key, value, isDelete: isDelete))
+    }
+    
+    public func getEntries(): ArrayList<WriteEntry> {
+        entries
+    }
+    
+    public func entryCount(): Int64 {
+        entries.size
     }
     
     public func wait(): Unit {
-        mutex.lock()
-        try {
-            while (!done.load()) {
-                getCondition().wait()
-            }
-        } finally {
-            mutex.unlock()
-        }
+        counter.waitUntilZero()
     }
     
-    public func signal(): Unit {
-        mutex.lock()
-        try {
-            done.store(true)
-            if (cond.isSome()) {
-                cond.getOrThrow().notifyAll()
-            }
-        } finally {
-            mutex.unlock()
-        }
+    public func done(): Unit {
+        counter.dec()
     }
 }

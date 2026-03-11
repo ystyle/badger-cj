@@ -24,7 +24,7 @@ cjpm build
 ./target/release/bin/main
 
 # 运行所有测试(-j并发测试)
-cjpm test -j 16
+cjHeapSize=4gb  cjpm test -j 16
 
 # 运行指定测试
 cjpm test --show-all-output --filter 'ParserTest.testParseRestParameter'
@@ -36,6 +36,10 @@ cjpm bench
 # 清理构建缓存 
 cjpm clean
 ```
+
+### 创建独立可执行程序
+1. 在`src/examples`添加一个包，创建main入口
+2. 在`cjpm.toml`添加配置
 
 ### 创建环境变量
 >如果找不到cjpm的话，执行以下命令

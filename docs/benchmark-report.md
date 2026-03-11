@@ -17,10 +17,11 @@
 cjpm bench
 
 # Cangjie 性能测试 (多线程并发)
-cjpm build && ./target/release/bin/badgercj.examples.skiplist_perf
+cjpm build
+cjHeapSize=4gb ./target/release/bin/badgercj.examples.skiplist_perf
 
 # Go benchmark (并发)
-cd /home/ystyle/Projects/badger
+cd ~/Projects/badger
 go test -run=^$ -bench=BenchmarkWrite -benchmem ./skl/
 go test -bench=BenchmarkReadWrite -benchmem ./skl/
 ```

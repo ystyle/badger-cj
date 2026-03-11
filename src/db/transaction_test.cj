@@ -32,7 +32,7 @@ class TransactionTest {
         }
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test1")
+        cleanupDir("/tmp/badger_txn_test1")
     }
     
     @TestCase
@@ -62,7 +62,7 @@ class TransactionTest {
         }
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test2")
+        cleanupDir("/tmp/badger_txn_test2")
     }
     
     @TestCase
@@ -84,7 +84,7 @@ class TransactionTest {
         }
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test3")
+        cleanupDir("/tmp/badger_txn_test3")
     }
     
     @TestCase
@@ -104,7 +104,7 @@ class TransactionTest {
         }
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test4")
+        cleanupDir("/tmp/badger_txn_test4")
     }
     
     @TestCase
@@ -126,7 +126,7 @@ class TransactionTest {
         @Assert(exceptionThrown, true)
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test5")
+        cleanupDir("/tmp/badger_txn_test5")
     }
     
     @TestCase
@@ -155,7 +155,7 @@ class TransactionTest {
         @Assert(errorOccurred, false)
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test7")
+        cleanupDir("/tmp/badger_txn_test7")
     }
     
     @TestCase
@@ -185,7 +185,7 @@ class TransactionTest {
         
         txn.discard()
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test8")
+        cleanupDir("/tmp/badger_txn_test8")
     }
     
     @TestCase
@@ -202,7 +202,7 @@ class TransactionTest {
         @Assert(result, "value1".toArray())
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test9")
+        cleanupDir("/tmp/badger_txn_test9")
     }
     
     @TestCase
@@ -221,12 +221,6 @@ class TransactionTest {
         }
         
         db.close()
-        cleanupTxnDir("/tmp/badger_txn_test10")
-    }
-}
-
-func cleanupTxnDir(path: String) {
-    if (exists(Path(path))) {
-        remove(Path(path), recursive: true)
+        cleanupDir("/tmp/badger_txn_test10")
     }
 }

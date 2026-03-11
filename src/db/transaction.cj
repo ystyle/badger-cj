@@ -124,16 +124,13 @@ public class Transaction {
         
         commitTs = oracle.newCommitTs(txnState)
         
-        var reqs = ArrayList<WriteRequest>()
+        let req = WriteRequest(commitTs)
         for (entry in writes) {
-            let req = WriteRequest(entry.key, entry.value, commitTs, isDelete: entry.isDelete())
-            reqs.add(req)
-            db.writeCh.add(req)
+            req.addEntry(entry.key, entry.value, isDelete: entry.isDelete())
         }
         
-        for (req in reqs) {
-            req.wait()
-        }
+        db.writeCh.add(req)
+        req.wait()
         
         oracle.doneCommit(commitTs)
         committed = true
@@ -168,6 +165,14 @@ public class Transaction {
     
     public func getWrites(): ArrayList<TxnEntry> {
         return writes
+    }
+    
+    public func isCommitted(): Bool {
+        return committed
+    }
+    
+    public func isDiscarded(): Bool {
+        return discarded
     }
     
     private func addReadKey(key: Array<Byte>): Unit {

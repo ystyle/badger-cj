@@ -63,28 +63,47 @@ public func parseTs(key: Array<Byte>): UInt64 {
 /**
  * parseKey - 从 key 中提取原始 key（去掉时间戳）
  * 如果 key 太短（<= 8 字节），假设没有时间戳，直接返回原 key
+ * 
+ * 注意：此函数假设 key 可能带有 8 字节时间戳
+ * 对于不带时间戳的 user key（如查询时的 key），需要特别处理
  */
 public func parseKey(key: Array<Byte>): Array<Byte> {
     if (key.size <= 8) {
-        // 没有时间戳，直接返回原 key
         return key
     }
     
-    let result = ArrayList<Byte>()
-    for (i in 0..key.size - 8) {
-        result.add(key[i])
+    key[0..key.size - 8]
+}
+
+/**
+ * parseKeyIfHasTs - 如果 key 带有时间戳则解析，否则返回原 key
+ * 用于 sameKey 比较
+ */
+public func parseKeyIfHasTs(key: Array<Byte>, hasTs: Bool): Array<Byte> {
+    if (!hasTs || key.size <= 8) {
+        return key
     }
     
-    return result.toArray()
+    key[0..key.size - 8]
 }
 
 /**
  * sameKey - 检查两个 key 是否相同（忽略时间戳）
- * 支持一个 key 带时间戳、另一个不带的情况
+ * 
+ * 假设：第一个参数 a 带时间戳（从存储读取），第二个参数 b 是 user key（不带时间戳）
+ * 如果 b 的长度 > 8 且与 a 去掉时间戳后长度相同，说明 b 也带时间戳
  */
 public func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
+    // a 带时间戳，提取 user key
     let userKeyA = parseKey(a)
-    let userKeyB = parseKey(b)
+    
+    // b 可能带时间戳也可能不带
+    // 如果 b 长度 > 8 且去掉时间戳后与 userKeyA 长度相同，则 b 也带时间戳
+    let userKeyB = if (b.size > 8 && b.size - 8 == userKeyA.size) {
+        parseKey(b)
+    } else {
+        b
+    }
     
     if (userKeyA.size != userKeyB.size) {
         return false

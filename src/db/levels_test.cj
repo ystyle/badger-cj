@@ -142,12 +142,6 @@ class LevelsTest {
         
         cleanupDir(dir)
     }
-    
-    private func cleanupDir(dir: String): Unit {
-        if (exists(Path(dir))) {
-            remove(Path(dir), recursive: true)
-        }
-    }
 }
 
 main(): Int64 {

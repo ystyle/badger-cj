@@ -9,6 +9,268 @@ import badgercj.table.*
 @Test
 class PersistenceTest {
     @TestCase
+    func testFullLifecycleOpenWriteCloseOpenRead() {
+        let dir = "/tmp/badger_lifecycle_full"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        db1.set("key1".toArray(), "value1".toArray())
+        db1.set("key2".toArray(), "value2".toArray())
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        
+        @Assert(db2.get("key1".toArray()).isSome(), true)
+        @Assert(db2.get("key2".toArray()).isSome(), true)
+        
+        db2.set("key3".toArray(), "value3".toArray())
+        db2.set("key1".toArray(), "value1_updated".toArray())
+        db2.close()
+        
+        let db3 = DB.open(opt)
+        
+        if (let Some(vs) <- db3.get("key1".toArray())) {
+            @Assert(vs.value, "value1_updated".toArray())
+        } else {
+            @Fail("key1 not found")
+        }
+        
+        @Assert(db3.get("key2".toArray()).isSome(), true)
+        @Assert(db3.get("key3".toArray()).isSome(), true)
+        
+        db3.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testTransactionLifecycleAcrossRestarts() {
+        let dir = "/tmp/badger_lifecycle_txn"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        let txn1 = db1.newTransaction()
+        txn1.set("txn_key1".toArray(), "txn_value1".toArray())
+        txn1.set("txn_key2".toArray(), "txn_value2".toArray())
+        txn1.commit()
+        
+        let txn2 = db1.newTransaction()
+        txn2.delete("txn_key1".toArray())
+        txn2.commit()
+        
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        
+        let deletedResult = db2.get("txn_key1".toArray())
+        @Assert(deletedResult.isSome(), false)
+        
+        if (let Some(vs) <- db2.get("txn_key2".toArray())) {
+            @Assert(vs.value, "txn_value2".toArray())
+        } else {
+            @Fail("txn_key2 not found")
+        }
+        
+        db2.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testMultipleOpenCloseCycles() {
+        let dir = "/tmp/badger_lifecycle_cycles"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        for (cycle in 0..5) {
+            let db = DB.open(opt)
+            for (i in 0..10) {
+                db.set("cycle${cycle}_key${i}".toArray(), "value${cycle}_${i}".toArray())
+            }
+            db.close()
+        }
+        
+        let finalDb = DB.open(opt)
+        
+        var totalFound = 0
+        for (cycle in 0..5) {
+            for (i in 0..10) {
+                if (finalDb.get("cycle${cycle}_key${i}".toArray()).isSome()) {
+                    totalFound++
+                }
+            }
+        }
+        
+        @Assert(totalFound, 50)
+        finalDb.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testConcurrentLifecycle() {
+        let dir = "/tmp/badger_lifecycle_concurrent"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        let db = DB.open(opt)
+        
+        let futures = ArrayList<Future<Unit>>()
+        for (t in 0..4) {
+            let fut = spawn {
+                for (i in 0..25) {
+                    db.set("thread${t}_key${i}".toArray(), "value${t}_${i}".toArray())
+                }
+            }
+            futures.add(fut)
+        }
+        
+        for (fut in futures) {
+            fut.get()
+        }
+        
+        db.close()
+        
+        let db2 = DB.open(opt)
+        
+        var found = 0
+        for (t in 0..4) {
+            for (i in 0..25) {
+                if (db2.get("thread${t}_key${i}".toArray()).isSome()) {
+                    found++
+                }
+            }
+        }
+        
+        @Assert(found, 100)
+        db2.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testMemtableFlushBeforeClose() {
+        let dir = "/tmp/badger_lifecycle_flush"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        for (i in 0..100) {
+            db1.set("flushkey${i}".toArray(), "flushvalue${i}".toArray())
+        }
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        
+        var found = 0
+        for (i in 0..100) {
+            if (db2.get("flushkey${i}".toArray()).isSome()) {
+                found++
+            }
+        }
+        
+        @Assert(found, 100)
+        db2.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testDeletePersistenceAcrossRestarts() {
+        let dir = "/tmp/badger_lifecycle_delete"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        db1.set("delkey1".toArray(), "value1".toArray())
+        db1.set("delkey2".toArray(), "value2".toArray())
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        db2.delete("delkey1".toArray())
+        db2.close()
+        
+        let db3 = DB.open(opt)
+        
+        @Assert(db3.get("delkey1".toArray()).isSome(), false)
+        @Assert(db3.get("delkey2".toArray()).isSome(), true)
+        
+        db3.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testOverwritePersistenceAcrossRestarts() {
+        let dir = "/tmp/badger_lifecycle_overwrite"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        db1.set("ovkey".toArray(), "original".toArray())
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        db2.set("ovkey".toArray(), "updated1".toArray())
+        db2.close()
+        
+        let db3 = DB.open(opt)
+        db3.set("ovkey".toArray(), "updated2".toArray())
+        db3.close()
+        
+        let db4 = DB.open(opt)
+        if (let Some(vs) <- db4.get("ovkey".toArray())) {
+            @Assert(vs.value, "updated2".toArray())
+        } else {
+            @Fail("ovkey not found")
+        }
+        db4.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testLargeValuePersistence() {
+        let dir = "/tmp/badger_lifecycle_large"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        let largeValue = Array<Byte>(10000, repeat: 0x41)
+        
+        let db1 = DB.open(opt)
+        db1.set("largekey".toArray(), largeValue)
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        if (let Some(vs) <- db2.get("largekey".toArray())) {
+            @Assert(vs.value.size, 10000)
+            @Assert(vs.value[0], 0x41)
+            @Assert(vs.value[9999], 0x41)
+        } else {
+            @Fail("largekey not found")
+        }
+        db2.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testEmptyDatabaseRecovery() {
+        let dir = "/tmp/badger_lifecycle_empty"
+        cleanupDir(dir)
+        
+        let opt = DBOptions(dir: dir)
+        
+        let db1 = DB.open(opt)
+        db1.close()
+        
+        let db2 = DB.open(opt)
+        @Assert(db2.get("anykey".toArray()).isSome(), false)
+        db2.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
     func testBasicPersistence() {
         let dir = "/tmp/badger_persistence_test_1"
         cleanupDir(dir)
@@ -50,7 +312,7 @@ class PersistenceTest {
         let db1 = DB.open(opt)
         db1.set("key1".toArray(), "value1".toArray())
         db1.set("key2".toArray(), "value2".toArray())
-        db1.flushWAL()  // 确保 WAL 数据落盘，模拟崩溃前数据已持久化
+        db1.flushWAL()
         
         let db2 = DB.open(opt)
         

@@ -21,9 +21,10 @@ public class DB {
     private var nextFileID: AtomicUInt64
     public let oracle: Oracle
     private let vlog: VLogManager
-    public let writeCh: LinkedBlockingQueue<WriteRequest>
+    public let writeCh: ArrayBlockingQueue<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
+    private var pipeline: ?WritePipeline
     
     public init(
         opt: DBOptions,
@@ -42,11 +43,12 @@ public class DB {
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
-        this.oracle = Oracle()
+        this.oracle = Oracle(detectConflicts: opt.DetectConflicts)
         this.vlog = vlog
-        this.writeCh = LinkedBlockingQueue<WriteRequest>(1000)
+        this.writeCh = ArrayBlockingQueue<WriteRequest>(10000)
         this.running = AtomicBool(false)
         this.flushFut = None
+        this.pipeline = None
     }
     
     public static func open(opt: DBOptions): DB {
@@ -78,6 +80,7 @@ public class DB {
         }
         
         db.running = AtomicBool(true)
+        db.pipeline = Some(WritePipeline({ reqs => db.writeRequests(reqs) }, queueSize: 1000))
         let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
         return db
@@ -85,6 +88,9 @@ public class DB {
     
     public func close(): Unit {
         running.store(false)
+        if (let Some(p) <- pipeline) {
+            p.close()
+        }
         if (let Some(fut) <- flushFut) {
             fut.get()
         }
@@ -270,13 +276,26 @@ public class DB {
         mt.decrRef()
     }
     
-    // Simple loop: block on remove(timeout), process one request
+// Collect requests and emit to pipeline
     private func flushLoop(): Unit {
-        let timeout = Duration.millisecond * 1  // Short timeout for low latency
-        
         while (running.load()) {
-            if (let Some(req) <- writeCh.remove(timeout)) {
-                writeOneRequest(req)
+            if (let Some(req) <- writeCh.remove(Duration.millisecond)) {
+                let reqs = ArrayList<WriteRequest>()
+                reqs.add(req)
+                
+                // Batch collect more requests (non-blocking)
+                while (reqs.size < 1000) {
+                    if (let Some(r) <- writeCh.tryRemove()) {
+                        reqs.add(r)
+                    } else {
+                        break
+                    }
+                }
+                
+                // Emit to pipeline (async)
+                if (let Some(p) <- pipeline) {
+                    p.emit(reqs)
+                }
             }
         }
         
@@ -288,31 +307,81 @@ public class DB {
         }
     }
     
-    private func writeOneRequest(req: WriteRequest): Unit {
-        // Write to vlog if needed
-        if (UInt64(req.value.size) >= opt.ValueThreshold && !req.isDelete) {
-            req.vp = Some(vlog.write(LogEntry(req.key, req.value)))
+    private func writeRequests(reqs: ArrayList<WriteRequest>): Unit {
+        if (reqs.isEmpty()) {
+            return
         }
         
-        // Write to memtable
+        let batchSize = 32
+        
+        for (req in reqs) {
+            let entries = req.getEntries()
+            var i = 0
+            
+            while (i < entries.size) {
+                let end = if (i + batchSize < entries.size) { i + batchSize } else { entries.size }
+                
+                try {
+                    lock.writeLock.lock()
+                    if (mt.shouldFlush()) { flushMemTableInternal() }
+                    
+                    for (j in i..end) {
+                        let entry = entries[j]
+                        let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
+                            Some(vlog.write(LogEntry(entry.key, entry.value)))
+                        } else {
+                            None
+                        }
+                        
+                        let keyWithTs = keyWithTs(entry.key, req.commitTs)
+                        let vs = if (entry.isDelete) {
+                            ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
+                        } else if (let Some(vp) <- vpOpt) {
+                            ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+                        } else {
+                            ValueStruct(entry.value, meta: 0, version: req.commitTs)
+                        }
+                        mt.put(keyWithTs, vs)
+                    }
+                } finally {
+                    lock.writeLock.unlock()
+                }
+                
+                i = end
+            }
+        }
+        
+        for (req in reqs) {
+            req.done()
+        }
+    }
+    
+    private func writeOneRequest(req: WriteRequest): Unit {
         lock.writeLock.lock()
         try {
             if (mt.shouldFlush()) { flushMemTableInternal() }
-            
-            let keyWithTs = keyWithTs(req.key, req.commitTs)
-            let vs = if (req.isDelete) {
-                ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
-            } else if (let Some(vp) <- req.vp) {
-                ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
-            } else {
-                ValueStruct(req.value, meta: 0, version: req.commitTs)
+            for (entry in req.getEntries()) {
+                let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
+                    Some(vlog.write(LogEntry(entry.key, entry.value)))
+                } else {
+                    None
+                }
+                
+                let keyWithTs = keyWithTs(entry.key, req.commitTs)
+                let vs = if (entry.isDelete) {
+                    ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
+                } else if (let Some(vp) <- vpOpt) {
+                    ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+                } else {
+                    ValueStruct(entry.value, meta: 0, version: req.commitTs)
+                }
+                mt.put(keyWithTs, vs)
             }
-            mt.put(keyWithTs, vs)
         } finally {
             lock.writeLock.unlock()
         }
         
-        req.signal()
+        req.done()
     }
     
     public func getLevelHandler(level: Int64): LevelHandler { lc.getLevelHandler(level) }

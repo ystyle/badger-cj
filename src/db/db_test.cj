@@ -130,9 +130,3 @@ class DBTest {
         cleanupDir(dir)
     }
 }
-
-func cleanupDir(path: String) {
-    if (exists(Path(path))) {
-        remove(Path(path), recursive: true)
-    }
-}

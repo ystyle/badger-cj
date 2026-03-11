@@ -30,7 +30,12 @@ public class MemTable {
         
         let arenaSize = Int64(opt.MemTableSize * 2)
         this.arena = Arena(arenaSize)
-        this.atomicStorage = AtomicStorage(4096)
+        // 动态计算 AtomicStorage 容量
+        // Arena 每个节点最小 ~40 bytes（节点头 24 + 短 key ~10 + 短 value ~10）
+        // AtomicStorage 每个节点固定 88 bytes（1×AtomicUInt64 + 20×AtomicUInt32）
+        // 使用 /32 确保最坏情况（极短 key）也不会溢出
+        let atomicCapacity = arenaSize / 32
+        this.atomicStorage = AtomicStorage(atomicCapacity)
         this.table = Skiplist(arena, atomicStorage)
         this.refs = AtomicInt32(1)
         this.sizeInBytes_ = AtomicUInt64(0)

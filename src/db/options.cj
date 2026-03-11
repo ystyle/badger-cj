@@ -2,6 +2,11 @@ package badgercj.db
 
 /**
  * DBOptions - 数据库配置选项
+ * 
+ * 默认值与 Go badger 保持一致：
+ * - MemTableSize: 64MB
+ * - TableSize: 2MB
+ * - ValueThreshold: 1MB
  */
 public class DBOptions {
     public let Dir: String
@@ -11,17 +16,19 @@ public class DBOptions {
     public let MaxLevels: Int
     public let NumLevelZeroTables: Int
     public let TableSize: UInt64
-    public let DisableWAL: Bool  // For performance testing - disables WAL writes
+    public let DisableWAL: Bool
+    public let DetectConflicts: Bool
     
     public init(
         dir!: String = "",
         valueDir!: String = "",
-        memTableSize!: UInt64 = 1 * 1024 * 1024u64,
-        valueThreshold!: UInt64 = 1 * 1024 * 1024u64,  // 1 MB (match Go BadgerDB default)
+        memTableSize!: UInt64 = 64 * 1024 * 1024u64,
+        valueThreshold!: UInt64 = 1 * 1024 * 1024u64,
         maxLevels!: Int = 7,
         numLevelZeroTables!: Int = 4,
         tableSize!: UInt64 = 2 * 1024 * 1024u64,
-        disableWAL!: Bool = false
+        disableWAL!: Bool = false,
+        detectConflicts!: Bool = true
     ) {
         this.Dir = dir
         this.ValueDir = valueDir
@@ -31,6 +38,7 @@ public class DBOptions {
         this.NumLevelZeroTables = numLevelZeroTables
         this.TableSize = tableSize
         this.DisableWAL = disableWAL
+        this.DetectConflicts = detectConflicts
     }
     
     public func levelMaxSize(level: Int): UInt64 {
