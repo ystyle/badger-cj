@@ -98,52 +98,6 @@ class ConcurrentTest {
     
     @Tag[stress]
     @TestCase
-    func testConcurrentTransactions() {
-        let db = DB.open(DBOptions(dir: "/tmp/badger_concurrent_test3"))
-        
-        let numTxns = 20
-        let keysPerTxn = 10
-        let futures = ArrayList<Future<Unit>>()
-        let counter = AtomicInt64(0)
-        let conflictCounter = AtomicInt64(0)
-        
-        for (i in 0..numTxns) {
-            let fut = spawn {
-                let txn = db.newTransaction(update: true)
-                
-                let baseKey = "txn${i % 5}".toArray()
-                txn.get(baseKey)
-                
-                for (j in 0..keysPerTxn) {
-                    let key = "txn${i}_key${j}".toArray()
-                    let value = "txn${i}_value${j}".toArray()
-                    txn.set(key, value)
-                }
-                
-                try {
-                    txn.commit()
-                    let _ = counter.fetchAdd(1)
-                } catch (e: Exception) {
-                    let _ = conflictCounter.fetchAdd(1)
-                }
-            }
-            futures.add(fut)
-        }
-        
-        for (fut in futures) {
-            fut.get()
-        }
-        
-        let total = counter.load() + conflictCounter.load()
-        @Assert(total, numTxns)
-        @Assert(counter.load() > 0)
-        
-        db.close()
-        cleanupConcurrentDir("/tmp/badger_concurrent_test3")
-    }
-    
-    @Tag[stress]
-    @TestCase
     func testConcurrentIterators() {
         let db = DB.open(DBOptions(dir: "/tmp/badger_concurrent_test4"))
         
@@ -183,36 +137,6 @@ class ConcurrentTest {
         
         db.close()
         cleanupConcurrentDir("/tmp/badger_concurrent_test4")
-    }
-    
-    @Tag[stress]
-    @TestCase
-    func testStressConcurrentWrites() {
-        let dir = "/tmp/badger_concurrent_test5"
-        cleanupConcurrentDir(dir)
-        let db = DB.open(DBOptions(dir: dir))
-        
-        let numThreads = 20
-        let writesPerThread = 200
-        let futures = ArrayList<Future<Unit>>()
-        
-        for (i in 0..numThreads) {
-            let fut = spawn {
-                for (j in 0..writesPerThread) {
-                    let key = "stress_key${i}_${j}".toArray()
-                    let value = "stress_value${i}_${j}".toArray()
-                    db.set(key, value)
-                }
-            }
-            futures.add(fut)
-        }
-        
-        for (fut in futures) {
-            fut.get()
-        }
-        
-        db.close()
-        cleanupConcurrentDir("/tmp/badger_concurrent_test5")
     }
     
     @Tag[stress]

@@ -7,12 +7,6 @@ import std.collection.*
 import std.sync.*
 import std.time.*
 
-func cleanupDir(path: String): Unit {
-    if (exists(Path(path))) {
-        remove(Path(path), recursive: true)
-    }
-}
-
 @Test
 class TxnDebugTest {
     
@@ -21,7 +15,7 @@ class TxnDebugTest {
     func testLargeTxns(keysPerTxn: Int64) {
         let numTxns: Int64 = 50
         let dir = "/tmp/badger_txn_large_${keysPerTxn}"
-        cleanupDir(dir)
+        cleanupTxnDir(dir)
         let db = DB.open(DBOptions(dir: dir))
         
         let futures = ArrayList<Future<Unit>>()
@@ -58,6 +52,12 @@ class TxnDebugTest {
         println("WRITE: ${numTxns} x ${keysPerTxn} = ${totalWrites} keys in ${writeTime.toMilliseconds()}ms (ok: ${successCount.load()}, fail: ${failCount.load()})")
         
         db.close()
-        cleanupDir(dir)
+        cleanupTxnDir(dir)
+    }
+}
+
+func cleanupTxnDir(path: String): Unit {
+    if (exists(Path(path))) {
+        remove(Path(path), recursive: true)
     }
 }

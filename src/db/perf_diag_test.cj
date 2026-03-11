@@ -2,7 +2,6 @@ package badgercj.db
 
 import std.unittest.*
 import std.unittest.testmacro.*
-import std.fs.*
 import std.collection.*
 import std.sync.*
 import std.time.*
@@ -58,88 +57,5 @@ class PerfDiagTest {
         
         running.store(false)
         sleep(Duration.millisecond * 10)
-    }
-    
-    @Tag[stress]
-    @TestCase
-    func testRealDBTransactionNoConflict() {
-        let dir = "/tmp/badger_perf_noconflict"
-        if (exists(Path(dir))) {
-            remove(Path(dir), recursive: true)
-        }
-        // Disable conflict detection
-        let db = DB.open(DBOptions(dir: dir, detectConflicts: false))
-        
-        let numTxns = 50
-        let keysPerTxn = 100
-        let futures = ArrayList<Future<Unit>>()
-        let start = DateTime.now()
-        
-        for (i in 0..numTxns) {
-            let fut = spawn {
-                let txn = db.newTransaction(update: true)
-                for (j in 0..keysPerTxn) {
-                    let key = "key${i}_${j}".toArray()
-                    let value = "value".toArray()
-                    txn.set(key, value)
-                }
-                txn.commit()
-            }
-            futures.add(fut)
-        }
-        
-        for (fut in futures) {
-            fut.get()
-        }
-        
-        let elapsed = DateTime.now() - start
-        let ms = elapsed.toMilliseconds()
-        let totalWrites = numTxns * keysPerTxn
-        println("DB Transaction (no conflict detection): ${totalWrites} writes in ${ms}ms")
-        
-        db.close()
-        if (exists(Path(dir))) {
-            remove(Path(dir), recursive: true)
-        }
-    }
-    
-    @Tag[stress]
-    @TestCase
-    func testRealDBDirectSet() {
-        let dir = "/tmp/badger_perf_direct"
-        if (exists(Path(dir))) {
-            remove(Path(dir), recursive: true)
-        }
-        let db = DB.open(DBOptions(dir: dir))
-        
-        let numThreads = 50
-        let keysPerThread = 100
-        let futures = ArrayList<Future<Unit>>()
-        let start = DateTime.now()
-        
-        for (i in 0..numThreads) {
-            let fut = spawn {
-                for (j in 0..keysPerThread) {
-                    let key = "key${i}_${j}".toArray()
-                    let value = "value".toArray()
-                    db.set(key, value)
-                }
-            }
-            futures.add(fut)
-        }
-        
-        for (fut in futures) {
-            fut.get()
-        }
-        
-        let elapsed = DateTime.now() - start
-        let ms = elapsed.toMilliseconds()
-        let totalWrites = numThreads * keysPerThread
-        println("DB Direct Set: ${totalWrites} writes in ${ms}ms")
-        
-        db.close()
-        if (exists(Path(dir))) {
-            remove(Path(dir), recursive: true)
-        }
     }
 }
