@@ -103,6 +103,7 @@
 | Stream API (大规模数据处理) | 8h | ❌ |
 | Transaction View (回调式只读事务) | 2h | ❌ |
 | Iterator 预取优化 | 2h | ❌ |
+| io_uring I/O 优化 | 26h | 📋 待审核 |
 
 ### P3: 文档与发布 (~8h)
 
@@ -149,6 +150,7 @@
 - `docs/plans/2026-03-09-phase5-optimization-design.md` - Phase 5 优化设计
 - `docs/plans/2026-03-10-lockfree-skiplist-design.md` - 无锁并发设计
 - `docs/plans/2026-03-10-db-persistence-design.md` - 持久化设计
+- `docs/plans/2026-03-11-iouring-optimization-design.md` - io_uring I/O 优化设计 (📋 待审核)
 
 **分析文档：**
 - `docs/badger-analysis/01-file-formats.md` - SSTable/VLog/MANIFEST 格式
@@ -161,7 +163,7 @@
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
-| v6.0 | 2026-03-11 | 重构文档结构，精简冗余内容 |
+| v6.0 | 2026-03-11 | 重构文档结构，精简冗余内容；添加 io_uring 优化设计（待审核） |
 | v5.2 | 2026-03-11 | Phase 5.5/5.6 完成（无锁并发 + 持久化） |
 | v5.0 | 2026-03-10 | Phase 5 完成，性能优化 |
 | v4.0 | 2026-03-09 | Phase 4 完成，MVCC + Snapshot |
