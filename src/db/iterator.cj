@@ -223,6 +223,7 @@ public class Iterator {
         return true
     }
     
+    @OverflowWrapping
     private func hashKey(key: Array<Byte>): UInt64 {
         var hash: UInt64 = 5381
         for (b in key) {

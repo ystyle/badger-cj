@@ -333,75 +333,75 @@ class ConcurrentTest {
         cleanupConcurrentDir("/tmp/badger_txn_perf_test")
     }
     
-//     @TestCase
-//     @Tag[stress]
-//     func testStressLargeScaleConcurrentWrites() {
-//         // 大规模压力测试：50 并发 × 2000 keys = 100,000 keys
-//         // 验证 AtomicStorage 在高并发下不会溢出
-//         let numThreads = 50
-//         let keysPerThread = 1000
-//         let totalWrites = numThreads * keysPerThread
+    @TestCase
+    @Tag[stress]
+    func testStressLargeScaleConcurrentWrites() {
+        // 大规模压力测试：50 并发 × 2000 keys = 100,000 keys
+        // 验证 AtomicStorage 在高并发下不会溢出
+        let numThreads = 50
+        let keysPerThread = 1000
+        let totalWrites = numThreads * keysPerThread
         
-//         println("Starting large scale stress test: ${numThreads} threads × ${keysPerThread} keys = ${totalWrites} total")
+        println("Starting large scale stress test: ${numThreads} threads × ${keysPerThread} keys = ${totalWrites} total")
         
-//         let db = DB.open(DBOptions(
-//             dir: "/tmp/badger_large_stress_test",
-//         ))
+        let db = DB.open(DBOptions(
+            dir: "/tmp/badger_large_stress_test",
+        ))
         
-//         let startTime = DateTime.now()
-//         let futures = ArrayList<Future<Unit>>()
-//         let errorCount = AtomicInt64(0)
+        let startTime = DateTime.now()
+        let futures = ArrayList<Future<Unit>>()
+        let errorCount = AtomicInt64(0)
         
-//         for (i in 0..numThreads) {
-//             let threadIdx = i
-//             let fut = spawn {
-//                 for (j in 0..keysPerThread) {
-//                     let key = "largekey${threadIdx}_${j}".toArray()
-//                     let value = "value${threadIdx}_${j}_data_padding_to_make_it_larger".toArray()
-//                     try {
-//                         db.set(key, value)
-//                     } catch (e: Exception) {
-//                         errorCount.fetchAdd(1)
-//                         println("Error in thread ${threadIdx}, key ${j}: ${e.message}")
-//                     }
-//                 }
-//             }
-//             futures.add(fut)
-//         }
+        for (i in 0..numThreads) {
+            let threadIdx = i
+            let fut = spawn {
+                for (j in 0..keysPerThread) {
+                    let key = "largekey${threadIdx}_${j}".toArray()
+                    let value = "value${threadIdx}_${j}_data_padding_to_make_it_larger".toArray()
+                    try {
+                        db.set(key, value)
+                    } catch (e: Exception) {
+                        errorCount.fetchAdd(1)
+                        println("Error in thread ${threadIdx}, key ${j}: ${e.message}")
+                    }
+                }
+            }
+            futures.add(fut)
+        }
         
-//         for (fut in futures) {
-//             fut.get()
-//         }
+        for (fut in futures) {
+            fut.get()
+        }
         
-//         let writeTime = DateTime.now() - startTime
-//         let writeMs = writeTime.toMilliseconds()
-//         println("Write phase completed: ${totalWrites} keys in ${writeMs}ms")
-//         println("Errors during write: ${errorCount.load()}")
+        let writeTime = DateTime.now() - startTime
+        let writeMs = writeTime.toMilliseconds()
+        println("Write phase completed: ${totalWrites} keys in ${writeMs}ms")
+        println("Errors during write: ${errorCount.load()}")
         
-//         // 验证数据完整性
-//         let verifyTxn = db.newTransaction(update: false)
-//         let iter = verifyTxn.newIterator()
-//         var count = 0
-//         iter.rewind()
-//         while (iter.valid()) {
-//             count++
-//             iter.next()
-//         }
-//         iter.close()
-//         verifyTxn.discard()
+        // 验证数据完整性
+        let verifyTxn = db.newTransaction(update: false)
+        let iter = verifyTxn.newIterator()
+        var count = 0
+        iter.rewind()
+        while (iter.valid()) {
+            count++
+            iter.next()
+        }
+        iter.close()
+        verifyTxn.discard()
         
-//         println("Iterator verified: ${count} keys found")
+        println("Iterator verified: ${count} keys found")
         
-//         // 允许少量丢失（并发竞争），但不应该有大量丢失
-//         let lossRate = Float64(totalWrites - count) / Float64(totalWrites) * 100.0
-//         println("Loss rate: ${lossRate}%")
+        // 允许少量丢失（并发竞争），但不应该有大量丢失
+        let lossRate = Float64(totalWrites - count) / Float64(totalWrites) * 100.0
+        println("Loss rate: ${lossRate}%")
         
-//         @Assert(count >= totalWrites * 95 / 100, true)  // 至少 95% 成功
-//         @Assert(errorCount.load(), 0)  // 不应该有错误
+        @Assert(count >= totalWrites * 95 / 100, true)  // 至少 95% 成功
+        @Assert(errorCount.load(), 0)  // 不应该有错误
         
-//         db.close()
-//         cleanupConcurrentDir("/tmp/badger_large_stress_test")
-//     }
+        db.close()
+        cleanupConcurrentDir("/tmp/badger_large_stress_test")
+    }
 }
 
 func cleanupConcurrentDir(path: String): Unit {
