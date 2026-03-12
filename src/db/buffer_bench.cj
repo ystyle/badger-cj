@@ -19,7 +19,7 @@ class BufferBench {
     @Bench
     func benchArrayListAdd() {
         for (_ in 0..BufferBench.iterations) {
-            let result = ArrayList<Byte>()
+            let result = ArrayList<Byte>(keySize + 8)
             
             // 模拟 keyWithTs 的操作
             for (i in 0..BufferBench.keySize) {
