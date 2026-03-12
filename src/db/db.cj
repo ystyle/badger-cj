@@ -21,7 +21,7 @@ public class DB {
     private var nextFileID: AtomicUInt64
     public let oracle: Oracle
     private let vlog: VLogManager
-    public let writeCh: ArrayBlockingQueue<WriteRequest>
+    public let writeCh: NotifyingWriteChannel<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
     private var pipeline: ?WritePipeline
@@ -45,7 +45,7 @@ public class DB {
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
         this.oracle = Oracle(detectConflicts: opt.DetectConflicts)
         this.vlog = vlog
-        this.writeCh = ArrayBlockingQueue<WriteRequest>(10000)
+        this.writeCh = NotifyingWriteChannel<WriteRequest>(10000)
         this.running = AtomicBool(false)
         this.flushFut = None
         this.pipeline = None
@@ -88,6 +88,7 @@ public class DB {
     
     public func close(): Unit {
         running.store(false)
+        writeCh.close()  // Wake up blocking remove()
         if (let Some(p) <- pipeline) {
             p.close()
         }
@@ -279,7 +280,7 @@ public class DB {
 // Collect requests and emit to pipeline
     private func flushLoop(): Unit {
         while (running.load()) {
-            if (let Some(req) <- writeCh.remove(Duration.millisecond)) {
+            if (let Some(req) <- writeCh.remove()) {
                 let reqs = ArrayList<WriteRequest>()
                 reqs.add(req)
                 
@@ -300,7 +301,7 @@ public class DB {
         }
         
         // Drain remaining
-        while (writeCh.size > 0) {
+        while (writeCh.size() > 0) {
             if (let Some(req) <- writeCh.tryRemove()) {
                 writeOneRequest(req)
             }
