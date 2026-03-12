@@ -6,13 +6,13 @@ import std.collection.concurrent.*
 import std.time.*
 
 public class WritePipeline {
-    private let queue: ArrayBlockingQueue<ArrayList<WriteRequest>>
+    private let queue: NotifyingWriteChannel<ArrayList<WriteRequest>>
     private let running: AtomicBool
     private var fut: ?Future<Unit>
     private let handler: (ArrayList<WriteRequest>) -> Unit
     
     public init(handler: (ArrayList<WriteRequest>) -> Unit, queueSize!: Int64 = 1000) {
-        this.queue = ArrayBlockingQueue<ArrayList<WriteRequest>>(queueSize)
+        this.queue = NotifyingWriteChannel<ArrayList<WriteRequest>>(queueSize)
         this.handler = handler
         this.running = AtomicBool(true)
         this.fut = None
@@ -25,6 +25,7 @@ public class WritePipeline {
     
     public func close(): Unit {
         running.store(false)
+        queue.close()
         if (let Some(f) <- fut) {
             f.get()
         }
@@ -32,7 +33,7 @@ public class WritePipeline {
     
     private func loop(): Unit {
         while (running.load()) {
-            if (let Some(reqs) <- queue.remove(Duration.millisecond)) {
+            if (let Some(reqs) <- queue.remove()) {
                 try {
                     handler(reqs)
                 } catch (e: Exception) {
@@ -43,7 +44,7 @@ public class WritePipeline {
             }
         }
         
-        while (queue.size > 0) {
+        while (queue.size() > 0) {
             if (let Some(reqs) <- queue.tryRemove()) {
                 handler(reqs)
             }
