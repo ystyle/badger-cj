@@ -170,7 +170,7 @@ public class Skiplist {
             while (nextOffset != 0) {
                 let cmp = compareKeyAt(nextOffset, key)
                 
-                if (cmp > 0) {
+                if (cmp < 0) {
                     xOff = nextOffset
                     nextOffset = getNextOffsetAt(xOff, level)
                 } else if (cmp == 0) {
