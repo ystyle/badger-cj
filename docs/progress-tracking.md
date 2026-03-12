@@ -102,8 +102,14 @@
 **瓶颈分析：**
 - WriteChannel 轮询不是主要瓶颈（1ms 延迟影响小）
 - 写锁不是主要瓶颈（MemTable 本身无锁）
-- ArrayList + toArray() 是主要瓶颈（比 Array 直接索引慢 8.7x）
+- ~~ArrayList + toArray() 是主要瓶颈（比 Array 直接索引慢 8.7x）~~
+- ArrayList 预分配优化后差距缩小到 4.2x
 - 编码函数优化后显著提升（LogEntry/ValueStruct/ValuePointer）
+
+**剩余差距原因推测：**
+- Go runtime 调度器更成熟
+- Go GC 更高效
+- Go 标准库更优化
 
 **待优化项：**
 - [ ] get 操作引用计数模式（当前整个 get 持读锁，包括 IO 操作）
