@@ -319,55 +319,16 @@ public class DB {
             return
         }
         
-        let batchSize = 32
-        
         for (req in reqs) {
             let entries = req.getEntries()
-            var i = 0
             
-            while (i < entries.size) {
-                let end = if (i + batchSize < entries.size) { i + batchSize } else { entries.size }
-                
-                try {
-                    lock.writeLock.lock()
-                    if (mt.shouldFlush()) { flushMemTableInternal() }
-                    
-                    for (j in i..end) {
-                        let entry = entries[j]
-                        let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
-                            Some(vlog.write(LogEntry(entry.key, entry.value)))
-                        } else {
-                            None
-                        }
-                        
-                        let keyWithTs = keyWithTs(entry.key, req.commitTs)
-                        let vs = if (entry.isDelete) {
-                            ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
-                        } else if (let Some(vp) <- vpOpt) {
-                            ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
-                        } else {
-                            ValueStruct(entry.value, meta: 0, version: req.commitTs)
-                        }
-                        mt.put(keyWithTs, vs)
-                    }
-                } finally {
-                    lock.writeLock.unlock()
-                }
-                
-                i = end
-            }
-        }
-        
-        for (req in reqs) {
-            req.done()
-        }
-    }
-    
-    private func writeOneRequest(req: WriteRequest): Unit {
-        lock.writeLock.lock()
-        try {
+            // Check if we need to flush (under lock)
+            lock.writeLock.lock()
             if (mt.shouldFlush()) { flushMemTableInternal() }
-            for (entry in req.getEntries()) {
+            lock.writeLock.unlock()
+            
+            // Write to memtable (no lock needed - skiplist is thread-safe)
+            for (entry in entries) {
                 let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                     Some(vlog.write(LogEntry(entry.key, entry.value)))
                 } else {
@@ -384,8 +345,36 @@ public class DB {
                 }
                 mt.put(keyWithTs, vs)
             }
-        } finally {
-            lock.writeLock.unlock()
+        }
+        
+        for (req in reqs) {
+            req.done()
+        }
+    }
+    
+    private func writeOneRequest(req: WriteRequest): Unit {
+        // Check if we need to flush (under lock)
+        lock.writeLock.lock()
+        if (mt.shouldFlush()) { flushMemTableInternal() }
+        lock.writeLock.unlock()
+        
+        // Write to memtable (no lock needed - skiplist is thread-safe)
+        for (entry in req.getEntries()) {
+            let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
+                Some(vlog.write(LogEntry(entry.key, entry.value)))
+            } else {
+                None
+            }
+            
+            let keyWithTs = keyWithTs(entry.key, req.commitTs)
+            let vs = if (entry.isDelete) {
+                ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
+            } else if (let Some(vp) <- vpOpt) {
+                ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+            } else {
+                ValueStruct(entry.value, meta: 0, version: req.commitTs)
+            }
+            mt.put(keyWithTs, vs)
         }
         
         req.done()
