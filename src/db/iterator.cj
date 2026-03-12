@@ -103,9 +103,10 @@ public class Iterator {
             seekKey = opt.prefix
         }
         
-        // 为 seek key 添加时间戳 0（取反后为 max，确保能找到最新版本）
+        // 为 seek key 添加时间戳 MaxUint64（取反后为 min，确保找到最新版本）
+        // 这样 findGe 会找到 >= key\x00... 的第一个，即最新版本
         if (seekKey.size > 0) {
-            seekKey = keyWithTs(seekKey, 0)
+            seekKey = keyWithTs(seekKey, 0xFFFFFFFFFFFFFFFFu64)
         }
         
         iitr.seek(seekKey)

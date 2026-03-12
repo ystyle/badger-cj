@@ -30,22 +30,22 @@ public class MemTable {
         
         let arenaSize = Int64(opt.MemTableSize * 2)
         this.arena = Arena(arenaSize)
-        // 动态计算 AtomicStorage 容量
-        // Arena 每个节点最小 ~40 bytes（节点头 24 + 短 key ~10 + 短 value ~10）
-        // AtomicStorage 每个节点固定 88 bytes（1×AtomicUInt64 + 20×AtomicUInt32）
-        // 使用 /32 确保最坏情况（极短 key）也不会溢出
-        let atomicCapacity = arenaSize / 32
-        this.atomicStorage = AtomicStorage(atomicCapacity)
+        let initialCapacity = 8192
+        this.atomicStorage = AtomicStorage(initialCapacity)
         this.table = Skiplist(arena, atomicStorage)
         this.refs = AtomicInt32(1)
         this.sizeInBytes_ = AtomicUInt64(0)
         this.replaying = AtomicBool(false)
         this.maxVersion = AtomicUInt64(0)
         
-        let walPath = opt.Dir + "/${fid}.mem"
-        this.wal = WAL.open(walPath)
+        if (opt.DisableWAL) {
+            this.wal = WAL.dummy()
+        } else {
+            let walPath = opt.Dir + "/${fid}.mem"
+            this.wal = WAL.open(walPath)
+        }
         
-        if (walExists) {
+        if (walExists && !opt.DisableWAL) {
             replaying.store(true)
             this.wal.replay(this)
             replaying.store(false)
@@ -161,6 +161,10 @@ public class MemTable {
     
     public func getMaxVersion(): UInt64 {
         maxVersion.load()
+    }
+    
+    public func getTable(): Skiplist {
+        table
     }
 }
 

@@ -95,25 +95,15 @@ public class Arena {
     public func putBytes(data: Array<Byte>): UInt32 {
         let l = UInt32(data.size)
         let offset = allocate(l)
-        
-        // 写入数据
-        for (i in 0..data.size) {
-            buf[Int64(offset) + i] = data[i]
-        }
-        
+        data.copyTo(buf, 0, Int64(offset), data.size)
         return offset
     }
     
-    /**
-     * 获取字节数组
-     */
     public func getBytes(offset: UInt32, size: UInt16): Array<Byte> {
-        let result = Array<Byte>(Int64(size), repeat: 0)
-        
-        for (i in 0..Int64(size)) {
-            result[i] = buf[Int64(offset) + i]
-        }
-        
+        let s = Int64(size)
+        let o = Int64(offset)
+        let result = Array<Byte>(s, repeat: 0)
+        buf.copyTo(result, o, 0, s)
         return result
     }
     
@@ -237,5 +227,9 @@ public class Arena {
      */
     public func remainingSize(): UInt32 {
         return UInt32(buf.size) - n.load()
+    }
+    
+    public func getBuf(): Array<Byte> {
+        return buf
     }
 }

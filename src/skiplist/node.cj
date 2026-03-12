@@ -44,6 +44,32 @@ public class Node {
         return arena.getBytes(keyOffset, keySize)
     }
     
+    public func compareKey(other: Array<Byte>): Int64 {
+        let keyOffset = getKeyOffset()
+        let keySize = Int64(getKeySize())
+        let otherSize = other.size
+        let minLen = if (keySize < otherSize) { keySize } else { otherSize }
+        let buf = arena.getBuf()
+        let baseOffset = Int64(keyOffset)
+        
+        for (i in 0..minLen) {
+            let b1 = buf[baseOffset + i]
+            let b2 = other[i]
+            if (b1 < b2) {
+                return -1
+            } else if (b1 > b2) {
+                return 1
+            }
+        }
+        
+        if (keySize < otherSize) {
+            return -1
+        } else if (keySize > otherSize) {
+            return 1
+        }
+        return 0
+    }
+    
     public func getKeyOffset(): UInt32 {
         return arena.getU32(offset + 8)
     }

@@ -55,6 +55,37 @@ public class Skiplist {
         Node(arena, offset, atomicStorage)
     }
     
+    private func compareKeyAt(nodeOffset: UInt32, key: Array<Byte>): Int64 {
+        let keyOffset = arena.getU32(nodeOffset + 8)
+        let keySize = Int64(arena.getU16(nodeOffset + 12))
+        let keyLen = key.size
+        let minLen = if (keySize < keyLen) { keySize } else { keyLen }
+        let buf = arena.getBuf()
+        let baseOffset = Int64(keyOffset)
+        
+        for (i in 0..minLen) {
+            let b1 = buf[baseOffset + i]
+            let b2 = key[i]
+            if (b1 < b2) {
+                return -1
+            } else if (b1 > b2) {
+                return 1
+            }
+        }
+        
+        if (keySize < keyLen) {
+            return -1
+        } else if (keySize > keyLen) {
+            return 1
+        }
+        return 0
+    }
+    
+    private func getNextOffsetAt(nodeOffset: UInt32, level: Int64): UInt32 {
+        let atomicIdx = arena.getI64(nodeOffset + 16)
+        return atomicStorage.getNextOffset(atomicIdx, level)
+    }
+    
     public func get(key: Array<Byte>): ?Node {
         var x = head
         var level = getHeight() - 1
@@ -126,24 +157,24 @@ public class Skiplist {
             }
         }
         
-        var prevOffsets = Array<UInt32>(MAX_HEIGHT, { _ => head.getOffset() })
-        var nextOffsets = Array<UInt32>(MAX_HEIGHT, { _ => 0u32 })
+        var prevOffsets = Array<UInt32>(MAX_HEIGHT, repeat: head.getOffset())
+        var nextOffsets = Array<UInt32>(MAX_HEIGHT, repeat: 0u32)
         
         let listHeight = getHeight()
-        var x = head
+        var xOff = head.getOffset()
         var level = listHeight - 1
         
         while (level >= 0) {
-            var nextOffset = x.getNextOffset(level)
+            var nextOffset = getNextOffsetAt(xOff, level)
             
             while (nextOffset != 0) {
-                let n = getNode(nextOffset)
-                let cmp = compareKeys(key, n.getKey())
+                let cmp = compareKeyAt(nextOffset, key)
                 
                 if (cmp > 0) {
-                    x = n
-                    nextOffset = x.getNextOffset(level)
+                    xOff = nextOffset
+                    nextOffset = getNextOffsetAt(xOff, level)
                 } else if (cmp == 0) {
+                    let n = getNode(nextOffset)
                     n.setValue(value)
                     return
                 } else {
@@ -151,7 +182,7 @@ public class Skiplist {
                 }
             }
             
-            prevOffsets[level] = x.getOffset()
+            prevOffsets[level] = xOff
             nextOffsets[level] = nextOffset
             level--
         }
@@ -162,11 +193,10 @@ public class Skiplist {
         newNode.setAtomicIdx(atomicIdx)
         
         let keyOffset = arena.putBytes(key)
-        let keySize = UInt16(key.size)
         
         newNode.setValue(value)
         arena.putU32(keyOffset, nodeOffset + 8)
-        arena.putU16(keySize, nodeOffset + 12)
+        arena.putU16(UInt16(key.size), nodeOffset + 12)
         arena.putU16(UInt16(h), nodeOffset + 14)
         
         for (i in 0..h) {
@@ -209,13 +239,12 @@ public class Skiplist {
             }
             
             let nextNode = getNode(next)
-            let nextKey = nextNode.getKey()
-            let cmp = compareKeys(key, nextKey)
+            let cmp = nextNode.compareKey(key)
             
             if (cmp == 0) {
                 return (next, next)
             }
-            if (cmp < 0) {
+            if (cmp > 0) {
                 return (prev, next)
             }
             prev = next

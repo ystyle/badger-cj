@@ -18,4 +18,13 @@ output-type = "executable"
 [package.package-configuration."badgercj.examples.skiplist_perf"]
 output-type = "executable"
 
+[package.package-configuration."badgercj.examples.txn_perf"]
+output-type = "executable"
+
+[package.package-configuration."badgercj.examples.txn_perf_long"]
+output-type = "executable"
+
+[package.package-configuration."badgercj.examples.raw_write_perf"]
+output-type = "executable"
+
 [dependencies]

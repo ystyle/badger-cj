@@ -11,14 +11,12 @@ import badgercj.table.*
 public class WAL {
     private let pathStr: String
     private var file: ?File
-    private var bufferedOut: ?BufferedOutputStream<File>
     private var writeOffset: UInt32
     private let lock: Mutex
     
     private init(path: String) {
         this.pathStr = path
         this.file = None
-        this.bufferedOut = None
         this.writeOffset = 0
         this.lock = Mutex()
     }
@@ -36,20 +34,36 @@ public class WAL {
         wal.file = f
         wal.writeOffset = UInt32(f.length)
         
-        // Wrap with BufferedOutputStream for better performance
-        wal.bufferedOut = BufferedOutputStream<File>(f, 8192)
+        return wal
+    }
+    
+    public static func openForRead(path: String): WAL {
+        let wal = WAL(path)
+        
+        let f = File(Path(path), Read)
+        wal.file = f
+        wal.writeOffset = UInt32(f.length)
         
         return wal
     }
     
+    public static func dummy(): WAL {
+        let wal = WAL("/dev/null")
+        wal.writeOffset = 0
+        return wal
+    }
+    
     public func write(key: Array<Byte>, value: ValueStruct): Unit {
+        if (file.isNone()) {
+            return
+        }
         let entry = LogEntry(key, value.encode())
         let encoded = entry.encode()
         
         lock.lock()
         try {
-            let out = bufferedOut ?? throw Exception("WAL file not open")
-            out.write(encoded)
+            let f = file ?? throw Exception("WAL file not open")
+            f.write(encoded)
             writeOffset += UInt32(encoded.size)
         } finally {
             lock.unlock()
@@ -59,8 +73,8 @@ public class WAL {
     public func flush(): Unit {
         lock.lock()
         try {
-            if (let Some(out) <- bufferedOut) {
-                out.flush()
+            if (let Some(f) <- file) {
+                f.flush()
             }
         } finally {
             lock.unlock()
@@ -71,11 +85,6 @@ public class WAL {
         lock.lock()
         
         try {
-            // Flush any buffered data first
-            if (let Some(out) <- bufferedOut) {
-                out.flush()
-            }
-            
             let entries = ArrayList<LogEntry>()
             let f = file ?? throw Exception("WAL file not open")
             let fileLength = f.length
@@ -89,7 +98,7 @@ public class WAL {
             let bytesRead = f.read(data)
             
             if (bytesRead != fileLength) {
-                throw Exception("Failed to read complete WAL file")
+                throw Exception("Failed to read complete WAL file: got ${bytesRead}, expected ${fileLength}")
             }
             
             var offset: Int64 = 0
@@ -118,12 +127,11 @@ public class WAL {
         lock.lock()
         
         try {
-            if (let Some(out) <- bufferedOut) {
-                out.flush()
-                out.close()
-                bufferedOut = None
+            if (let Some(f) <- file) {
+                f.flush()
+                f.close()
+                file = None
             }
-            file = None
         } finally {
             lock.unlock()
         }
@@ -133,11 +141,6 @@ public class WAL {
         lock.lock()
         
         try {
-            if (let Some(out) <- bufferedOut) {
-                out.close()
-                bufferedOut = None
-            }
-            
             if (let Some(f) <- file) {
                 f.close()
                 file = None
