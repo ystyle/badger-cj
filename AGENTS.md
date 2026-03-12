@@ -37,6 +37,11 @@ cjpm bench
 cjpm clean
 ```
 
+#### 关于lsp报错
+如果代码看起来没错，但lsp报错
+- 如果是源码文件, 执行`cjpm build`编译
+- 如果是测试文件，执行`cjpm test --no-run`编译
+
 ### 创建独立可执行程序
 1. 在`src/examples`添加一个包，创建main入口
 2. 在`cjpm.toml`添加配置

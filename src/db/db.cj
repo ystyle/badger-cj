@@ -25,6 +25,7 @@ public class DB {
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
     private var pipeline: ?WritePipeline
+    public let reqPool: WriteRequestPool
     
     public init(
         opt: DBOptions,
@@ -49,6 +50,7 @@ public class DB {
         this.running = AtomicBool(false)
         this.flushFut = None
         this.pipeline = None
+        this.reqPool = WriteRequestPool(maxSize: 1000)
     }
     
     public static func open(opt: DBOptions): DB {
@@ -206,17 +208,21 @@ public class DB {
     public func set(key: Array<Byte>, value: Array<Byte>): Unit {
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
-        let req = WriteRequest(key, value, ts, isDelete: false)
+        let req = reqPool.get(ts)
+        req.addEntry(key, value, isDelete: false)
         writeCh.add(req)
         req.wait()
+        reqPool.put(req)
     }
     
     public func delete(key: Array<Byte>): Unit {
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
-        let req = WriteRequest(key, [], ts, isDelete: true)
+        let req = reqPool.get(ts)
+        req.addEntry(key, [], isDelete: true)
         writeCh.add(req)
         req.wait()
+        reqPool.put(req)
     }
     
     public func flushMemTable(): Unit {

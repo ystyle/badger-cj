@@ -124,7 +124,7 @@ public class Transaction {
         
         commitTs = oracle.newCommitTs(txnState)
         
-        let req = WriteRequest(commitTs)
+        let req = db.reqPool.get(commitTs)
         for (entry in writes) {
             req.addEntry(entry.key, entry.value, isDelete: entry.isDelete())
         }
@@ -133,6 +133,7 @@ public class Transaction {
         req.wait()
         
         oracle.doneCommit(commitTs)
+        db.reqPool.put(req)
         committed = true
     }
     

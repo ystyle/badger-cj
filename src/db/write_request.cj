@@ -19,9 +19,9 @@ public struct WriteEntry {
 }
 
 public class WriteRequest {
-    public let commitTs: UInt64
+    public var commitTs: UInt64
     private let entries: ArrayList<WriteEntry>
-    private let counter: SyncCounter
+    private var counter: SyncCounter
     
     public init(commitTs: UInt64) {
         this.commitTs = commitTs
@@ -54,5 +54,11 @@ public class WriteRequest {
     
     public func done(): Unit {
         counter.dec()
+    }
+    
+    public func reset(newCommitTs: UInt64): Unit {
+        this.commitTs = newCommitTs
+        entries.clear()
+        counter = SyncCounter(1)
     }
 }
