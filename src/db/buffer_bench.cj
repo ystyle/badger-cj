@@ -17,14 +17,42 @@ class BufferBench {
     private static var sink: Array<Byte> = []
     
     @Bench
-    func benchArrayListAdd() {
+    func benchArrayListAddAll() {
         for (_ in 0..BufferBench.iterations) {
             let result = ArrayList<Byte>(keySize + 8)
             
             // 模拟 keyWithTs 的操作
             for (i in 0..BufferBench.keySize) {
-                result.add(UInt8(i % 256))
+               result.add(UInt8(i % 256))
             }
+
+            
+            // 添加 8 字节时间戳
+            let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ BufferBench.ts
+            result.add(UInt8((invTs >> 56) & 0xFF))
+            result.add(UInt8((invTs >> 48) & 0xFF))
+            result.add(UInt8((invTs >> 40) & 0xFF))
+            result.add(UInt8((invTs >> 32) & 0xFF))
+            result.add(UInt8((invTs >> 24) & 0xFF))
+            result.add(UInt8((invTs >> 16) & 0xFF))
+            result.add(UInt8((invTs >> 8) & 0xFF))
+            result.add(UInt8(invTs & 0xFF))
+            
+            BufferBench.sink = result.toArray()
+        }
+    }
+    @Bench
+    func benchArrayListAdd() {
+        for (_ in 0..BufferBench.iterations) {
+            let result = ArrayList<Byte>(keySize + 8)
+            
+            // 模拟 keyWithTs 的操作
+            // for (i in 0..BufferBench.keySize) {
+            //    result.add(UInt8(i % 256))
+            // }
+            let key = Array<Byte>(BufferBench.keySize, {i => UInt8(i % 256)})
+            result.add(all: key)
+
             
             // 添加 8 字节时间戳
             let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ BufferBench.ts
