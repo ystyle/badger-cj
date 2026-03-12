@@ -94,6 +94,7 @@
 | keyWithTs 减少内存分配 | 1h | ✅ | 略有提升 |
 | ValueStruct/ValuePointer encode 优化 | 1h | ✅ | 略有提升 |
 | LogEntry.encode/safeCopy 优化 | 1h | ✅ | 大事务提升 50-60% |
+| Varint/BlockBuilder/BloomFilter 优化 | 1h | ✅ | 略有提升 |
 | 批量写入异步化 | 4h | ❌ | - |
 | 迭代器池化 | 2h | ❌ | - |
 
