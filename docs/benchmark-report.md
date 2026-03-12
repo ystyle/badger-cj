@@ -137,7 +137,7 @@ Throughput: 279,642 ops/sec
 
 ---
 
-## 性能优化记录
+## 性能优化记录 (Phase 6)
 
 ### 优化 1: findGe O(log n) 查找 - **核心优化**
 
@@ -180,15 +180,61 @@ let node = table.findGe(seekKey)  // O(log n)
 
 **效果：** 防止内存溢出
 
+### 优化 5: ArrayList → Array 直接索引
+
+**问题：** ArrayList + toArray() 比 Array 直接索引慢 8.7x
+
+**优化：** 所有编码函数改用 Array 直接索引
+
+**影响文件：**
+- `keyWithTs()` - helpers.cj
+- `ValueStruct.encode()` - types.cj
+- `ValuePointer.encode()` - types.cj
+- `LogEntry.encode()` - entry.cj
+- `Varint.encode()` - varint.cj
+- `BlockBuilder.finish()` - block_builder.cj
+
+**效果：** 大事务吞吐量提升 50-60%
+
+### 优化 6: Condition 零延迟通知
+
+**问题：** ArrayBlockingQueue.remove(Duration.millisecond) 有 1ms 轮询延迟
+
+**优化：** 新增 NotifyingWriteChannel，使用 Condition.wait()/notify()
+
+**影响：**
+- WriteChannel (flushLoop)
+- WritePipeline
+
+**效果：** 消除 1ms 延迟，大事务略有提升
+
+### 优化 7: 请求对象池化
+
+**问题：** 每次 Transaction.commit() 创建新 WriteRequest
+
+**优化：** 新增 WriteRequestPool，复用请求对象
+
+**效果：** 减少 GC 压力，小事务提升 ~10%
+
+### 优化 8: 移除不必要的写锁
+
+**问题：** writeRequests() 整个写入过程持有 writeLock
+
+**优化：** 只在 flush 检查时持锁，实际写入 MemTable 不需要锁（Skiplist 无锁）
+
+**效果：** 持平（锁不是瓶颈）
+
 ---
 
 ## 性能目标达成情况
 
 | 操作 | 目标 | 实测 | 状态 |
 |------|------|------|------|
-| 单次写入延迟 | < 20 us | 14.7 us | 达标 |
-| 单次读取延迟 | < 10 us | 3.9 us | 达标 |
-| 与 Go 性能比率 | < 10x | 5.5x | 达标 |
+| 单次写入延迟 | < 20 us | 14.7 us | ✅ 达标 |
+| 单次读取延迟 | < 10 us | 3.9 us | ✅ 达标 |
+| 与 Go 性能比率 | < 10x | 5-8x | ✅ 达标 |
+| 事务成功率 | 100% | 100% | ✅ 达标 |
+| 大规模写入 | 100K keys | 150K keys | ✅ 达标 |
 
 ---
 
@@ -198,6 +244,8 @@ let node = table.findGe(seekKey)  // O(log n)
 |------|--------|------|
 | `src/db/skiplist_bench.cj` | 2 | Skiplist Put/Get |
 | `src/db/db_bench.cj` | 2 | DB Set/Get |
+| `src/db/buffer_bench.cj` | 4 | ArrayList/Array/ByteBuffer 对比 |
+| `src/db/txn_bench.cj` | 3 | 事务写入基准测试 |
 
 ---
 
@@ -206,31 +254,30 @@ let node = table.findGe(seekKey)  // O(log n)
 ### 关键发现
 
 1. **算法复杂度最重要** - O(n) to O(log n) = 500x improvement
-2. **参考 Go 实现** - Go's findNear design is key
-3. **锁粒度影响大** - ReadWriteLock effective for read-heavy workloads
-4. **I/O 缓冲必要** - BufferedOutputStream reduces syscalls significantly
+2. **ArrayList vs Array** - Array 直接索引比 ArrayList + toArray() 快 4-8x
+3. **Condition vs 轮询** - 轮询延迟不是主要瓶颈（影响小于预期）
+4. **锁粒度** - MemTable 本身无锁，写锁不是瓶颈
+5. **对象池化** - 对 GC 压力有帮助，但提升有限
 
 ### 仓颉性能特点
 
-1. **基础性能良好** - 2-6x gap is reasonable for new language
-2. **并发原语完善** - ReadWriteLock, Atomic types well supported
-3. **编译优化** - -O2 option effective
-4. **Benchmark 框架** - @Bench macro easy to use
+1. **基础性能良好** - Skiplist 并发只有 1.8x 差距
+2. **并发原语完善** - ReadWriteLock, Atomic, Condition 完整支持
+3. **协程模型** - M:N 线程模型，与 Go goroutine 类似
+4. **ArrayList 优化** - 预分配 + add(all:[]) 优化后差距缩小
+
+### 剩余差距原因
+
+| 因素 | 影响 |
+|------|------|
+| Go runtime 调度器 | 更成熟的协程调度 |
+| Go GC | 并发 GC 效率更高 |
+| Go 标准库 | 长期优化的实现 |
+| 编译优化 | Go 编译器更成熟 |
 
 ---
 
-## 提交记录
-
-| 提交 | 日期 | 描述 |
-|------|------|------|
-| `3156811` | 2026-03-10 | Add Go-comparable benchmarks, optimize db lock |
-| `980365e` | 2026-03-10 | WAL BufferedOutputStream, DisableWAL option |
-| `d7d350f` | 2026-03-10 | Core optimization: findGe O(log n) lookup |
-| `d6d2f26` | 2026-03-10 | Fix WAL crash recovery test |
-
----
-
-**文档版本：** v2.1  
+**文档版本：** v3.0  
 **最后更新：** 2026-03-12
 
 ---
