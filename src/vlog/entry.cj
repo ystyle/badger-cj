@@ -29,46 +29,63 @@ public class LogEntry {
         this.version = version
     }
     
-    /**
-     * 编码为字节数组
-     */
-    public func encode(): Array<Byte> {
-        let buf = ArrayList<Byte>()
-        
-        let keyLen = UInt32(key.size)
-        buf.add(UInt8(keyLen & 0xFF))
-        buf.add(UInt8((keyLen >> 8) & 0xFF))
-        buf.add(UInt8((keyLen >> 16) & 0xFF))
-        buf.add(UInt8((keyLen >> 24) & 0xFF))
-        
-        let valueLen = UInt32(value.size)
-        buf.add(UInt8(valueLen & 0xFF))
-        buf.add(UInt8((valueLen >> 8) & 0xFF))
-        buf.add(UInt8((valueLen >> 16) & 0xFF))
-        buf.add(UInt8((valueLen >> 24) & 0xFF))
-        
-        for (b in key) {
-            buf.add(b)
-        }
-        
-        for (b in value) {
-            buf.add(b)
-        }
-        
-        buf.add(meta)
-        
-        let crc = CRC32C()
-        let data = buf.toArray()
-        crc.write(data)
-        let checksum = crc.sum32()
-        
-        buf.add(UInt8(checksum & 0xFF))
-        buf.add(UInt8((checksum >> 8) & 0xFF))
-        buf.add(UInt8((checksum >> 16) & 0xFF))
-        buf.add(UInt8((checksum >> 24) & 0xFF))
-        
-        return buf.toArray()
+/**
+ * 编码为字节数组
+ */
+public func encode(): Array<Byte> {
+    // 格式：keyLen(4) + valueLen(4) + key + value + meta(1) + crc32(4)
+    let headerLen = 9  // keyLen(4) + valueLen(4) + meta(1)
+    let crcLen = 4
+    let totalLen = headerLen + key.size + value.size + crcLen
+    
+    let buf = Array<Byte>(totalLen, repeat: 0)
+    var idx = 0
+    
+    // 写入 keyLen
+    let keyLen = UInt32(key.size)
+    buf[idx] = UInt8(keyLen & 0xFF)
+    buf[idx + 1] = UInt8((keyLen >> 8) & 0xFF)
+    buf[idx + 2] = UInt8((keyLen >> 16) & 0xFF)
+    buf[idx + 3] = UInt8((keyLen >> 24) & 0xFF)
+    idx += 4
+    
+    // 写入 valueLen
+    let valueLen = UInt32(value.size)
+    buf[idx] = UInt8(valueLen & 0xFF)
+    buf[idx + 1] = UInt8((valueLen >> 8) & 0xFF)
+    buf[idx + 2] = UInt8((valueLen >> 16) & 0xFF)
+    buf[idx + 3] = UInt8((valueLen >> 24) & 0xFF)
+    idx += 4
+    
+    // 写入 key
+    for (i in 0..key.size) {
+        buf[idx] = key[i]
+        idx++
     }
+    
+    // 写入 value
+    for (i in 0..value.size) {
+        buf[idx] = value[i]
+        idx++
+    }
+    
+    // 写入 meta
+    buf[idx] = meta
+    idx++
+    
+    // 计算 CRC (header + key + value + meta)
+    let crc = CRC32C()
+    crc.write(buf[0..idx])
+    let checksum = crc.sum32()
+    
+    // 写入 CRC
+    buf[idx] = UInt8(checksum & 0xFF)
+    buf[idx + 1] = UInt8((checksum >> 8) & 0xFF)
+    buf[idx + 2] = UInt8((checksum >> 16) & 0xFF)
+    buf[idx + 3] = UInt8((checksum >> 24) & 0xFF)
+    
+    return buf
+}
     
     /**
      * 从字节数组解码

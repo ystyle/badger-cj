@@ -128,12 +128,11 @@ public func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
         return []
     }
     
-    let result = ArrayList<Byte>()
-    for (b in src) {
-        result.add(b)
+    let result = Array<Byte>(src.size, repeat: 0)
+    for (i in 0..src.size) {
+        result[i] = src[i]
     }
-    
-    return result.toArray()
+    return result
 }
 
 /**
