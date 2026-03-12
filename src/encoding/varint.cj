@@ -23,16 +23,20 @@ public class Varint {
      * - 小端序：低位在前，高位在后
      */
     public static func encode(value: UInt64): Array<Byte> {
-        let result = ArrayList<Byte>()
+        // UInt64 最多需要 10 字节
+        let buf = Array<Byte>(10, repeat: 0)
         var v = value
+        var idx = 0
         
         while (v >= 0x80u64) {
-            result.add(UInt8((v & 0x7Fu64) | 0x80u64))
+            buf[idx] = UInt8((v & 0x7Fu64) | 0x80u64)
+            idx++
             v >>= 7u64
         }
-        result.add(UInt8(v))
+        buf[idx] = UInt8(v)
+        idx++
         
-        return result.toArray()
+        return buf[0..idx]
     }
     
     /**

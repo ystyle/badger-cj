@@ -96,7 +96,7 @@ public class BlockBuilder {
         return i
     }
     
-    /**
+/**
      * 完成 Block 构建并返回字节数组
      */
     public func finish(): Array<Byte> {
@@ -106,7 +106,7 @@ public class BlockBuilder {
         
         finished = true
         
-let numEntries = UInt32(entryOffsets.size)
+        let numEntries = UInt32(entryOffsets.size)
         for (i in 0..Int64(numEntries)) {
             let offset = entryOffsets[i]
             buf.add(UInt8(offset & 0xFF))
@@ -125,22 +125,31 @@ let numEntries = UInt32(entryOffsets.size)
         crc.write(data)
         let checksum = crc.sum32()
         
-        let result = ArrayList<Byte>()
-        for (b in data) {
-            result.add(b)
+        // 优化：预计算总大小，直接使用 Array 索引写入
+        let totalSize = data.size + 8  // data + checksum(4) + padding(4)
+        let result = Array<Byte>(totalSize, repeat: 0)
+        var idx = 0
+        
+        // 复制 data
+        for (i in 0..data.size) {
+            result[i] = data[i]
         }
+        idx = data.size
         
-        result.add(UInt8(checksum & 0xFF))
-        result.add(UInt8((checksum >> 8) & 0xFF))
-        result.add(UInt8((checksum >> 16) & 0xFF))
-        result.add(UInt8((checksum >> 24) & 0xFF))
+        // 写入 checksum
+        result[idx] = UInt8(checksum & 0xFF)
+        result[idx + 1] = UInt8((checksum >> 8) & 0xFF)
+        result[idx + 2] = UInt8((checksum >> 16) & 0xFF)
+        result[idx + 3] = UInt8((checksum >> 24) & 0xFF)
+        idx += 4
         
-        result.add(4)
-        result.add(0)
-        result.add(0)
-        result.add(0)
+        // 写入 padding
+        result[idx] = 4
+        result[idx + 1] = 0
+        result[idx + 2] = 0
+        result[idx + 3] = 0
         
-        return result.toArray()
+        return result
     }
     
     public func size(): Int64 {

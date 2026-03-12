@@ -80,7 +80,7 @@ public class BloomFilter {
     }
     
     public func data(): Array<Byte> {
-        return bits.toArray()
+        return bits
     }
     
     public func size(): Int64 {
