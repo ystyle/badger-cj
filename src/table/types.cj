@@ -49,42 +49,64 @@ public class ValueStruct {
     }
     
     public func encode(): Array<Byte> {
-        let buf = ArrayList<Byte>()
+        // 计算 expiresAt 需要的字节数
+        let expiresLen = if (expiresAt > 0) { 8 } else { 0 }
+        
+        // 预估大小：meta(1) + userMeta(1) + version(最多10) + expiresAt(0或8) + valueLen(最多10) + value
+        let estimatedSize = 2 + 10 + expiresLen + 10 + value.size
+        let buf = Array<Byte>(estimatedSize, repeat: 0)
+        var idx = 0
         
         var encodeMeta = meta
         if (expiresAt > 0) {
             encodeMeta |= Meta.bitExpiresAt
         }
         
-        buf.add(encodeMeta)
-        buf.add(userMeta)
+        buf[idx] = encodeMeta
+        idx++
+        buf[idx] = userMeta
+        idx++
         
-        let versionBytes = encodeVarint(version)
-        for (b in versionBytes) {
-            buf.add(b)
+        // 编码 version (varint)
+        var val = version
+        while (val >= 0x80) {
+            buf[idx] = UInt8((val & 0x7F) | 0x80)
+            idx++
+            val >>= 7
         }
+        buf[idx] = UInt8(val)
+        idx++
         
+        // 编码 expiresAt
         if (expiresAt > 0) {
-            buf.add(UInt8(expiresAt & 0xFF))
-            buf.add(UInt8((expiresAt >> 8) & 0xFF))
-            buf.add(UInt8((expiresAt >> 16) & 0xFF))
-            buf.add(UInt8((expiresAt >> 24) & 0xFF))
-            buf.add(UInt8((expiresAt >> 32) & 0xFF))
-            buf.add(UInt8((expiresAt >> 40) & 0xFF))
-            buf.add(UInt8((expiresAt >> 48) & 0xFF))
-            buf.add(UInt8((expiresAt >> 56) & 0xFF))
+            buf[idx] = UInt8(expiresAt & 0xFF)
+            buf[idx + 1] = UInt8((expiresAt >> 8) & 0xFF)
+            buf[idx + 2] = UInt8((expiresAt >> 16) & 0xFF)
+            buf[idx + 3] = UInt8((expiresAt >> 24) & 0xFF)
+            buf[idx + 4] = UInt8((expiresAt >> 32) & 0xFF)
+            buf[idx + 5] = UInt8((expiresAt >> 40) & 0xFF)
+            buf[idx + 6] = UInt8((expiresAt >> 48) & 0xFF)
+            buf[idx + 7] = UInt8((expiresAt >> 56) & 0xFF)
+            idx += 8
         }
         
-        let valueLen = encodeVarint(UInt64(value.size))
-        for (b in valueLen) {
-            buf.add(b)
+        // 编码 value length (varint)
+        val = UInt64(value.size)
+        while (val >= 0x80) {
+            buf[idx] = UInt8((val & 0x7F) | 0x80)
+            idx++
+            val >>= 7
+        }
+        buf[idx] = UInt8(val)
+        idx++
+        
+        // 复制 value
+        for (i in 0..value.size) {
+            buf[idx] = value[i]
+            idx++
         }
         
-        for (b in value) {
-            buf.add(b)
-        }
-        
-        return buf.toArray()
+        return buf[0..idx]
     }
     
     public static func decode(encoded: Array<Byte>): ValueStruct {
@@ -135,19 +157,6 @@ public class ValueStruct {
         let value = encoded[idx..(idx + Int64(valueLen))]
         return ValueStruct(value, meta: meta, userMeta: userMeta, version: version, expiresAt: expiresAt)
     }
-    
-    private func encodeVarint(v: UInt64): Array<Byte> {
-        let result = ArrayList<Byte>()
-        var val = v
-        
-        while (val >= 0x80) {
-            result.add(UInt8((val & 0x7F) | 0x80))
-            val >>= 7
-        }
-        result.add(UInt8(val))
-        
-        return result.toArray()
-    }
 }
 
 /**
@@ -165,24 +174,24 @@ public struct ValuePointer {
     }
     
     public func encode(): Array<Byte> {
-        let buf = ArrayList<Byte>()
+        let buf = Array<Byte>(12, repeat: 0)
         
-        buf.add(UInt8(fid & 0xFF))
-        buf.add(UInt8((fid >> 8) & 0xFF))
-        buf.add(UInt8((fid >> 16) & 0xFF))
-        buf.add(UInt8((fid >> 24) & 0xFF))
+        buf[0] = UInt8(fid & 0xFF)
+        buf[1] = UInt8((fid >> 8) & 0xFF)
+        buf[2] = UInt8((fid >> 16) & 0xFF)
+        buf[3] = UInt8((fid >> 24) & 0xFF)
         
-        buf.add(UInt8(len & 0xFF))
-        buf.add(UInt8((len >> 8) & 0xFF))
-        buf.add(UInt8((len >> 16) & 0xFF))
-        buf.add(UInt8((len >> 24) & 0xFF))
+        buf[4] = UInt8(len & 0xFF)
+        buf[5] = UInt8((len >> 8) & 0xFF)
+        buf[6] = UInt8((len >> 16) & 0xFF)
+        buf[7] = UInt8((len >> 24) & 0xFF)
         
-        buf.add(UInt8(offset & 0xFF))
-        buf.add(UInt8((offset >> 8) & 0xFF))
-        buf.add(UInt8((offset >> 16) & 0xFF))
-        buf.add(UInt8((offset >> 24) & 0xFF))
+        buf[8] = UInt8(offset & 0xFF)
+        buf[9] = UInt8((offset >> 8) & 0xFF)
+        buf[10] = UInt8((offset >> 16) & 0xFF)
+        buf[11] = UInt8((offset >> 24) & 0xFF)
         
-        return buf.toArray()
+        return buf
     }
     
     public static func decode(data: Array<Byte>): ValuePointer {
