@@ -16,7 +16,7 @@ class TxnDebugTest {
         let numTxns: Int64 = 50
         let dir = "/tmp/badger_txn_large_${keysPerTxn}"
         cleanupTxnDir(dir)
-        let db = DB.open(DBOptions(dir: dir))
+        let db = Badger.open(Config(dir: dir))
         
         let futures = ArrayList<Future<Unit>>()
         let successCount = AtomicInt64(0)

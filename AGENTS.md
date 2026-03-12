@@ -47,14 +47,15 @@ cjpm clean
 2. 在`cjpm.toml`添加配置
 
 ### 创建环境变量
->如果找不到cjpm的话，执行以下命令
+>如果找不到cjpm的话，可以使用以下包装器
 
 ```shell
-source ~/.config/cjvs/store/1.0.4/envsetup.sh
-export CANGJIE_STDX_PATH="/home/ystyle/.config/cjvs/stdx/1.0.4/linux_x86_64_llvm/static/stdx"
+./cjpmw.sh build
 ```
 
 ### 项目结构
+>go版本`~/Projects/badger`
+
 ```shell
 ❯ tree -L 3
 .

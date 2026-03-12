@@ -9,8 +9,8 @@ import badgercj.manifest.*
 import badgercj.vlog.*
 import std.collection.concurrent.*
 
-public class DB {
-    private let opt: DBOptions
+public class Badger {
+    private let opt: Config
     private let manifest: Manifest
     private let manifestFile: ManifestFile
     private let lc: LevelsController
@@ -28,7 +28,7 @@ public class DB {
     public let reqPool: WriteRequestPool
     
     public init(
-        opt: DBOptions,
+        opt: Config,
         mt: MemTable,
         manifest: Manifest,
         manifestFile: ManifestFile,
@@ -53,7 +53,7 @@ public class DB {
         this.reqPool = WriteRequestPool(maxSize: 1000)
     }
     
-    public static func open(opt: DBOptions): DB {
+    public static func open(opt: Config): Badger {
         if (!exists(Path(opt.Dir))) {
             Directory.create(Path(opt.Dir), recursive: true)
         }
@@ -69,7 +69,7 @@ public class DB {
         let mt = MemTable(opt, fid, true)
         
         let vlog = VLogManager(Path(opt.Dir))
-        let db = DB(opt, mt, manifest, manifestFile, lc, vlog)
+        let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
         
         var recoveredVersion = mt.getMaxVersion()
         let lcVersion = lc.getMaxVersion()

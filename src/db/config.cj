@@ -1,14 +1,9 @@
 package badgercj.db
 
 /**
- * DBOptions - 数据库配置选项
- * 
- * 默认值与 Go badger 保持一致：
- * - MemTableSize: 64MB
- * - TableSize: 2MB
- * - ValueThreshold: 1MB
+ * Config - 数据库配置
  */
-public class DBOptions {
+public class Config {
     public let Dir: String
     public let ValueDir: String
     public let MemTableSize: UInt64

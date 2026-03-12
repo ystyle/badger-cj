@@ -7,13 +7,13 @@ import std.collection.*
 
 @Test
 class TxnBench {
-    private var db: ?DB = None
+    private var db: ?Badger = None
     private let dir: String = "/tmp/badger_txn_bench"
     
     @BeforeAll
     func setupAll(): Unit {
         cleanupBenchDir(dir)
-        db = DB.open(DBOptions(dir: dir, memTableSize: 256 * 1024 * 1024))
+        db = Badger.open(Config(dir: dir, memTableSize: 256 * 1024 * 1024))
     }
     
     @AfterAll

@@ -10,8 +10,8 @@ import badgercj.table.*
 class DBTest {
     @TestCase
     func testDBOpenAndClose() {
-        let opt = DBOptions(dir: "/tmp/badger_db_test1")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_db_test1")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         let result = db.get("key1".toArray())
@@ -28,8 +28,8 @@ class DBTest {
     
     @TestCase
     func testDBGetNonExistent() {
-        let opt = DBOptions(dir: "/tmp/badger_db_test2")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_db_test2")
+        let db = Badger.open(opt)
         
         let result = db.get("nonexistent".toArray())
         if (let Some(_) <- result) {
@@ -42,8 +42,8 @@ class DBTest {
     
     @TestCase
     func testDBDelete() {
-        let opt = DBOptions(dir: "/tmp/badger_db_test3")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_db_test3")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         db.delete("key1".toArray())
@@ -59,8 +59,8 @@ class DBTest {
     
     @TestCase
     func testDBOverwrite() {
-        let opt = DBOptions(dir: "/tmp/badger_db_test4")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_db_test4")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         db.set("key1".toArray(), "value2".toArray())
@@ -78,8 +78,8 @@ class DBTest {
     
     @TestCase
     func testDBMultipleKeys() {
-        let opt = DBOptions(dir: "/tmp/badger_db_test5")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_db_test5")
+        let db = Badger.open(opt)
         
         for (i in 0..10) {
             db.set("key${i}".toArray(), "value${i}".toArray())
@@ -103,14 +103,14 @@ class DBTest {
         let dir = "/tmp/badger_db_test_recovery"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("key1".toArray(), "value1".toArray())
         db1.set("key2".toArray(), "value2".toArray())
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         let v1 = db2.get("key1".toArray())
         if (let Some(vs) <- v1) {

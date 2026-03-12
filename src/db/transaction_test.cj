@@ -9,8 +9,8 @@ import badgercj.table.*
 class TransactionTest {
     @TestCase
     func testTransactionBasic() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test1")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test1")
+        let db = Badger.open(opt)
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "value1".toArray())
@@ -37,8 +37,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionReadYourWrites() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test2")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test2")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "original".toArray())
         
@@ -67,8 +67,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionRollback() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test3")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test3")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "original".toArray())
         
@@ -89,8 +89,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionDelete() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test4")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test4")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         
@@ -109,8 +109,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionMultipleCommits() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test5")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test5")
+        let db = Badger.open(opt)
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "value1".toArray())
@@ -131,8 +131,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionNoConflictDifferentKeys() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test7")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test7")
+        let db = Badger.open(opt)
         
         let txn1 = db.newTransaction(update: true)
         let _ = txn1.get("key1".toArray())
@@ -160,8 +160,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionReadOnlyMode() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test8")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test8")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         
@@ -190,8 +190,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionViewAPI() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test9")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test9")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         
@@ -207,8 +207,8 @@ class TransactionTest {
     
     @TestCase
     func testTransactionUpdateAPI() {
-        let opt = DBOptions(dir: "/tmp/badger_txn_test10")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_txn_test10")
+        let db = Badger.open(opt)
         
         db.update<Unit>({ txn =>
             txn.set("key1".toArray(), "value1".toArray())

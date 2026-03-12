@@ -12,7 +12,7 @@ class SnapshotTest {
     func testSnapshotBasic() {
         let dir = "/tmp/snapshot_test1"
         cleanupSnapshotDir(dir)
-        let db = DB.open(DBOptions(dir: dir))
+        let db = Badger.open(Config(dir: dir))
         
         db.set("key1".toArray(), "value1".toArray())
         db.set("key2".toArray(), "value2".toArray())
@@ -39,7 +39,7 @@ class SnapshotTest {
     func testSnapshotIterator() {
         let dir = "/tmp/snapshot_test2"
         cleanupSnapshotDir(dir)
-        let db = DB.open(DBOptions(dir: dir))
+        let db = Badger.open(Config(dir: dir))
         
         db.set("key1".toArray(), "value1".toArray())
         db.set("key2".toArray(), "value2".toArray())

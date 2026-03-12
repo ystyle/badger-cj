@@ -11,7 +11,7 @@ main(): Int64 {
     let dir = "/tmp/badger_perf_long"
     cleanupDir(dir)
     
-    let db = DB.open(DBOptions(dir: dir, memTableSize: 256 * 1024 * 1024))
+    let db = Badger.open(Config(dir: dir, memTableSize: 256 * 1024 * 1024))
     
     let numTxns = 500
     let keysPerTxn = 3000

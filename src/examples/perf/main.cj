@@ -9,8 +9,8 @@ main(): Int64 {
     let numThreads = 20
     let writesPerThread = 200
     
-    let opt = DBOptions(dir: "/tmp/perf_multi", disableWAL: true)
-    let db = DB.open(opt)
+    let opt = Config(dir: "/tmp/perf_multi", disableWAL: true)
+    let db = Badger.open(opt)
     
     // Write phase
     println("=== Write Phase (20 x 200 = 4000 writes) ===")

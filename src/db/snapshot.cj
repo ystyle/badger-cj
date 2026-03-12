@@ -8,11 +8,11 @@ package badgercj.db
  * 参考：github.com/dgraph-io/badger/v4/db.go
  */
 public class Snapshot {
-    private let db: DB
+    private let db: Badger
     private let readTs: UInt64
     private var discarded: Bool
     
-    public init(db: DB) {
+    public init(db: Badger) {
         this.db = db
         this.readTs = db.oracle.readTs()
         this.discarded = false

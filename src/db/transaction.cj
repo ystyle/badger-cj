@@ -24,7 +24,7 @@ public struct TxnEntry {
 }
 
 public class Transaction {
-    private let db: DB
+    private let db: Badger
     private let update: Bool
     private let oracle: Oracle
     
@@ -38,7 +38,7 @@ public class Transaction {
     private var committed: Bool
     private var discarded: Bool
     
-    public init(db: DB, update!: Bool = true, readTs!: UInt64 = 0) {
+    public init(db: Badger, update!: Bool = true, readTs!: UInt64 = 0) {
         this.db = db
         this.update = update
         this.oracle = db.oracle
@@ -149,7 +149,7 @@ public class Transaction {
         }
     }
     
-    public func getDB(): DB {
+    public func getDB(): Badger {
         return db
     }
     

@@ -26,7 +26,7 @@ func runBench(numTxns: Int64, keysPerTxn: Int64): Unit {
     let dir = "/tmp/badger_txn_perf_${numTxns}_${keysPerTxn}"
     cleanupDir(dir)
     
-    let db = DB.open(DBOptions(dir: dir, memTableSize: 256 * 1024 * 1024))
+    let db = Badger.open(Config(dir: dir, memTableSize: 256 * 1024 * 1024))
     
     let futures = ArrayList<Future<Unit>>()
     let successCount = AtomicInt64(0)

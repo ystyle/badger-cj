@@ -13,14 +13,14 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_full"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("key1".toArray(), "value1".toArray())
         db1.set("key2".toArray(), "value2".toArray())
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         @Assert(db2.get("key1".toArray()).isSome(), true)
         @Assert(db2.get("key2".toArray()).isSome(), true)
@@ -29,7 +29,7 @@ class PersistenceTest {
         db2.set("key1".toArray(), "value1_updated".toArray())
         db2.close()
         
-        let db3 = DB.open(opt)
+        let db3 = Badger.open(opt)
         
         if (let Some(vs) <- db3.get("key1".toArray())) {
             @Assert(vs.value, "value1_updated".toArray())
@@ -49,9 +49,9 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_txn"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         let txn1 = db1.newTransaction()
         txn1.set("txn_key1".toArray(), "txn_value1".toArray())
         txn1.set("txn_key2".toArray(), "txn_value2".toArray())
@@ -63,7 +63,7 @@ class PersistenceTest {
         
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         let deletedResult = db2.get("txn_key1".toArray())
         @Assert(deletedResult.isSome(), false)
@@ -83,17 +83,17 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_cycles"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
         for (cycle in 0..5) {
-            let db = DB.open(opt)
+            let db = Badger.open(opt)
             for (i in 0..10) {
                 db.set("cycle${cycle}_key${i}".toArray(), "value${cycle}_${i}".toArray())
             }
             db.close()
         }
         
-        let finalDb = DB.open(opt)
+        let finalDb = Badger.open(opt)
         
         var totalFound = 0
         for (cycle in 0..5) {
@@ -114,8 +114,8 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_concurrent"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
-        let db = DB.open(opt)
+        let opt = Config(dir: dir)
+        let db = Badger.open(opt)
         
         let futures = ArrayList<Future<Unit>>()
         for (t in 0..4) {
@@ -133,7 +133,7 @@ class PersistenceTest {
         
         db.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         var found = 0
         for (t in 0..4) {
@@ -154,15 +154,15 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_flush"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         for (i in 0..100) {
             db1.set("flushkey${i}".toArray(), "flushvalue${i}".toArray())
         }
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         var found = 0
         for (i in 0..100) {
@@ -181,18 +181,18 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_delete"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("delkey1".toArray(), "value1".toArray())
         db1.set("delkey2".toArray(), "value2".toArray())
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         db2.delete("delkey1".toArray())
         db2.close()
         
-        let db3 = DB.open(opt)
+        let db3 = Badger.open(opt)
         
         @Assert(db3.get("delkey1".toArray()).isSome(), false)
         @Assert(db3.get("delkey2".toArray()).isSome(), true)
@@ -206,21 +206,21 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_overwrite"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("ovkey".toArray(), "original".toArray())
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         db2.set("ovkey".toArray(), "updated1".toArray())
         db2.close()
         
-        let db3 = DB.open(opt)
+        let db3 = Badger.open(opt)
         db3.set("ovkey".toArray(), "updated2".toArray())
         db3.close()
         
-        let db4 = DB.open(opt)
+        let db4 = Badger.open(opt)
         if (let Some(vs) <- db4.get("ovkey".toArray())) {
             @Assert(vs.value, "updated2".toArray())
         } else {
@@ -235,14 +235,14 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_large"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         let largeValue = Array<Byte>(10000, repeat: 0x41)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("largekey".toArray(), largeValue)
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         if (let Some(vs) <- db2.get("largekey".toArray())) {
             @Assert(vs.value.size, 10000)
             @Assert(vs.value[0], 0x41)
@@ -259,12 +259,12 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_empty"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         @Assert(db2.get("anykey".toArray()).isSome(), false)
         db2.close()
         cleanupDir(dir)
@@ -275,14 +275,14 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_1"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("key1".toArray(), "value1".toArray())
         db1.set("key2".toArray(), "value2".toArray())
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         let v1 = db2.get("key1".toArray())
         if (let Some(vs) <- v1) {
@@ -307,14 +307,14 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_crash"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("key1".toArray(), "value1".toArray())
         db1.set("key2".toArray(), "value2".toArray())
         db1.flushWAL()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         let v1 = db2.get("key1".toArray())
         if (let Some(vs) <- v1) {
@@ -332,17 +332,17 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_multi"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         db1.set("key1".toArray(), "value1".toArray())
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         db2.set("key2".toArray(), "value2".toArray())
         db2.close()
         
-        let db3 = DB.open(opt)
+        let db3 = Badger.open(opt)
         
         let v1 = db3.get("key1".toArray())
         if (let Some(vs) <- v1) {
@@ -367,15 +367,15 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_large"
         cleanupDir(dir)
         
-        let opt = DBOptions(dir: dir)
+        let opt = Config(dir: dir)
         
-        let db1 = DB.open(opt)
+        let db1 = Badger.open(opt)
         for (i in 0..100) {
             db1.set("key${i}".toArray(), "value${i}".toArray())
         }
         db1.close()
         
-        let db2 = DB.open(opt)
+        let db2 = Badger.open(opt)
         
         var count = 0
         for (i in 0..100) {

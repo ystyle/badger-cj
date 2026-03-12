@@ -26,8 +26,8 @@ import badgercj.db.*
 
 main() {
     // 1. 打开数据库
-    let opt = DBOptions(dir: "/tmp/mydb", valueDir: "/tmp/mydb")
-    let db = DB.open(opt)
+    let opt = Config(dir: "/tmp/mydb", valueDir: "/tmp/mydb")
+    let db = Badger.open(opt)
     
     // 2. 写入数据
     db.set("name".toByteArray(), "badger-cj".toByteArray())
@@ -47,12 +47,12 @@ main() {
 ### 打开/关闭数据库
 
 ```cangjie
-let opt = DBOptions(
+let opt = Config(
     dir: "/tmp/mydb",           // 数据目录
     valueDir: "/tmp/mydb",      // Value Log 目录（可与 dir 相同）
     memTableSize: 64 * 1024 * 1024u64,  // MemTable 大小
 )
-let db = DB.open(opt)
+let db = Badger.open(opt)
 
 // 使用完毕后关闭
 db.close()

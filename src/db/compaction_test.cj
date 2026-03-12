@@ -9,11 +9,11 @@ import badgercj.table.*
 class CompactionTest {
     @TestCase
     func testCompactionL0ToL1() {
-        let opt = DBOptions(
+        let opt = Config(
             dir: "/tmp/badger_compaction_test1",
             memTableSize: 16 * 1024
         )
-        let db = DB.open(opt)
+        let db = Badger.open(opt)
         
         for (i in 0..30) {
             db.set("key${i}".toArray(), "value${i}".toArray())
@@ -30,11 +30,11 @@ class CompactionTest {
     
     @TestCase
     func testCompactionPreservesData() {
-        let opt = DBOptions(
+        let opt = Config(
             dir: "/tmp/badger_compaction_test2",
             memTableSize: 16 * 1024
         )
-        let db = DB.open(opt)
+        let db = Badger.open(opt)
         
         for (i in 0..20) {
             db.set("key${i}".toArray(), "value${i}".toArray())
@@ -57,8 +57,8 @@ class CompactionTest {
     
     @TestCase
     func testCompactionDelete() {
-        let opt = DBOptions(dir: "/tmp/badger_compaction_test3")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_compaction_test3")
+        let db = Badger.open(opt)
         
         db.set("key1".toArray(), "value1".toArray())
         db.delete("key1".toArray())

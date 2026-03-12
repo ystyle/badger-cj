@@ -9,8 +9,8 @@ import std.collection.*
 class IteratorTest {
     @TestCase
     func testIteratorBasic() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test1")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test1")
+        let db = Badger.open(opt)
         
         // 写入测试数据
         db.set("key1".toArray(), "value1".toArray())
@@ -51,8 +51,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorReverse() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test2")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test2")
+        let db = Badger.open(opt)
         
         // 写入测试数据
         db.set("key1".toArray(), "value1".toArray())
@@ -87,8 +87,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorSeek() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test4")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test4")
+        let db = Badger.open(opt)
         
         // 写入测试数据
         db.set("key1".toArray(), "value1".toArray())
@@ -114,8 +114,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorReadYourWrites() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test6")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test6")
+        let db = Badger.open(opt)
         
         // 写入初始数据
         db.set("key1".toArray(), "original1".toArray())
@@ -156,8 +156,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorEmpty() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test8")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test8")
+        let db = Badger.open(opt)
         
         // 不写入任何数据
         
@@ -174,8 +174,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorMultipleIterations() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test9")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test9")
+        let db = Badger.open(opt)
         
         // 写入测试数据
         db.set("key1".toArray(), "value1".toArray())
@@ -212,8 +212,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorVersionOrder() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test11")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test11")
+        let db = Badger.open(opt)
         
         // 写入同一 key 的多个版本
         db.set("key1".toArray(), "version1".toArray())
@@ -245,8 +245,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorPrefix() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test12")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test12")
+        let db = Badger.open(opt)
         
         db.set("prefix1/key1".toArray(), "value1".toArray())
         db.set("prefix1/key2".toArray(), "value2".toArray())
@@ -276,8 +276,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorDelete() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test14")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test14")
+        let db = Badger.open(opt)
         
         // 写入数据
         db.set("key1".toArray(), "value1".toArray())
@@ -311,8 +311,8 @@ class IteratorTest {
     
     @TestCase
     func testIteratorConsistency() {
-        let opt = DBOptions(dir: "/tmp/badger_iter_test15")
-        let db = DB.open(opt)
+        let opt = Config(dir: "/tmp/badger_iter_test15")
+        let db = Badger.open(opt)
         
         // 事务 1：写入数据
         let txn1 = db.newTransaction(update: true)

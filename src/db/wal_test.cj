@@ -82,7 +82,7 @@ class WALTest {
         
         wal1.close()
         
-        let opt = DBOptions(dir: testDir.toString(), memTableSize: 1024 * 1024u64)
+        let opt = Config(dir: testDir.toString(), memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 1, false)
         mt.put("dummy".toArray(), ValueStruct("dummy".toArray()))
         
@@ -166,7 +166,7 @@ class WALTest {
         }
         Directory.create(testDir.toString())
         
-        let opt = DBOptions(dir: testDir.toString(), memTableSize: 1024 * 1024u64)
+        let opt = Config(dir: testDir.toString(), memTableSize: 1024 * 1024u64)
         
         let mt1 = MemTable(opt, 1, false)
         mt1.put("key1".toArray(), ValueStruct("value1".toArray()))

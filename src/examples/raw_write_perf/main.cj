@@ -17,7 +17,7 @@ main(): Int64 {
 }
 
 func runDirectWrite(dir: String, totalWrites: Int64): Unit {
-    let opt = DBOptions(dir: dir, memTableSize: 256 * 1024 * 1024, disableWAL: false)
+    let opt = Config(dir: dir, memTableSize: 256 * 1024 * 1024, disableWAL: false)
     let mt = MemTable(opt, 1, false)
     
     let startTime = MonoTime.now()

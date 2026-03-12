@@ -4,10 +4,10 @@ import std.sync.*
 import badgercj.table.*
 
 public class Compaction {
-    private let db: DB
+    private let db: Badger
     private let lock: Mutex
     
-    public init(db: DB) {
+    public init(db: Badger) {
         this.db = db
         this.lock = Mutex()
     }

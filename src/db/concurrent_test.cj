@@ -12,7 +12,7 @@ class ConcurrentTest {
     @Tag[stress]
     @TestCase
     func testConcurrentWrites() {
-        let db = DB.open(DBOptions(dir: "/tmp/badger_concurrent_test1"))
+        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test1"))
         
         let numThreads = 10
         let writesPerThread = 100
@@ -56,7 +56,7 @@ class ConcurrentTest {
     @Tag[stress]
     @TestCase
     func testConcurrentReadWriteMix() {
-        let db = DB.open(DBOptions(dir: "/tmp/badger_concurrent_test2"))
+        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test2"))
         
         db.set("init".toArray(), "value".toArray())
         
@@ -99,7 +99,7 @@ class ConcurrentTest {
     @Tag[stress]
     @TestCase
     func testConcurrentIterators() {
-        let db = DB.open(DBOptions(dir: "/tmp/badger_concurrent_test4"))
+        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test4"))
         
         for (i in 0..100) {
             db.set("key${i}".toArray(), "value${i}".toArray())
@@ -144,7 +144,7 @@ class ConcurrentTest {
     func testTransactionWritePerformance() {
         let dir = "/tmp/badger_txn_perf_test"
         cleanupConcurrentDir(dir)
-        let db = DB.open(DBOptions(dir: dir))
+        let db = Badger.open(Config(dir: dir))
         
         let numTxns = 50
         let keysPerTxn = 100
@@ -268,7 +268,7 @@ class ConcurrentTest {
         
         println("Starting large scale stress test: ${numThreads} threads × ${keysPerThread} keys = ${totalWrites} total")
         
-        let db = DB.open(DBOptions(
+        let db = Badger.open(Config(
             dir: "/tmp/badger_large_stress_test",
         ))
         

@@ -14,7 +14,7 @@ func dbBenchKey(i: Int64): Array<Byte> {
 @Test
 class DBBench {
     
-    private var db: ?DB = None
+    private var db: ?Badger = None
     private var dbDir: String = ""
     
     public init() {}
@@ -22,7 +22,7 @@ class DBBench {
     @BeforeAll
     func setup() {
         dbDir = "/tmp/badger_bench_${Random(42).nextInt64(1000000)}"
-        db = DB.open(DBOptions(dir: dbDir))
+        db = Badger.open(Config(dir: dbDir))
         
         for (i in 0..100) {
             let key = dbBenchKey(i)
