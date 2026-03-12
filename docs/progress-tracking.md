@@ -82,7 +82,7 @@
 
 ## Phase 6 计划（性能优化 + 扩展）
 
-> **状态：** 🔴 进行中 (P0: 3/5 完成)
+> **状态：** 🔴 进行中 (P0: 8/9 完成)
 
 ### P0: 性能优化 (~16h) ← 最高优先级
 
@@ -95,7 +95,7 @@
 | ValueStruct/ValuePointer encode 优化 | 1h | ✅ | 略有提升 |
 | LogEntry.encode/safeCopy 优化 | 1h | ✅ | 大事务提升 50-60% |
 | Varint/BlockBuilder/BloomFilter 优化 | 1h | ✅ | 略有提升 |
-| 批量写入异步化 | 4h | ❌ | - |
+| WritePipeline 零延迟通知 | 1h | ✅ | 略有提升 |
 | 迭代器池化 | 2h | ❌ | - |
 
 **当前性能差距：5-8x**（优化前 8-12x）
