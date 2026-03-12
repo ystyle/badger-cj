@@ -172,7 +172,7 @@ TOTAL: 80864ms
 |------|------|------|
 | Managed DB (手动管理时间戳) | 6h | ❌ |
 | Stream API (大规模数据处理) | 8h | ❌ |
-| Transaction View (回调式只读事务) | 2h | ❌ |
+| Transaction View (回调式只读事务) | 2h | ✅ |
 | Iterator 预取优化 | 2h | ❌ |
 | io_uring I/O 优化 | 26h | 📋 待审核 |
 
@@ -244,6 +244,7 @@ TOTAL: 80864ms
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v6.3 | 2026-03-13 | 重命名 DB->Badger, DBOptions->Config；确认 view/update API 已实现 |
 | v6.2 | 2026-03-13 | 修复 Skiplist.add 比较方向 bug，测试从 29 失败恢复到全部通过 |
 | v6.1 | 2026-03-12 | Phase 6 深度优化完成，性能从 103K 提升到 680K keys/s (6.6x)，WAL 优化 +92% |
 | v6.0 | 2026-03-11 | 重构文档结构，精简冗余内容；添加 io_uring 优化设计（待审核） |
