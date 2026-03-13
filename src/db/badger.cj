@@ -415,7 +415,9 @@ public class Badger {
             if (prio.isNone()) {
                 break
             }
-            compaction.runCompaction()
+            if (!compaction.runCompaction()) {
+                break
+            }
         }
     }
     

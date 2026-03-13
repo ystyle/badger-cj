@@ -13,24 +13,27 @@ public class Compaction {
         this.lock = Mutex()
     }
     
-    public func runCompaction(): Unit {
+    public func runCompaction(): Bool {
         lock.lock()
         try {
             let prioOpt = pickCompaction()
             if (prioOpt.isNone()) {
-                return
+                return false
             }
             
             if (let Some(prio) <- prioOpt) {
                 if (prio.score < 1.0) {
-                    return
+                    return false
                 }
                 
                 var cd = buildCompactDef(prio)
                 if (fillTables(cd)) {
                     doCompact(cd)
+                    return true
                 }
+                return false
             }
+            return false
         } finally {
             lock.unlock()
         }
