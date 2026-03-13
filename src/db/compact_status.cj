@@ -36,6 +36,16 @@ public class levelCompactStatus {
     }
 }
 
+public struct compactionPriority {
+    public let level: Int
+    public let score: Float64
+    
+    public init(level!: Int, score!: Float64) {
+        this.level = level
+        this.score = score
+    }
+}
+
 public struct compactDef {
     public var thisLevel: Int
     public var nextLevel: Int
