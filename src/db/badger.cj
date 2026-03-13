@@ -24,6 +24,7 @@ public class Badger {
     public let writeCh: NotifyingWriteChannel<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
+    private var compactorFut: ?Future<Unit>
     private var pipeline: ?WritePipeline
     public let reqPool: WriteRequestPool
     
@@ -49,6 +50,7 @@ public class Badger {
         this.writeCh = NotifyingWriteChannel<WriteRequest>(10000)
         this.running = AtomicBool(false)
         this.flushFut = None
+        this.compactorFut = None
         this.pipeline = None
         this.reqPool = WriteRequestPool(maxSize: 1000)
     }
@@ -85,6 +87,7 @@ public class Badger {
         db.pipeline = Some(WritePipeline({ reqs => db.writeRequests(reqs) }, queueSize: 1000))
         let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
+        db.startCompactor()
         return db
     }
     
@@ -95,6 +98,9 @@ public class Badger {
             p.close()
         }
         if (let Some(fut) <- flushFut) {
+            fut.get()
+        }
+        if (let Some(fut) <- compactorFut) {
             fut.get()
         }
         
@@ -378,6 +384,28 @@ public class Badger {
         }
         
         req.done()
+    }
+    
+    private func startCompactor(): Unit {
+        let fut = spawn {
+            let compaction = Compaction(this)
+            while (running.load()) {
+                sleep(Duration.millisecond * 100)
+                compaction.runCompaction()
+            }
+        }
+        compactorFut = Some(fut)
+    }
+    
+    public func compact(): Unit {
+        let compaction = Compaction(this)
+        while (true) {
+            let prio = compaction.pickCompaction()
+            if (prio.isNone()) {
+                break
+            }
+            compaction.runCompaction()
+        }
     }
     
     public func getLevelHandler(level: Int64): LevelHandler { lc.getLevelHandler(level) }
