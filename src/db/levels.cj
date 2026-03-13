@@ -11,12 +11,14 @@ public class LevelsController {
     private let manifest: Manifest
     private let dir: String
     private let nextFileID: UInt64
+    private let cstatus: compactStatus
     
     public init(manifest!: Manifest = Manifest(), dir!: String = "") {
         this.manifest = manifest
         this.dir = dir
         this.nextFileID = manifest.nextFileID
         this.levels = ArrayList<LevelHandler>()
+        this.cstatus = compactStatus(7)
         
         for (i in 0..7) {
             levels.add(LevelHandler(i))
@@ -58,6 +60,10 @@ public class LevelsController {
     
     public func getNextFileID(): UInt64 {
         return nextFileID
+    }
+    
+    public func getCompactStatus(): compactStatus {
+        return cstatus
     }
     
     public func getDir(): String {
