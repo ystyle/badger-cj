@@ -382,4 +382,6 @@ public class Badger {
     
     public func getLevelHandler(level: Int64): LevelHandler { lc.getLevelHandler(level) }
     public func newSnapshot(): Snapshot { Snapshot(this) }
+    public func getOpt(): Config { opt }
+    public func getCompactStatus(): compactStatus { lc.getCompactStatus() }
 }
