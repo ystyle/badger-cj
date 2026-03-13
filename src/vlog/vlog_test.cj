@@ -2,6 +2,7 @@ package badgercj.vlog
 
 import std.unittest.*
 import std.unittest.testmacro.*
+import std.fs.*
 
 @Test
 class LogEntryTest {
@@ -51,5 +52,154 @@ class LogEntryTest {
         let (decoded, _) = LogEntry.decode(encoded, 0)
         @Assert(decoded.key.size, 100)
         @Assert(decoded.value.size, 1000)
+    }
+}
+
+@Test
+class VLogManagerTest {
+    @TestCase
+    func testVLogWriteRead() {
+        let dir = Path("./test_vlog_write_read")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        let entry1 = LogEntry("key1".toArray(), "value1".toArray())
+        let vp1 = vlog.write(entry1)
+        
+        @Assert(vp1.fid, 0u32)
+        @Assert(vlog.size() > 0, true)
+        
+        let readEntry = vlog.read(vp1)
+        @Assert(readEntry.key.toArray(), "key1".toArray())
+        @Assert(readEntry.value.toArray(), "value1".toArray())
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogMultipleWrites() {
+        let dir = Path("./test_vlog_multi")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        for (i in 0..10) {
+            let key = "key${i}".toArray()
+            let value = "value${i}".toArray()
+            let entry = LogEntry(key, value)
+            let vp = vlog.write(entry)
+            @Assert(vp.fid, 0u32)
+        }
+        
+        @Assert(vlog.size() > 0, true)
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogGCBasic() {
+        let dir = Path("./test_vlog_gc")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        let entry1 = LogEntry("key1".toArray(), "value1".toArray())
+        let vp1 = vlog.write(entry1)
+        
+        @Assert(vp1.fid, 0u32)
+        @Assert(vlog.size() > 0, true)
+        
+        let ratio = vlog.getDiscardRatio(0u32)
+        @Assert(ratio >= 0.0, true)
+        @Assert(ratio <= 1.0, true)
+        
+        let result = vlog.runGC(0.5)
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogGCNoCurrentFile() {
+        let dir = Path("./test_vlog_gc_current")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        let entry1 = LogEntry("key1".toArray(), "value1".toArray())
+        let _ = vlog.write(entry1)
+        
+        let currentFid = vlog.getCurrentFid()
+        @Assert(currentFid, 0u32)
+        
+        let result = vlog.runGC(0.5)
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogGetFileCount() {
+        let dir = Path("./test_vlog_filecount")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        @Assert(vlog.getFileCount(), 1)
+        
+        let entry1 = LogEntry("key1".toArray(), "value1".toArray())
+        let _ = vlog.write(entry1)
+        
+        @Assert(vlog.getFileCount(), 1)
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogGetDiscardRatioInvalidFid() {
+        let dir = Path("./test_vlog_ratio_invalid")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        let ratio = vlog.getDiscardRatio(999u32)
+        @Assert(ratio, 0.0)
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
     }
 }

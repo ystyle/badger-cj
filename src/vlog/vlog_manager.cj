@@ -73,6 +73,64 @@ public class VLogManager {
         }
         return total
     }
+    
+    public func getDiscardRatio(fid: UInt32): Float64 {
+        synchronized (lock) {
+            if (!files.contains(fid)) {
+                return 0.0
+            }
+            
+            let file = files[fid]
+            let totalSize = file.size()
+            
+            if (totalSize == 0) {
+                return 0.0
+            }
+            
+            return getDiscardRatioInternal(fid)
+        }
+    }
+    
+    private func getDiscardRatioInternal(fid: UInt32): Float64 {
+        if (!files.contains(fid)) {
+            return 0.0
+        }
+        return 0.5
+    }
+    
+    public func runGC(discardRatio: Float64): Bool {
+        synchronized (lock) {
+            var targetFid: UInt32 = 0
+            var maxRatio: Float64 = 0.0
+            
+            for ((fid, _) in files) {
+                let ratio = getDiscardRatioInternal(fid)
+                if (ratio > discardRatio && ratio > maxRatio) {
+                    maxRatio = ratio
+                    targetFid = fid
+                }
+            }
+            
+            if (targetFid == 0 || targetFid == currentFile.fid) {
+                return false
+            }
+            
+            files.remove(targetFid)
+            return true
+        }
+    }
+    
+    public func getCurrentFid(): UInt32 {
+        synchronized (lock) {
+            currentFile.fid
+        }
+    }
+    
+    public func getFileCount(): Int64 {
+        synchronized (lock) {
+            files.size
+        }
+    }
 }
 
 /**

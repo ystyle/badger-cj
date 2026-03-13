@@ -389,12 +389,23 @@ public class Badger {
     private func startCompactor(): Unit {
         let fut = spawn {
             let compaction = Compaction(this)
+            var gcCounter = 0
             while (running.load()) {
                 sleep(Duration.millisecond * 100)
                 compaction.runCompaction()
+                
+                gcCounter++
+                if (gcCounter >= 600) {
+                    vlog.runGC(0.5)
+                    gcCounter = 0
+                }
             }
         }
         compactorFut = Some(fut)
+    }
+    
+    public func runVLogGC(discardRatio: Float64): Bool {
+        vlog.runGC(discardRatio)
     }
     
     public func compact(): Unit {
