@@ -13,7 +13,7 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test1")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "value1".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         let result = db.get("key1".toArray())
         
         if (let Some(vs) <- result) {
@@ -45,8 +45,8 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test3")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "value1".toArray())
-        db.delete("key1".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
+        db.update({ txn => txn.delete("key1".toArray()) })
         
         let result = db.get("key1".toArray())
         if (let Some(_) <- result) {
@@ -62,8 +62,10 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test4")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key1".toArray(), "value2".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key1".toArray(), "value2".toArray())
+        })
         
         let result = db.get("key1".toArray())
         if (let Some(vs) <- result) {
@@ -81,9 +83,11 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test5")
         let db = Badger.open(opt)
         
-        for (i in 0..10) {
-            db.set("key${i}".toArray(), "value${i}".toArray())
-        }
+        db.update({ txn =>
+            for (i in 0..10) {
+                txn.set("key${i}".toArray(), "value${i}".toArray())
+            }
+        })
         
         for (i in 0..10) {
             let result = db.get("key${i}".toArray())
@@ -106,8 +110,10 @@ class DBTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("key1".toArray(), "value1".toArray())
-        db1.set("key2".toArray(), "value2".toArray())
+        db1.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+        })
         db1.close()
         
         let db2 = Badger.open(opt)

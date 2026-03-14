@@ -40,7 +40,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test2")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "original".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "original".toArray()) })
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "modified".toArray())
@@ -70,7 +70,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test3")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "original".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "original".toArray()) })
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "modified".toArray())
@@ -92,7 +92,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test4")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "value1".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         
         let txn = db.newTransaction()
         txn.delete("key1".toArray())
@@ -163,7 +163,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test8")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "value1".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         
         let txn = db.newTransaction(update: false)
         let result = txn.get("key1".toArray())
@@ -193,7 +193,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test9")
         let db = Badger.open(opt)
         
-        db.set("key1".toArray(), "value1".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         
         let result = db.view<Array<Byte>>({ txn =>
             txn.get("key1".toArray()).getOrThrow()

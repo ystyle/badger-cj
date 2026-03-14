@@ -16,8 +16,10 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("key1".toArray(), "value1".toArray())
-        db1.set("key2".toArray(), "value2".toArray())
+        db1.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+        })
         db1.close()
         
         let db2 = Badger.open(opt)
@@ -25,8 +27,10 @@ class PersistenceTest {
         @Assert(db2.get("key1".toArray()).isSome(), true)
         @Assert(db2.get("key2".toArray()).isSome(), true)
         
-        db2.set("key3".toArray(), "value3".toArray())
-        db2.set("key1".toArray(), "value1_updated".toArray())
+        db2.update({ txn =>
+            txn.set("key3".toArray(), "value3".toArray())
+            txn.set("key1".toArray(), "value1_updated".toArray())
+        })
         db2.close()
         
         let db3 = Badger.open(opt)
@@ -87,9 +91,11 @@ class PersistenceTest {
         
         for (cycle in 0..5) {
             let db = Badger.open(opt)
-            for (i in 0..10) {
-                db.set("cycle${cycle}_key${i}".toArray(), "value${cycle}_${i}".toArray())
-            }
+            db.update({ txn =>
+                for (i in 0..10) {
+                    txn.set("cycle${cycle}_key${i}".toArray(), "value${cycle}_${i}".toArray())
+                }
+            })
             db.close()
         }
         
@@ -120,9 +126,11 @@ class PersistenceTest {
         let futures = ArrayList<Future<Unit>>()
         for (t in 0..4) {
             let fut = spawn {
-                for (i in 0..25) {
-                    db.set("thread${t}_key${i}".toArray(), "value${t}_${i}".toArray())
-                }
+                db.update({ txn =>
+                    for (i in 0..25) {
+                        txn.set("thread${t}_key${i}".toArray(), "value${t}_${i}".toArray())
+                    }
+                })
             }
             futures.add(fut)
         }
@@ -157,9 +165,11 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        for (i in 0..100) {
-            db1.set("flushkey${i}".toArray(), "flushvalue${i}".toArray())
-        }
+        db1.update({ txn =>
+            for (i in 0..100) {
+                txn.set("flushkey${i}".toArray(), "flushvalue${i}".toArray())
+            }
+        })
         db1.close()
         
         let db2 = Badger.open(opt)
@@ -184,12 +194,14 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("delkey1".toArray(), "value1".toArray())
-        db1.set("delkey2".toArray(), "value2".toArray())
+        db1.update({ txn =>
+            txn.set("delkey1".toArray(), "value1".toArray())
+            txn.set("delkey2".toArray(), "value2".toArray())
+        })
         db1.close()
         
         let db2 = Badger.open(opt)
-        db2.delete("delkey1".toArray())
+        db2.update({ txn => txn.delete("delkey1".toArray()) })
         db2.close()
         
         let db3 = Badger.open(opt)
@@ -209,15 +221,15 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("ovkey".toArray(), "original".toArray())
+        db1.update({ txn => txn.set("ovkey".toArray(), "original".toArray()) })
         db1.close()
         
         let db2 = Badger.open(opt)
-        db2.set("ovkey".toArray(), "updated1".toArray())
+        db2.update({ txn => txn.set("ovkey".toArray(), "updated1".toArray()) })
         db2.close()
         
         let db3 = Badger.open(opt)
-        db3.set("ovkey".toArray(), "updated2".toArray())
+        db3.update({ txn => txn.set("ovkey".toArray(), "updated2".toArray()) })
         db3.close()
         
         let db4 = Badger.open(opt)
@@ -239,7 +251,7 @@ class PersistenceTest {
         let largeValue = Array<Byte>(10000, repeat: 0x41)
         
         let db1 = Badger.open(opt)
-        db1.set("largekey".toArray(), largeValue)
+        db1.update({ txn => txn.set("largekey".toArray(), largeValue) })
         db1.close()
         
         let db2 = Badger.open(opt)
@@ -278,8 +290,10 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("key1".toArray(), "value1".toArray())
-        db1.set("key2".toArray(), "value2".toArray())
+        db1.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+        })
         db1.close()
         
         let db2 = Badger.open(opt)
@@ -310,8 +324,10 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("key1".toArray(), "value1".toArray())
-        db1.set("key2".toArray(), "value2".toArray())
+        db1.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+        })
         db1.flushWAL()
         
         let db2 = Badger.open(opt)
@@ -335,11 +351,11 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        db1.set("key1".toArray(), "value1".toArray())
+        db1.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         db1.close()
         
         let db2 = Badger.open(opt)
-        db2.set("key2".toArray(), "value2".toArray())
+        db2.update({ txn => txn.set("key2".toArray(), "value2".toArray()) })
         db2.close()
         
         let db3 = Badger.open(opt)
@@ -370,9 +386,11 @@ class PersistenceTest {
         let opt = Config(dir: dir)
         
         let db1 = Badger.open(opt)
-        for (i in 0..100) {
-            db1.set("key${i}".toArray(), "value${i}".toArray())
-        }
+        db1.update({ txn =>
+            for (i in 0..100) {
+                txn.set("key${i}".toArray(), "value${i}".toArray())
+            }
+        })
         db1.close()
         
         let db2 = Badger.open(opt)

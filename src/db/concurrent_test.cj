@@ -23,7 +23,7 @@ class ConcurrentTest {
                 for (j in 0..writesPerThread) {
                     let key = "key${i}_${j}".toArray()
                     let value = "value${i}_${j}".toArray()
-                    db.set(key, value)
+                    db.update({ txn => txn.set(key, value) })
                 }
             }
             futures.add(fut)
@@ -58,7 +58,7 @@ class ConcurrentTest {
     func testConcurrentReadWriteMix() {
         let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test2"))
         
-        db.set("init".toArray(), "value".toArray())
+        db.update({ txn => txn.set("init".toArray(), "value".toArray()) })
         
         let numWriters = 5
         let numReaders = 5
@@ -70,7 +70,7 @@ class ConcurrentTest {
                 for (j in 0..opsPerThread) {
                     let key = "writer${i}_key${j}".toArray()
                     let value = "writer${i}_value${j}".toArray()
-                    db.set(key, value)
+                    db.update({ txn => txn.set(key, value) })
                 }
             }
             futures.add(fut)
@@ -101,9 +101,11 @@ class ConcurrentTest {
     func testConcurrentIterators() {
         let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test4"))
         
-        for (i in 0..100) {
-            db.set("key${i}".toArray(), "value${i}".toArray())
-        }
+        db.update({ txn =>
+            for (i in 0..100) {
+                txn.set("key${i}".toArray(), "value${i}".toArray())
+            }
+        })
         
         let numIterators = 5
         let futures = ArrayList<Future<Unit>>()
@@ -283,7 +285,7 @@ class ConcurrentTest {
                     let key = "largekey${threadIdx}_${j}".toArray()
                     let value = "value${threadIdx}_${j}_data_padding_to_make_it_larger".toArray()
                     try {
-                        db.set(key, value)
+                        db.update({ txn => txn.set(key, value) })
                     } catch (e: Exception) {
                         errorCount.fetchAdd(1)
                         println("Error in thread ${threadIdx}, key ${j}: ${e.message}")

@@ -20,15 +20,19 @@ main(): Int64 {
 } 
 
 func runDirectWrite(dir: String, totalWrites: Int64): Unit {
-    let opt = Config(dir: dir, memTableSize: 256 * 1024 * 1024, disableWAL: true)
+    let opt = Config(dir: dir, memTableSize: 256 * 1024 * 1024, disableWAL: false)
     let mt = MemTable(opt, 1, false)
     
     let startTime = MonoTime.now()
     
-    let rng = Random(12345u64)
+    let keyPrefix = "key_".toArray()
+    let valPrefix = "value_".toArray()
+    let keyBuf = Array<Byte>(32, repeat: 0)
+    let valBuf = Array<Byte>(32, repeat: 0)
+    
     for (i in 0..totalWrites) {
-        let key = keyWithTs("key_${i}".toArray(), UInt64(i))
-        let value = ValueStruct("value_${i}".toArray(), meta: 0, version: UInt64(i))
+        let key = makeKey(keyPrefix, i, keyBuf)
+        let value = makeValue(valPrefix, i, valBuf)
         mt.put(key, value)
     }
     
@@ -40,21 +44,55 @@ func runDirectWrite(dir: String, totalWrites: Int64): Unit {
     println("DIRECT: ${formatNum(totalWrites)} keys in ${ms}ms, ${formatNum(keysPerSec)} keys/s")
 }
 
-func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
-    let result = Array<Byte>(key.size + 8, repeat: 0)
-    for (i in 0..key.size) {
-        result[i] = key[i]
+func makeKey(prefix: Array<Byte>, n: Int64, buf: Array<Byte>): Array<Byte> {
+    var pos = 0
+    for (i in 0..prefix.size) {
+        buf[pos] = prefix[i]
+        pos++
     }
-    let offset = key.size
-    result[offset] = UInt8(ts & 0xFFu64)
-    result[offset + 1] = UInt8((ts >> 8u64) & 0xFFu64)
-    result[offset + 2] = UInt8((ts >> 16u64) & 0xFFu64)
-    result[offset + 3] = UInt8((ts >> 24u64) & 0xFFu64)
-    result[offset + 4] = UInt8((ts >> 32u64) & 0xFFu64)
-    result[offset + 5] = UInt8((ts >> 40u64) & 0xFFu64)
-    result[offset + 6] = UInt8((ts >> 48u64) & 0xFFu64)
-    result[offset + 7] = UInt8((ts >> 56u64) & 0xFFu64)
-    return result
+    pos = writeInt(buf, pos, n)
+    let ts = UInt64(n)
+    buf[pos] = UInt8(ts & 0xFFu64)
+    buf[pos + 1] = UInt8((ts >> 8u64) & 0xFFu64)
+    buf[pos + 2] = UInt8((ts >> 16u64) & 0xFFu64)
+    buf[pos + 3] = UInt8((ts >> 24u64) & 0xFFu64)
+    buf[pos + 4] = UInt8((ts >> 32u64) & 0xFFu64)
+    buf[pos + 5] = UInt8((ts >> 40u64) & 0xFFu64)
+    buf[pos + 6] = UInt8((ts >> 48u64) & 0xFFu64)
+    buf[pos + 7] = UInt8((ts >> 56u64) & 0xFFu64)
+    return buf[0..pos + 8]
+}
+
+func makeValue(prefix: Array<Byte>, n: Int64, buf: Array<Byte>): ValueStruct {
+    var pos = 0
+    for (i in 0..prefix.size) {
+        buf[pos] = prefix[i]
+        pos++
+    }
+    pos = writeInt(buf, pos, n)
+    ValueStruct(buf[0..pos], meta: 0, version: UInt64(n))
+}
+
+func writeInt(buf: Array<Byte>, pos: Int64, n: Int64): Int64 {
+    if (n == 0) {
+        buf[pos] = b'0'
+        return pos + 1
+    }
+    var num = n
+    var end = pos
+    while (num > 0) {
+        buf[end] = b'0' + UInt8(num % 10)
+        num /= 10
+        end++
+    }
+    let start = pos
+    let len = end - start
+    for (i in 0..len / 2) {
+        let tmp = buf[start + i]
+        buf[start + i] = buf[end - 1 - i]
+        buf[end - 1 - i] = tmp
+    }
+    return end
 }
 
 func formatNum(n: Int64): String {

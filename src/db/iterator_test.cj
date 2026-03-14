@@ -12,12 +12,12 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test1")
         let db = Badger.open(opt)
         
-        // 写入测试数据
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
-        db.set("key3".toArray(), "value3".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+            txn.set("key3".toArray(), "value3".toArray())
+        })
         
-        // 创建事务和迭代器
         let txn = db.newTransaction(update: false)
         let iter = txn.newIterator()
         
@@ -54,12 +54,12 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test2")
         let db = Badger.open(opt)
         
-        // 写入测试数据
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
-        db.set("key3".toArray(), "value3".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+            txn.set("key3".toArray(), "value3".toArray())
+        })
         
-        // 创建反向迭代器
         let txn = db.newTransaction(update: false)
         let iterOpts = IteratorOptions(reverse: true)
         let iter = txn.newIterator(opt: iterOpts)
@@ -90,10 +90,11 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test4")
         let db = Badger.open(opt)
         
-        // 写入测试数据
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
-        db.set("key3".toArray(), "value3".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+            txn.set("key3".toArray(), "value3".toArray())
+        })
         
         // Seek 到 key2
         let txn = db.newTransaction(update: false)
@@ -117,8 +118,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test6")
         let db = Badger.open(opt)
         
-        // 写入初始数据
-        db.set("key1".toArray(), "original1".toArray())
+        db.update({ txn => txn.set("key1".toArray(), "original1".toArray()) })
         
         // 创建 update 事务
         let txn = db.newTransaction(update: true)
@@ -177,10 +177,11 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test9")
         let db = Badger.open(opt)
         
-        // 写入测试数据
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
-        db.set("key3".toArray(), "value3".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+            txn.set("key3".toArray(), "value3".toArray())
+        })
         
         let txn = db.newTransaction(update: false)
         let iter = txn.newIterator()
@@ -215,10 +216,11 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test11")
         let db = Badger.open(opt)
         
-        // 写入同一 key 的多个版本
-        db.set("key1".toArray(), "version1".toArray())
-        db.set("key1".toArray(), "version2".toArray())
-        db.set("key1".toArray(), "version3".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "version1".toArray())
+            txn.set("key1".toArray(), "version2".toArray())
+            txn.set("key1".toArray(), "version3".toArray())
+        })
         
         // 默认应该只看到最新版本
         let txn = db.newTransaction(update: false)
@@ -248,9 +250,11 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test12")
         let db = Badger.open(opt)
         
-        db.set("prefix1/key1".toArray(), "value1".toArray())
-        db.set("prefix1/key2".toArray(), "value2".toArray())
-        db.set("prefix2/other".toArray(), "value3".toArray())
+        db.update({ txn =>
+            txn.set("prefix1/key1".toArray(), "value1".toArray())
+            txn.set("prefix1/key2".toArray(), "value2".toArray())
+            txn.set("prefix2/other".toArray(), "value3".toArray())
+        })
         
         let txn = db.newTransaction(update: false)
         let iterOpts = IteratorOptions(prefix: "prefix1/".toArray())
@@ -279,13 +283,12 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test14")
         let db = Badger.open(opt)
         
-        // 写入数据
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
-        db.set("key3".toArray(), "value3".toArray())
-        
-        // 删除 key2
-        db.delete("key2".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+            txn.set("key3".toArray(), "value3".toArray())
+            txn.delete("key2".toArray())
+        })
         
         // 迭代应该跳过已删除的 key
         let txn = db.newTransaction(update: false)

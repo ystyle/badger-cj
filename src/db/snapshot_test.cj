@@ -14,8 +14,10 @@ class SnapshotTest {
         cleanupSnapshotDir(dir)
         let db = Badger.open(Config(dir: dir))
         
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+        })
         
         let snap = db.newSnapshot()
         
@@ -25,7 +27,7 @@ class SnapshotTest {
             @Assert(v.value, "value1".toArray())
         }
         
-        db.set("key3".toArray(), "value3".toArray())
+        db.update({ txn => txn.set("key3".toArray(), "value3".toArray()) })
         
         let val3 = snap.get("key3".toArray())
         @Assert(val3.isNone())
@@ -41,8 +43,10 @@ class SnapshotTest {
         cleanupSnapshotDir(dir)
         let db = Badger.open(Config(dir: dir))
         
-        db.set("key1".toArray(), "value1".toArray())
-        db.set("key2".toArray(), "value2".toArray())
+        db.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+        })
         
         let snap = db.newSnapshot()
         
@@ -58,7 +62,7 @@ class SnapshotTest {
         
         @Assert(keys.size, 2)
         
-        db.set("key3".toArray(), "value3".toArray())
+        db.update({ txn => txn.set("key3".toArray(), "value3".toArray()) })
         
         let keys2 = ArrayList<String>()
         iter.rewind()

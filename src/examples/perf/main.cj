@@ -10,7 +10,7 @@ main(): Int64 {
     let writesPerThread = 200
     let dir = "/tmp/perf_multi"
     clean(dir)
-    let opt = Config(dir: dir, disableWAL: true)
+    let opt = Config(dir: dir, disableWAL: false)
     let db = Badger.open(opt)
 
     // Write phase
@@ -21,9 +21,11 @@ main(): Int64 {
     for (i in 0..numThreads) {
         let idx = i
         futures.add(spawn {
-            for (j in 0..writesPerThread) {
-                db.set("key${idx}_${j}".toArray(), "value${idx}_${j}".toArray())
-            }
+            db.update({ txn =>
+                for (j in 0..writesPerThread) {
+                    txn.set("key${idx}_${j}".toArray(), "value${idx}_${j}".toArray())
+                }
+            })
         })
     }
 
@@ -31,12 +33,12 @@ main(): Int64 {
         f.get()
     }
     let writeTime = MonoTime.now() - startWrite
-
-    println("Write time: ${writeTime.toNanoseconds() / 1000000} ms")
-    println("Per write: ${writeTime.toNanoseconds() / (numThreads * writesPerThread)} ns")
+    let totalOps = numThreads * writesPerThread
+    let writeNs = writeTime.toNanoseconds()
+    println("Write: ${totalOps} ops in ${writeNs / 1000000} ms, ${totalOps * 1000000000 / writeNs} ops/s, ${writeNs / totalOps} ns/op")
 
     // Read phase (like test verification)
-    println("\n=== Read Phase (4000 reads) ===")
+    println("\n=== Read Phase (${totalOps} reads) ===")
     let startRead = MonoTime.now()
 
     let txn = db.newTransaction(update: false)
@@ -52,10 +54,8 @@ main(): Int64 {
     txn.discard()
 
     let readTime = MonoTime.now() - startRead
-
-    println("Read time: ${readTime.toNanoseconds() / 1000000} ms")
-    println("Per read: ${readTime.toNanoseconds() / (numThreads * writesPerThread)} ns")
-    println("Count: ${count}")
+    let readNs = readTime.toNanoseconds()
+    println("Read: ${totalOps} ops in ${readNs / 1000000} ms, ${totalOps * 1000000000 / readNs} ops/s, ${readNs / totalOps} ns/op")
 
     db.close()
 

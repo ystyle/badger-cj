@@ -5,6 +5,7 @@ import std.random.*
 import std.collection.*
 import std.sync.*
 import badgercj.skiplist.*
+import std.binary.*
 
 // 全局变量防止编译器优化
 let g_result: AtomicInt64 = AtomicInt64(0)

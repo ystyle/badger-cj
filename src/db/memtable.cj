@@ -30,7 +30,9 @@ public class MemTable {
         
         let arenaSize = Int64(opt.MemTableSize * 2)
         this.arena = Arena(arenaSize)
-        let initialCapacity = 8192
+        
+        let estimatedEntries = arenaSize / 256
+        let initialCapacity = if (estimatedEntries > 65536) { 65536 } else { estimatedEntries }
         this.atomicStorage = AtomicStorage(initialCapacity)
         this.table = Skiplist(arena, atomicStorage)
         this.refs = AtomicInt32(1)

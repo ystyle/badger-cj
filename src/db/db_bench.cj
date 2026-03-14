@@ -29,18 +29,20 @@ class DBBench {
         key = dbBenchKey(0)
         value = Array<Byte>(64, { _ => 65 })
         
-        for (i in 0..100) {
-            let k = dbBenchKey(i)
-            if (let Some(d) <- db) {
-                d.set(k, value)
-            }
+        if (let Some(d) <- db) {
+            d.update({ txn =>
+                for (i in 0..100) {
+                    let k = dbBenchKey(i)
+                    txn.set(k, value)
+                }
+            })
         }
     }
     
     @Bench
     func benchDBSet() {
         if (let Some(d) <- db) {
-            d.set(key, value)
+            d.update({ txn => txn.set(key, value) })
         }
     }
     
