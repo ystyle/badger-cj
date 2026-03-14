@@ -5,6 +5,9 @@ import std.time.*
 import std.collection.*
 import badgercj.db.*
 import badgercj.table.*
+import badgercj.skiplist.*
+import std.sync.*
+import std.random.Random
 
 main(): Int64 {
     let dir = "/tmp/badger_raw_write_perf"
@@ -14,7 +17,7 @@ main(): Int64 {
     
     cleanupDir(dir)
     return 0
-}
+} 
 
 func runDirectWrite(dir: String, totalWrites: Int64): Unit {
     let opt = Config(dir: dir, memTableSize: 256 * 1024 * 1024, disableWAL: true)
@@ -22,6 +25,7 @@ func runDirectWrite(dir: String, totalWrites: Int64): Unit {
     
     let startTime = MonoTime.now()
     
+    let rng = Random(12345u64)
     for (i in 0..totalWrites) {
         let key = keyWithTs("key_${i}".toArray(), UInt64(i))
         let value = ValueStruct("value_${i}".toArray(), meta: 0, version: UInt64(i))

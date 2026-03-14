@@ -18,11 +18,7 @@ private let badgerPrefix: ArrayList<Byte> = ArrayList<Byte>([98, 97, 100, 103, 1
 public func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
     let keyLen = key.size
     let result = Array<Byte>(keyLen + 8, repeat: 0)
-    
-    // 复制原始 key
-    for (i in 0..keyLen) {
-        result[i] = key[i]
-    }
+    key.copyTo(result)
     
     // 取反时间戳（~ts），使高版本排在字典序前面
     let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ ts
@@ -34,7 +30,6 @@ public func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
     result[keyLen + 5] = UInt8((invTs >> 16) & 0xFF)
     result[keyLen + 6] = UInt8((invTs >> 8) & 0xFF)
     result[keyLen + 7] = UInt8(invTs & 0xFF)
-    
     return result
 }
 
