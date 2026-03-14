@@ -27,4 +27,7 @@ output-type = "executable"
 [package.package-configuration."badgercj.examples.raw_write_perf"]
 output-type = "executable"
 
+[package.package-configuration."badgercj.examples.key_compare_perf"]
+output-type = "executable"
+
 [dependencies]

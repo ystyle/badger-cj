@@ -49,25 +49,36 @@ public class Node {
         let keySize = Int64(getKeySize())
         let otherSize = other.size
         let minLen = if (keySize < otherSize) { keySize } else { otherSize }
-        let buf = arena.getBuf()
-        let baseOffset = Int64(keyOffset)
         
-        for (i in 0..minLen) {
-            let b1 = buf[baseOffset + i]
-            let b2 = other[i]
-            if (b1 < b2) {
-                return -1
-            } else if (b1 > b2) {
-                return 1
+        if (minLen <= 0) {
+            return Int64(keySize - otherSize)
+        }
+        
+        // 短 key 用逐字节比较（避免 FFI 开销）
+        if (minLen < 64) {
+            let buf = arena.getBuf()
+            let baseOffset = Int64(keyOffset)
+            
+            for (i in 0..minLen) {
+                let b1 = buf[baseOffset + i]
+                let b2 = other[i]
+                if (b1 < b2) {
+                    return -1
+                } else if (b1 > b2) {
+                    return 1
+                }
+            }
+        } else {
+            // 长 key 用 memcmp（SIMD 优化）
+            let buf = arena.getBuf()
+            let cmp = fastMemcmp(buf, Int64(keyOffset), other, 0, minLen)
+            
+            if (cmp != 0) {
+                return Int64(cmp)
             }
         }
         
-        if (keySize < otherSize) {
-            return -1
-        } else if (keySize > otherSize) {
-            return 1
-        }
-        return 0
+        return Int64(keySize - otherSize)
     }
     
     public func getKeyOffset(): UInt32 {
