@@ -19,7 +19,7 @@ public class MemTable {
     private let refs: AtomicInt32
     private let walExists: Bool
     private let sizeInBytes_: AtomicUInt64
-    private let wal: WAL
+    private let wal: ?WAL
     private let replaying: AtomicBool
     private let maxVersion: AtomicUInt64
     
@@ -39,22 +39,24 @@ public class MemTable {
         this.maxVersion = AtomicUInt64(0)
         
         if (opt.DisableWAL) {
-            this.wal = WAL.dummy()
+            this.wal = None
         } else {
             let walPath = opt.Dir + "/${fid}.mem"
-            this.wal = WAL.open(walPath)
+            this.wal = Some(WAL.open(walPath))
         }
         
         if (walExists && !opt.DisableWAL) {
             replaying.store(true)
-            this.wal.replay(this)
+            this.wal?.replay(this)
             replaying.store(false)
         }
     }
     
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
         if (!opt.DisableWAL && !replaying.load()) {
-            wal.write(key, vs)
+            if (let Some(w) <- wal) {
+                w.write(key, vs)
+            }
         }
         
         if (vs.version > maxVersion.load()) {
@@ -135,16 +137,16 @@ public class MemTable {
     public func decrRef(): Unit {
         let old = refs.fetchSub(1)
         if (old == 1) {
-            wal.delete()
+            this.wal?.delete()
         }
     }
     
     public func closeWAL(): Unit {
-        wal.close()
+        this.wal?.close()
     }
     
     public func flushWAL(): Unit {
-        wal.flush()
+        this.wal?.flush()
     }
     
     public func iterator(): SkipIterator {
@@ -156,7 +158,7 @@ public class MemTable {
     }
     
     public func deleteWAL(): Unit {
-        wal.delete()
+        this.wal?.delete()
     }
     
     public func getMaxVersion(): UInt64 {

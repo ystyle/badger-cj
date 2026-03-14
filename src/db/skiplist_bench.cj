@@ -28,36 +28,39 @@ func benchRandomKey(rng: Random): Array<Byte> {
 
 @Test
 class SkiplistBench {
+    private var arena: Arena = Arena(64 * 1024 * 1024)
+    private var atomicStorage: AtomicStorage = AtomicStorage(100000)
+    private var list: Skiplist = Skiplist(arena, atomicStorage)
+    private var key: Array<Byte> = []
+    private var result: UInt64 = 0
+    
+    public init() {}
+    
+    @BeforeAll
+    func setup() {
+        arena = Arena(64 * 1024 * 1024)
+        atomicStorage = AtomicStorage(100000)
+        list = Skiplist(arena, atomicStorage)
+        
+        let rng = Random(42u64)
+        for (_ in 0..1000) {
+            let k = benchRandomKey(rng)
+            list.add(k, 100u64)
+        }
+        
+        key = benchRandomKey(Random(123u64))
+        list.add(key, 200u64)
+    }
     
     @Bench
     func benchPut() {
-        let arena = Arena(64 * 1024 * 1024)
-        let atomicStorage = AtomicStorage(100000)
-        let list = Skiplist(arena, atomicStorage)
-        let rng = Random(42u64)
-        
-        for (_ in 0..1000) {
-            let key = benchRandomKey(rng)
-            list.add(key, 100u64)
-        }
+        list.add(key, 100u64)
     }
     
     @Bench
     func benchGet() {
-        let arena = Arena(64 * 1024 * 1024)
-        let atomicStorage = AtomicStorage(100000)
-        let list = Skiplist(arena, atomicStorage)
-        let rng = Random(42u64)
-        
-        for (_ in 0..1000) {
-            let key = benchRandomKey(rng)
-            list.add(key, 100u64)
-        }
-        
-        let rng2 = Random(42u64)
-        for (_ in 0..1000) {
-            let key = benchRandomKey(rng2)
-            list.get(key)
+        if (let Some(node) <- list.get(key)) {
+            result = node.getValue()
         }
     }
 }

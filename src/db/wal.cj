@@ -47,12 +47,6 @@ public class WAL {
         return wal
     }
     
-    public static func dummy(): WAL {
-        let wal = WAL("/dev/null")
-        wal.writeOffset = 0
-        return wal
-    }
-    
     public func write(key: Array<Byte>, value: ValueStruct): Unit {
         if (file.isNone()) {
             return

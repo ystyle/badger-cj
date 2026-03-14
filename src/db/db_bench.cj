@@ -16,6 +16,8 @@ class DBBench {
     
     private var db: ?Badger = None
     private var dbDir: String = ""
+    private var key: Array<Byte> = []
+    private var value: Array<Byte> = []
     
     public init() {}
     
@@ -24,19 +26,19 @@ class DBBench {
         dbDir = "/tmp/badger_bench_${Random(42).nextInt64(1000000)}"
         db = Badger.open(Config(dir: dbDir))
         
+        key = dbBenchKey(0)
+        value = Array<Byte>(64, { _ => 65 })
+        
         for (i in 0..100) {
-            let key = dbBenchKey(i)
-            let value = Array<Byte>(64, { _ => 65 })
+            let k = dbBenchKey(i)
             if (let Some(d) <- db) {
-                d.set(key, value)
+                d.set(k, value)
             }
         }
     }
     
     @Bench
     func benchDBSet() {
-        let key = dbBenchKey(Random(42).nextInt64(100))
-        let value = Array<Byte>(64, { _ => 65 })
         if (let Some(d) <- db) {
             d.set(key, value)
         }
@@ -44,7 +46,6 @@ class DBBench {
     
     @Bench
     func benchDBGet() {
-        let key = dbBenchKey(Random(42).nextInt64(100))
         if (let Some(d) <- db) {
             d.get(key)
         }
