@@ -334,8 +334,6 @@ public class Badger <: VLogGCDB {
             lock.writeLock.unlock()
             
             for (entry in entries) {
-                updateDiscardStats(entry.key)
-                
                 let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                     Some(vlog.write(LogEntry(entry.key, entry.value)))
                 } else {
@@ -365,8 +363,6 @@ public class Badger <: VLogGCDB {
         lock.writeLock.unlock()
         
         for (entry in req.getEntries()) {
-            updateDiscardStats(entry.key)
-            
             let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                 Some(vlog.write(LogEntry(entry.key, entry.value)))
             } else {
@@ -385,15 +381,6 @@ public class Badger <: VLogGCDB {
         }
         
         req.done()
-    }
-    
-    private func updateDiscardStats(key: Array<Byte>): Unit {
-        if (let Some(oldVs) <- getVS(key)) {
-            if (oldVs.isValuePointer()) {
-                let vp = ValuePointer.decode(oldVs.value)
-                vlog.addDiscard(vp.fid, Int64(vp.len))
-            }
-        }
     }
     
     private func startCompactor(): Unit {

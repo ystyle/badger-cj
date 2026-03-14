@@ -16,6 +16,8 @@ class Segment {
     public let values: Array<AtomicUInt64>
     public let towers: Array<AtomicUInt32>
     
+    // 注意：不能使用 repeat: AtomicUInt64(0)，因为 AtomicUInt64/AtomicUInt32 是引用类型
+    // repeat 会创建值拷贝，导致所有元素共享同一个原子对象，造成并发问题
     public init() {
         this.values = Array<AtomicUInt64>(SEGMENT_SIZE, { _ => AtomicUInt64(0) })
         this.towers = Array<AtomicUInt32>(SEGMENT_SIZE * MAX_HEIGHT, { _ => AtomicUInt32(0) })
