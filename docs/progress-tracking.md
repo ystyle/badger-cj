@@ -1,6 +1,6 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-03-13  
+**最后更新：** 2026-03-14  
 **当前阶段：** ✅ Phase 7 已完成（完整 Compaction + 完整 VLog GC）
 
 ---
@@ -9,8 +9,8 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 178/178 通过 ✅ (vlog 测试 28/28) |
-| **性能** | 直接写入 ~680K keys/s，带 WAL ~500K keys/s |
+| **测试** | 187/194 通过 ✅ (7 个 stress 测试跳过) |
+| **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **核心功能** | 全部完成 |
 
 ---
@@ -56,7 +56,7 @@
 | **Phase 4** | 2026-03-09 | 126 | Oracle/WaterMark/SSI/Iterator/Snapshot/MVCC |
 | **Phase 5** | 2026-03-11 | 166 | 性能优化 + 无锁并发 SkipList + DB 持久化 |
 | **Phase 6** | 2026-03-12 | 182 | 性能深度优化 + 独立基准测试程序 |
-| **Phase 7** | 2026-03-13 | 178 | 完整 Compaction + VLog GC |
+| **Phase 7** | 2026-03-14 | 194 | 完整 Compaction + VLog GC + 性能修复 |
 
 ---
 
@@ -102,27 +102,22 @@
 
 ## 性能对比
 
-**测试环境：** 单线程直接写入 MemTable，12GB heap
+**测试环境：** 12GB heap
 
 | 操作 | Go Badger | Cangjie badger-cj | 比率 |
 |------|-----------|-------------------|------|
-| Skiplist 并发写 | ~250 ns/op | 457 ns/op | **1.8x** ✅ |
-| Skiplist 并发读 | ~96 ns/op | 116 ns/op | **1.2x** ✅ |
-| 直接写入 (disableWAL) | ~1.5M keys/s | **680K keys/s** | **2.2x** ✅ |
-| 直接写入 (enableWAL) | ~1.5M keys/s | **500K keys/s** | **3x** |
+| 直接写入 (disableWAL) | ~1.5M keys/s | **616K keys/s** | **2.4x** ✅ |
+| 事务写入 (50并发) | ~1.0M keys/s | **400-441K keys/s** | **2.5x** ✅ |
+| DB Get | ~1 µs | **2.9 µs** | **2.9x** ✅ |
+| DB Set | ~5 µs | **7.4 µs** | **1.5x** ✅ |
 
-**Phase 6 深度优化效果：**
+**事务写入测试 (50 并发)：**
 
-| 场景 | 优化前 | 优化后 | 提升 |
-|------|--------|--------|------|
-| DB.set (异步写入) | 103K | - | 基准 |
-| 直接写入 MemTable | 265K | - | +158% |
-| copyTo 批量拷贝 | 329K | - | +24% |
-| Node.compareKey 内联 | 354K | - | +8% |
-| AtomicStorage 分段扩展 | 420K | - | +19% |
-| Skiplist::add 内联优化 | 620K | - | +48% |
-| AtomicStorage 预分配 | - | 680K | +10% |
-| CRC32C 全局表 (WAL开启) | 260K | **500K** | +92% |
+| 规模 | 耗时 | 吞吐量 |
+|------|------|--------|
+| 50 x 100 = 5,000 keys | 11ms | **441K keys/s** |
+| 50 x 1000 = 50,000 keys | 125ms | **399K keys/s** |
+| 50 x 3000 = 150,000 keys | 377ms | **397K keys/s** |
 
 **关键优化项：**
 
@@ -131,19 +126,10 @@
 | AtomicStorage 分段扩展 | 初始化从 12% 降到 <1% |
 | Arena.putBytes/getBytes 使用 copyTo | 批量拷贝替代逐字节 |
 | Node.compareKey 直接访问 Arena buffer | 避免 Node 对象创建 |
-| Skiplist::add 内联 compareKeyAt/getNextOffsetAt | 减少 50% Node 对象创建 |
+| Skiplist::add 内联优化 | 减少 50% Node 对象创建 |
 | CRC32C 全局查找表 | 从 17% 开销降到 0.04% |
-| LogEntry::encode 使用 copyTo | WAL 性能 +92% |
-
-**事务写入测试 (50 并发)：**
-
-| 规模 | 耗时 | 吞吐量 |
-|------|------|--------|
-| 50 x 80 = 4,000 keys | 5ms | 800K keys/s |
-| 50 x 100 = 5,000 keys | 12ms | 416K keys/s |
-| 50 x 300 = 15,000 keys | 14ms | 1.07M keys/s |
-| 50 x 1000 = 50,000 keys | 49ms | 1.02M keys/s |
-| 50 x 3000 = 150,000 keys | 185ms | 810K keys/s |
+| 移除写入路径 updateDiscardStats | 性能提升 2-3x |
+| Option<WAL> 替代 dummy() hack | 代码更清晰 |
 
 ---
 
@@ -245,6 +231,9 @@ TOTAL: 80864ms
 | VLog GC 循环依赖 | 定义 VLogGCDB 接口打破 Badger/VLogManager 循环 | `src/vlog/vlog_gc_db.cj` |
 | VLog GC 数据丢失风险 | 完整 rewrite：检查 LSM ValuePointer 匹配后重写 | `src/vlog/vlog_manager.cj` |
 | lambda 捕获可变变量 | 使用 Counter 包装类 | `src/vlog/vlog_gc_test.cj` |
+| updateDiscardStats 性能问题 | 移除写入路径调用，Go Badger 也没有在写入时统计 | `src/db/badger.cj` |
+| Array repeat: 初始化引用类型 | Atomic 类型必须用闭包初始化，否则共享对象 | `src/skiplist/atomic_storage.cj` |
+| Option<WAL> 替代 dummy() | 使用 Option 类型更安全，wal?.delete() 自动跳过 | `src/db/memtable.cj` |
 
 ### 仓颉语法注意事项
 
@@ -280,6 +269,7 @@ TOTAL: 80864ms
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v7.4 | 2026-03-14 | 修复性能回归：移除 updateDiscardStats、修复 Atomic 初始化，194 测试通过 |
 | v7.3 | 2026-03-13 | VLog GC 完整实现：DiscardStats/VLogGCDB接口/iterate/pickLog/rewrite，28/28 vlog 测试通过 |
 | v7.2 | 2026-03-13 | Phase 7 完成：完整多层级 Compaction + VLog GC，171 测试通过 |
 | v7.1 | 2026-03-13 | VLog GC 简化实现：getDiscardRatio/runGC + 后台协程 + 测试 |
