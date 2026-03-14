@@ -2,7 +2,7 @@
   cjc-version = "1.1.0"
   name = "badgercj"
   organization = ""
-  description = "nothing here"
+  description = "一个可嵌入、持久化且速度很快的基于LSM-Tree的键值 (KV) 数据库"
   version = "1.0.0"
   target-dir = ""
   script-dir = ""
@@ -10,7 +10,10 @@
   compile-option = "-O2 -Woff unused"
   override-compile-option = ""
   link-option = ""
-  package-configuration = {}
+  include =["src"]
+  license = ["MIT"]
+  authors = ["ystyle"]
+  repository = ["https://atomgit.com/ystyle/badger-cj"]
 
 [package.package-configuration."badgercj.examples.perf"]
 output-type = "executable"
