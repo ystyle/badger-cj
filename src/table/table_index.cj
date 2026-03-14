@@ -15,9 +15,12 @@ public class TableIndex {
     public let uncompressedSize: UInt32
     public let onDiskSize: UInt32
     public let staleDataSize: UInt32
+    public let tableSmallest: Array<Byte>
+    public let tableBiggest: Array<Byte>
     
     public init(offsets: ArrayList<BlockOffset>, bloomFilter: Array<Byte>, maxVersion: UInt64, 
-                keyCount: UInt32, uncompressedSize: UInt32, onDiskSize: UInt32, staleDataSize: UInt32) {
+                keyCount: UInt32, uncompressedSize: UInt32, onDiskSize: UInt32, staleDataSize: UInt32,
+                tableSmallest!: Array<Byte> = [], tableBiggest!: Array<Byte> = []) {
         this.offsets = offsets
         this.bloomFilter = bloomFilter
         this.maxVersion = maxVersion
@@ -25,6 +28,8 @@ public class TableIndex {
         this.uncompressedSize = uncompressedSize
         this.onDiskSize = onDiskSize
         this.staleDataSize = staleDataSize
+        this.tableSmallest = tableSmallest
+        this.tableBiggest = tableBiggest
     }
     
     /**
@@ -73,6 +78,16 @@ public class TableIndex {
     public static func decode(data: Array<Byte>): TableIndex {
         var offset: Int64 = 0
         
+        let smallestLen = readUInt32(data, offset)
+        offset += 4
+        let tableSmallest = readBytes(data, offset, Int64(smallestLen))
+        offset += Int64(smallestLen)
+        
+        let biggestLen = readUInt32(data, offset)
+        offset += 4
+        let tableBiggest = readBytes(data, offset, Int64(biggestLen))
+        offset += Int64(biggestLen)
+        
         let blockCount = readUInt32(data, offset)
         offset += 4
         
@@ -113,7 +128,8 @@ public class TableIndex {
         
         let staleDataSize = readUInt32(data, offset)
         
-        return TableIndex(offsets, bloomFilter, maxVersion, keyCount, uncompressedSize, onDiskSize, staleDataSize)
+        return TableIndex(offsets, bloomFilter, maxVersion, keyCount, uncompressedSize, onDiskSize, staleDataSize,
+            tableSmallest: tableSmallest, tableBiggest: tableBiggest)
     }
     
     private static func readUInt32(data: Array<Byte>, offset: Int64): UInt32 {

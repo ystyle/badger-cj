@@ -55,4 +55,8 @@ public class TableIterator {
     public func value(): Array<Byte> {
         return blockIter.value()
     }
+    
+    public func valueStruct(): ?ValueStruct {
+        return blockIter.valueStruct()
+    }
 }

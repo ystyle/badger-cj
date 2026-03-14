@@ -31,6 +31,8 @@ public class TableBuilder {
     private var maxVersion: UInt64
     private var uncompressedSize: UInt32
     private var finished: Bool
+    private var tableSmallest: Array<Byte>
+    private var tableBiggest: Array<Byte>
     
     public init(blockSize!: Int64 = 4 * 1024) {
         this.blockSize = blockSize
@@ -41,6 +43,8 @@ public class TableBuilder {
         this.maxVersion = 0
         this.uncompressedSize = 0
         this.finished = false
+        this.tableSmallest = []
+        this.tableBiggest = []
     }
     
     /**
@@ -49,6 +53,13 @@ public class TableBuilder {
     public func add(key: Array<Byte>, value: ValueStruct): Unit {
         if (finished) {
             throw Exception("TableBuilder already finished")
+        }
+        
+        if (tableSmallest.size == 0 || compareKeys(key, tableSmallest) < 0) {
+            tableSmallest = key
+        }
+        if (tableBiggest.size == 0 || compareKeys(key, tableBiggest) > 0) {
+            tableBiggest = key
         }
         
         if (!currentBlock.add(key, value)) {
@@ -144,6 +155,24 @@ public class TableBuilder {
     private func buildTableIndex(): Array<Byte> {
         let indexBuf = ArrayList<Byte>()
         
+        let smallestLen = UInt32(tableSmallest.size)
+        indexBuf.add(UInt8(smallestLen & 0xFF))
+        indexBuf.add(UInt8((smallestLen >> 8) & 0xFF))
+        indexBuf.add(UInt8((smallestLen >> 16) & 0xFF))
+        indexBuf.add(UInt8((smallestLen >> 24) & 0xFF))
+        for (b in tableSmallest) {
+            indexBuf.add(b)
+        }
+        
+        let biggestLen = UInt32(tableBiggest.size)
+        indexBuf.add(UInt8(biggestLen & 0xFF))
+        indexBuf.add(UInt8((biggestLen >> 8) & 0xFF))
+        indexBuf.add(UInt8((biggestLen >> 16) & 0xFF))
+        indexBuf.add(UInt8((biggestLen >> 24) & 0xFF))
+        for (b in tableBiggest) {
+            indexBuf.add(b)
+        }
+        
         let blockCount = UInt32(blockOffsets.size)
         indexBuf.add(UInt8(blockCount & 0xFF))
         indexBuf.add(UInt8((blockCount >> 8) & 0xFF))
@@ -222,6 +251,16 @@ public class TableBuilder {
     
     public func getMaxVersion(): UInt64 {
         return maxVersion
+    }
+    
+    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
+        let minLen = if (a.size < b.size) { a.size } else { b.size }
+        for (i in 0..minLen) {
+            if (a[i] != b[i]) {
+                return Int64(a[i]) - Int64(b[i])
+            }
+        }
+        return Int64(a.size) - Int64(b.size)
     }
     
     public func isEmpty(): Bool {

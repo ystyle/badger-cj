@@ -9,6 +9,18 @@ import badgercj.manifest.*
 import badgercj.vlog.*
 import std.collection.concurrent.*
 
+public class Entry {
+    public let key: Array<Byte>
+    public let value: Array<Byte>
+    public let isDelete: Bool
+    
+    public init(key: Array<Byte>, value: Array<Byte>, isDelete!: Bool = false) {
+        this.key = key
+        this.value = value
+        this.isDelete = isDelete
+    }
+}
+
 public class Badger <: VLogGCDB {
     private let opt: Config
     private let manifest: Manifest
@@ -82,6 +94,7 @@ public class Badger <: VLogGCDB {
         
         if (recoveredVersion > 0) {
             db.version.store(recoveredVersion + 1)
+            db.oracle.initTs(recoveredVersion + 1)
         }
         
         db.running = AtomicBool(true)
@@ -164,11 +177,12 @@ public class Badger <: VLogGCDB {
     }
     
     public func getLevelsController(): LevelsController { lc }
+    public func getManifestFile(): ManifestFile { manifestFile }
     
     public func get(key: Array<Byte>, readTsOpt!: ?UInt64 = None): Option<ValueStruct> {
         lock.readLock.lock()
         try {
-            let readTs = readTsOpt ?? version.load()
+            let readTs = readTsOpt ?? oracle.currentTs()
             
             // Check memtable
             if (let Some(vs) <- mt.getWithTs(key, readTs)) {
@@ -212,24 +226,41 @@ public class Badger <: VLogGCDB {
         }
     }
     
-    public func set(key: Array<Byte>, value: Array<Byte>): Unit {
+    public func batchSet(entries: ArrayList<Entry>): Unit {
+        if (entries.isEmpty()) {
+            return
+        }
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
-        req.addEntry(key, value, isDelete: false)
+        for (e in entries) {
+            req.addEntry(e.key, e.value, isDelete: e.isDelete)
+        }
         writeCh.add(req)
         req.wait()
         reqPool.put(req)
     }
     
-    public func delete(key: Array<Byte>): Unit {
+    public func batchSetAsync(entries: ArrayList<Entry>, callback: ?(Unit) -> Unit): Unit {
+        if (entries.isEmpty()) {
+            return
+        }
         let ts = version.fetchAdd(1)
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
-        req.addEntry(key, [], isDelete: true)
+        for (e in entries) {
+            req.addEntry(e.key, e.value, isDelete: e.isDelete)
+        }
         writeCh.add(req)
-        req.wait()
-        reqPool.put(req)
+        
+        let cb = callback
+        spawn {
+            req.wait()
+            reqPool.put(req)
+            if (let Some(fn) <- cb) {
+                fn(())
+            }
+        }
     }
     
     public func flushMemTable(): Unit {
@@ -280,13 +311,23 @@ public class Badger <: VLogGCDB {
     }
     
     private func flushToLevel(mt: MemTable): Unit {
-        let entries = ArrayList<(Array<Byte>, ValueStruct)>()
+        let builder = TableBuilder()
         let iter = mt.iterator()
         while (iter.hasNext()) {
-            if (let Some(e) <- iter.next()) { entries.add(e) }
+            if (let Some((key, vs)) <- iter.next()) {
+                builder.add(key, vs)
+            }
         }
+        
+        let data = builder.finish()
+        if (data.size == 0) {
+            mt.decrRef()
+            return
+        }
+        
         let tableID = nextFileID.fetchAdd(1)
-        lc.addTable(0, MockTable(tableID, entries))
+        let table = Table(tableID, data)
+        lc.addTable(0, TableAdapter(table))
         mt.decrRef()
     }
     

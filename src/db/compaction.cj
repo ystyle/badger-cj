@@ -2,7 +2,10 @@ package badgercj.db
 
 import std.sync.*
 import std.collection.*
+import std.fs.*
+import std.io.*
 import badgercj.table.*
+import badgercj.manifest.*
 
 public class Compaction {
     private let db: Badger
@@ -22,16 +25,11 @@ public class Compaction {
             }
             
             if (let Some(prio) <- prioOpt) {
-                if (prio.score < 1.0) {
-                    return false
-                }
-                
                 var cd = buildCompactDef(prio)
-                if (fillTables(cd)) {
-                    doCompact(cd)
+                if (let Some(filledCd) <- fillTables(cd)) {
+                    doCompact(filledCd)
                     return true
                 }
-                return false
             }
             return false
         } finally {
@@ -58,14 +56,7 @@ public class Compaction {
     }
     
     private func findBaseLevel(): Int {
-        let opt = db.getOpt()
-        for (level in 1..opt.MaxLevels) {
-            let handler = db.getLevelHandler(level)
-            if (handler.numTables() > 0) {
-                return level
-            }
-        }
-        return opt.MaxLevels - 1
+        return 1
     }
     
     public func pickCompaction(): Option<compactionPriority> {
@@ -92,70 +83,93 @@ public class Compaction {
         return None
     }
     
-    public func fillTables(cd: compactDef): Bool {
+    public func fillTables(cd: compactDef): Option<compactDef> {
         let thisHandler = db.getLevelHandler(cd.thisLevel)
         let nextHandler = db.getLevelHandler(cd.nextLevel)
         
         let tables = thisHandler.getTables()
         if (tables.size == 0) {
-            return false
+            return None
         }
-        
-        let sortedTables = sortTablesByMaxVersion(tables)
         
         let cstatus = db.getCompactStatus()
         
-        for (t in sortedTables) {
-            let thisSize = t.size()
-            let thisRange = getKeyRange(t)
+        var top = ArrayList<TableInterface>()
+        var thisRange = keyRange()
+        var thisSize: Int64 = 0
+        
+        if (cd.thisLevel == 0) {
+            for (t in tables) {
+                let tRange = getKeyRange(t)
+                thisRange.extendRange(tRange)
+                thisSize += t.size()
+                top.add(t)
+            }
             
             if (cstatus.overlapsWith(cd.thisLevel, thisRange)) {
-                continue
+                return None
             }
+        } else {
+            let sortedTables = sortTablesByMaxVersion(tables)
             
-            var top = ArrayList<TableInterface>()
-            top.add(t)
-            
-            var bot = ArrayList<TableInterface>()
-            var nextRange = thisRange
-            
-            if (cd.thisLevel != cd.nextLevel) {
-                let nextTables = nextHandler.getTables()
+            for (t in sortedTables) {
+                let tSize = t.size()
+                let tRange = getKeyRange(t)
                 
-                for (nt in nextTables) {
-                    let ntRange = keyRange(
-                        left: keyWithTs(parseKey(nt.smallest()), UInt64.Max),
-                        right: keyWithTs(parseKey(nt.biggest()), 0)
-                    )
-                    if (thisRange.overlapsWith(ntRange)) {
-                        bot.add(nt)
-                    }
-                }
-                
-                if (bot.size > 0) {
-                    nextRange = getKeyRange(bot)
-                }
-                
-                if (cstatus.overlapsWith(cd.nextLevel, nextRange)) {
+                if (cstatus.overlapsWith(cd.thisLevel, tRange)) {
                     continue
                 }
+                
+                top.add(t)
+                thisSize = tSize
+                thisRange = tRange
+                break
             }
             
-            var newCd = compactDef()
-            newCd.thisLevel = cd.thisLevel
-            newCd.nextLevel = cd.nextLevel
-            newCd.thisRange = thisRange
-            newCd.nextRange = nextRange
-            newCd.thisSize = thisSize
-            newCd.top = top
-            newCd.bot = bot
-            
-            if (cstatus.compareAndAdd(newCd)) {
-                return true
+            if (top.size == 0) {
+                return None
             }
         }
         
-        return false
+        var bot = ArrayList<TableInterface>()
+        var nextRange = thisRange
+        
+        if (cd.thisLevel != cd.nextLevel) {
+            let nextTables = nextHandler.getTables()
+            
+            for (nt in nextTables) {
+                let ntRange = keyRange(
+                    left: keyWithTs(parseKey(nt.smallest()), UInt64.Max),
+                    right: keyWithTs(parseKey(nt.biggest()), 0)
+                )
+                if (thisRange.overlapsWith(ntRange)) {
+                    bot.add(nt)
+                }
+            }
+            
+            if (bot.size > 0) {
+                nextRange = getKeyRange(bot)
+            }
+            
+            if (cd.thisLevel == 0 && cstatus.overlapsWith(cd.nextLevel, nextRange)) {
+                return None
+            }
+        }
+        
+        var newCd = compactDef()
+        newCd.thisLevel = cd.thisLevel
+        newCd.nextLevel = cd.nextLevel
+        newCd.thisRange = thisRange
+        newCd.nextRange = nextRange
+        newCd.thisSize = thisSize
+        newCd.top = top
+        newCd.bot = bot
+        
+        if (cstatus.compareAndAdd(newCd)) {
+            return Some(newCd)
+        }
+        
+        return None
     }
     
     public func getKeyRange(table: TableInterface): keyRange {
@@ -220,10 +234,19 @@ public class Compaction {
         let thisHandler = db.getLevelHandler(cd.thisLevel)
         let nextHandler = db.getLevelHandler(cd.nextLevel)
         
-        let newTables = compactBuildTables(cd)
+        let (newTables, manifestChanges) = compactBuildTables(cd, cd.nextLevel)
         
         for (t in newTables) {
             nextHandler.addTable(t)
+        }
+        
+        for (t in cd.top) {
+            manifestChanges.add(ManifestChange(t.getId(), ManifestChangeOp.Delete, level: UInt32(cd.thisLevel)))
+        }
+        if (cd.thisLevel != cd.nextLevel) {
+            for (t in cd.bot) {
+                manifestChanges.add(ManifestChange(t.getId(), ManifestChangeOp.Delete, level: UInt32(cd.nextLevel)))
+            }
         }
         
         deleteTables(thisHandler, cd.top)
@@ -231,12 +254,16 @@ public class Compaction {
             deleteTables(nextHandler, cd.bot)
         }
         
+        let manifestFile = db.getManifestFile()
+        manifestFile.saveChanges(manifestChanges)
+        
         cstatus.delete(cd)
         return true
     }
     
-    private func compactBuildTables(cd: compactDef): ArrayList<TableInterface> {
+    private func compactBuildTables(cd: compactDef, level: Int): (ArrayList<TableInterface>, ManifestChangeSet) {
         let result = ArrayList<TableInterface>()
+        let manifestChanges = ManifestChangeSet()
         
         let allEntries = ArrayList<(Array<Byte>, ValueStruct)>()
         
@@ -262,14 +289,35 @@ public class Compaction {
         let data = builder.finish()
         if (data.size > 0) {
             let tableId = db.getVersion()
+            let path = sstablePath(db.getOpt().Dir, tableId)
+            let f = File(Path(path), Write)
+            f.write(data)
+            f.close()
+            
             let table = Table(tableId, data)
             result.add(TableAdapter(table))
+            manifestChanges.add(ManifestChange(tableId, ManifestChangeOp.Create, level: UInt32(level)))
         }
         
-        return result
+        (result, manifestChanges)
     }
     
     private func collectEntriesFromTable(table: TableInterface, entries: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
+        let adapterOpt = table as TableAdapter
+        if (let Some(adapter) <- adapterOpt) {
+            let t = adapter.getTable()
+            let iter = t.newIterator()
+            iter.seekToFirst()
+            while (iter.isValid()) {
+                let key = iter.key()
+                if (let Some(vs) <- iter.valueStruct()) {
+                    entries.add((key, vs))
+                }
+                iter.next()
+            }
+            return
+        }
+        
         let iter = TableInterfaceIterator(table)
         iter.rewind()
         while (iter.valid()) {

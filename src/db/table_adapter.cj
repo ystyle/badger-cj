@@ -58,4 +58,8 @@ public class TableAdapter <: TableInterface {
     public func getMaxVersion(): UInt64 {
         table.maxVersion
     }
+    
+    public func getTable(): Table {
+        table
+    }
 }

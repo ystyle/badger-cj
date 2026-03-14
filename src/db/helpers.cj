@@ -1,6 +1,7 @@
 package badgercj.db
 
 import std.collection.*
+import std.binary.*
 
 /**
  * 辅助函数 - Iterator 使用的工具函数
@@ -20,16 +21,11 @@ public func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
     let result = Array<Byte>(keyLen + 8, repeat: 0)
     key.copyTo(result)
     
-    // 取反时间戳（~ts），使高版本排在字典序前面
     let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ ts
-    result[keyLen] = UInt8((invTs >> 56) & 0xFF)
-    result[keyLen + 1] = UInt8((invTs >> 48) & 0xFF)
-    result[keyLen + 2] = UInt8((invTs >> 40) & 0xFF)
-    result[keyLen + 3] = UInt8((invTs >> 32) & 0xFF)
-    result[keyLen + 4] = UInt8((invTs >> 24) & 0xFF)
-    result[keyLen + 5] = UInt8((invTs >> 16) & 0xFF)
-    result[keyLen + 6] = UInt8((invTs >> 8) & 0xFF)
-    result[keyLen + 7] = UInt8(invTs & 0xFF)
+    let tsBuffer = Array<Byte>(8, repeat: 0)
+    invTs.writeBigEndian(tsBuffer)
+    tsBuffer.copyTo(result, 0, Int64(keyLen), 8)
+    
     return result
 }
 
@@ -42,18 +38,8 @@ public func parseTs(key: Array<Byte>): UInt64 {
     }
     
     let offset = key.size - 8
-    var ts: UInt64 = 0
+    let ts = UInt64.readBigEndian(key[offset..offset + 8])
     
-    ts = (ts << 8) | UInt64(key[offset])
-    ts = (ts << 8) | UInt64(key[offset + 1])
-    ts = (ts << 8) | UInt64(key[offset + 2])
-    ts = (ts << 8) | UInt64(key[offset + 3])
-    ts = (ts << 8) | UInt64(key[offset + 4])
-    ts = (ts << 8) | UInt64(key[offset + 5])
-    ts = (ts << 8) | UInt64(key[offset + 6])
-    ts = (ts << 8) | UInt64(key[offset + 7])
-    
-    // 取反还原
     return 0xFFFFFFFFFFFFFFFFu64 ^ ts
 }
 
@@ -124,15 +110,14 @@ public func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
     }
     
     let result = Array<Byte>(src.size, repeat: 0)
-    for (i in 0..src.size) {
-        result[i] = src[i]
-    }
+    src.copyTo(result)
     return result
 }
 
 /**
  * compareKeys - 比较两个 key（带时间戳）
  */
+@Frozen
 public func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
     let minLen = if (a.size < b.size) { a.size } else { b.size }
     for (i in 0..minLen) {

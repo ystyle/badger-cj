@@ -234,6 +234,9 @@ TOTAL: 80864ms
 | updateDiscardStats 性能问题 | 移除写入路径调用，Go Badger 也没有在写入时统计 | `src/db/badger.cj` |
 | Array repeat: 初始化引用类型 | Atomic 类型必须用闭包初始化，否则共享对象 | `src/skiplist/atomic_storage.cj` |
 | Option<WAL> 替代 dummy() | 使用 Option 类型更安全，wal?.delete() 自动跳过 | `src/db/memtable.cj` |
+| db.get 使用错误 readTs | 应使用 `oracle.currentTs()` 而非 `version.load()` | `src/db/badger.cj` |
+| oracle 恢复后 ts 未初始化 | Badger.open 需调用 `oracle.initTs()` 设置正确起始时间戳 | `src/db/oracle.cj` |
+| Compaction 未持久化 | doCompact 需写 SSTable 文件 + 更新 MANIFEST + 删除旧表记录 | `src/db/compaction.cj` |
 
 ### 仓颉语法注意事项
 
@@ -269,6 +272,7 @@ TOTAL: 80864ms
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v7.5 | 2026-03-14 | 修复 Compaction/readTs/oracle 恢复 bug：db.get 使用 oracle.currentTs()、oracle.initTs() 初始化、doCompact 持久化 SSTable+MANIFEST，194 测试全部通过 ✅ |
 | v7.4 | 2026-03-14 | 修复性能回归：移除 updateDiscardStats、修复 Atomic 初始化，194 测试通过 |
 | v7.3 | 2026-03-13 | VLog GC 完整实现：DiscardStats/VLogGCDB接口/iterate/pickLog/rewrite，28/28 vlog 测试通过 |
 | v7.2 | 2026-03-13 | Phase 7 完成：完整多层级 Compaction + VLog GC，171 测试通过 |

@@ -22,7 +22,10 @@ public class Table {
         this.data = data
         this.index = TableIndex.decodeFromData(data)
         
-        if (index.offsets.size > 0) {
+        if (index.tableSmallest.size > 0) {
+            this.smallest = index.tableSmallest
+            this.biggest = index.tableBiggest
+        } else if (index.offsets.size > 0) {
             this.smallest = index.offsets[0].key
             this.biggest = index.offsets[index.offsets.size - 1].key
         } else {

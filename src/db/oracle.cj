@@ -66,6 +66,10 @@ public class Oracle {
         this.running = AtomicBool(true)
     }
     
+    public func initTs(ts: UInt64): Unit {
+        nextTxnTs.store(ts)
+    }
+    
     public func readTs(): UInt64 {
         if (isManaged) {
             throw IllegalStateException("ReadTs should not be called for managed DB")
@@ -79,6 +83,14 @@ public class Oracle {
     
     public func nextTs(): UInt64 {
         return nextTxnTs.load()
+    }
+    
+    public func currentTs(): UInt64 {
+        let ts = nextTxnTs.load()
+        if (ts > 0) {
+            return ts - 1
+        }
+        return 0
     }
     
     public func bumpCommitTs(ts: UInt64): Unit {

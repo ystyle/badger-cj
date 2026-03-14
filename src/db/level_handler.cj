@@ -74,9 +74,12 @@ public class LevelHandler {
             let mid = left + (right - left) / 2
             let table = tables[mid]
             
-            if (compareKeys(key, table.smallest()) < 0) {
+            let smallest = parseKey(table.smallest())
+            let biggest = parseKey(table.biggest())
+            
+            if (compareKeys(key, smallest) < 0) {
                 right = mid - 1
-            } else if (compareKeys(key, table.biggest()) > 0) {
+            } else if (compareKeys(key, biggest) > 0) {
                 left = mid + 1
             } else {
                 return mid
