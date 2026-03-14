@@ -1,7 +1,7 @@
 # VLog GC 完整实现设计
 
 **日期：** 2026-03-13
-**状态：** 设计完成，待实现
+**状态：** ✅ 已完成
 
 ---
 
@@ -19,10 +19,10 @@
 
 实现完整的 VLog GC，参考 Go Badger 的实现：
 
-1. 跟踪每个 VLog 文件的垃圾统计
-2. 选择垃圾最多的文件进行 GC
-3. 重写有效 entry 到新 VLog 文件
-4. 删除旧文件，回收磁盘空间
+1. ✅ 跟踪每个 VLog 文件的垃圾统计
+2. ✅ 选择垃圾最多的文件进行 GC
+3. ✅ 重写有效 entry 到新 VLog 文件
+4. ✅ 删除旧文件，回收磁盘空间
 
 ---
 
@@ -141,43 +141,44 @@ GC:
 
 ## 实现步骤
 
-### Step 1: DiscardStats 类
+### Step 1: DiscardStats 类 ✅
 
 - 创建 `src/vlog/discard_stats.cj`
 - 实现 `update()`, `maxDiscard()`, `flush()`
 - 支持持久化到 `DISCARD` 文件
 
-### Step 2: VLogManager 增强
+### Step 2: VLogManager 增强 ✅
 
-- 添加 `db: Badger` 引用
+- 创建 `src/vlog/vlog_gc_db.cj` 接口打破循环依赖
+- 添加 `db: VLogGCDB` 引用
 - 添加 `discardStats: DiscardStats`
 - 实现 `iterate()` 遍历方法
 
-### Step 3: pickLog 实现
+### Step 3: pickLog 实现 ✅
 
 - 遍历所有 VLog 文件
 - 计算垃圾比例 = discardStats[fid] / fileSize
 - 选择比例最大的文件
 
-### Step 4: rewrite 实现
+### Step 4: rewrite 实现 ✅
 
+- 创建 `src/vlog/gc_file_rewriter.cj` 批量重写器
 - 遍历选定文件的所有 entry
 - 对每个 entry，检查 LSM Tree 的 ValuePointer
 - 如果匹配，重写到 DB
 - 删除旧文件
 
-### Step 5: Badger 集成
+### Step 5: Badger 集成 ✅
 
-- `delete()` 时更新 discardStats
-- `set()` 覆盖时更新 discardStats
-- `runValueLogGC()` 调用完整 GC
+- 实现 `VLogGCDB` 接口
+- `updateDiscardStats()` 在 delete/set 时更新统计
+- 后台协程每 60 秒执行一次 GC
 
-### Step 6: 测试
+### Step 6: 测试 ✅
 
-- 测试删除后 GC
-- 测试覆盖后 GC
-- 测试部分有效数据 GC
-- 测试 GC 后数据正确性
+- `VLogGCTest`: 3 个测试用例
+- `VLogManagerGCTest`: 6 个测试用例
+- 测试 iterate/pickLog/rewrite 正确性
 
 ---
 

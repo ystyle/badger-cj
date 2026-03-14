@@ -5,7 +5,6 @@ import std.fs.*
 import std.io.*
 import std.sync.*
 import badgercj.table.*
-import badgercj.table.*
 
 /**
  * VLogManager - Value Log 管理器
@@ -22,6 +21,9 @@ public class VLogManager {
     private var currentFile: VLogFile
     private var offset: UInt32
     
+    private var db: ?VLogGCDB
+    private let discardStats: DiscardStats
+    
     public init(dir: Path, opt!: VLogOptions = VLogOptions()) {
         this.dir = dir
         this.opt = opt
@@ -29,14 +31,29 @@ public class VLogManager {
         this.files = HashMap<UInt32, VLogFile>()
         this.maxFid = 0
         this.offset = 0
+        this.db = None
+        this.discardStats = DiscardStats(dir)
         
         let newFile = VLogFile.create(Path("./0.vlog"), 0)
         this.currentFile = newFile
         this.files[0] = newFile
     }
     
+    public func setDB(db: VLogGCDB): Unit {
+        this.db = Some(db)
+    }
+    
     public func write(entry: LogEntry): ValuePointer {
         synchronized (lock) {
+            if (UInt64(currentFile.size()) >= UInt64(opt.maxFileSize)) {
+                maxFid += 1
+                let newPath = dir.join("${maxFid}.vlog")
+                let newFile = VLogFile.create(newPath, maxFid)
+                files[maxFid] = newFile
+                currentFile = newFile
+                offset = 0
+            }
+            
             let currentOffset = offset
             let written = currentFile.write(entry)
             offset += written
@@ -81,43 +98,92 @@ public class VLogManager {
             }
             
             let file = files[fid]
-            let totalSize = file.size()
+            let totalSize = Int64(file.size())
             
             if (totalSize == 0) {
                 return 0.0
             }
             
-            return getDiscardRatioInternal(fid)
+            let discard = discardStats.get(fid)
+            return Float64(discard) / Float64(totalSize)
         }
     }
     
-    private func getDiscardRatioInternal(fid: UInt32): Float64 {
-        if (!files.contains(fid)) {
-            return 0.0
-        }
-        return 0.5
-    }
-    
-    public func runGC(discardRatio: Float64): Bool {
+    public func iterate(fid: UInt32, callback: (LogEntry, UInt32) -> Bool): Unit {
         synchronized (lock) {
-            var targetFid: UInt32 = 0
+            if (!files.contains(fid)) {
+                return
+            }
+            
+            let file = files[fid]
+            file.iterate(callback)
+        }
+    }
+    
+    public func pickLog(discardRatio: Float64): ?UInt32 {
+        synchronized (lock) {
+            var targetFid: ?UInt32 = None
             var maxRatio: Float64 = 0.0
             
             for ((fid, _) in files) {
-                let ratio = getDiscardRatioInternal(fid)
-                if (ratio > discardRatio && ratio > maxRatio) {
+                if (fid == currentFile.fid) {
+                    continue
+                }
+                
+                let ratio = getDiscardRatio(fid)
+                if (ratio >= discardRatio && ratio > maxRatio) {
                     maxRatio = ratio
-                    targetFid = fid
+                    targetFid = Some(fid)
                 }
             }
             
-            if (targetFid == 0 || targetFid == currentFile.fid) {
-                return false
-            }
-            
-            files.remove(targetFid)
-            return true
+            return targetFid
         }
+    }
+    
+    public func rewrite(fid: UInt32): Bool {
+        match (db) {
+            case Some(gcDb) =>
+                let rewriter = GCFileRewriter(gcDb, fid)
+                synchronized (lock) {
+                    if (!files.contains(fid)) {
+                        return false
+                    }
+                    let file = files[fid]
+                    file.iterate({ entry, offset =>
+                        rewriter.process(entry, offset)
+                    })
+                }
+                rewriter.flush()
+                
+                synchronized (lock) {
+                    if (files.contains(fid)) {
+                        files.remove(fid)
+                        discardStats.clear(fid)
+                    }
+                }
+                return true
+            case None =>
+                return false
+        }
+    }
+    
+    private func batchRewrite(gcDb: VLogGCDB, entries: ArrayList<(Array<Byte>, LogEntry)>): Unit {
+        for ((key, entry) in entries) {
+            gcDb.setRaw(key, entry.value, entry.meta, entry.version)
+        }
+    }
+    
+    public func runGC(discardRatio: Float64): Bool {
+        let fidOpt = pickLog(discardRatio)
+        if (let Some(fid) <- fidOpt) {
+            return rewrite(fid)
+        }
+        return false
+    }
+    
+    public func addDiscard(fid: UInt32, size: Int64): Unit {
+        discardStats.update(fid, size)
     }
     
     public func getCurrentFid(): UInt32 {
@@ -175,7 +241,20 @@ public class VLogFile {
     }
     
     public func close(): Unit {
-        // TODO: 刷新到文件
+    }
+    
+    public func iterate(callback: (LogEntry, UInt32) -> Bool): Unit {
+        var offset: UInt32 = 0
+        let data = buf.toArray()
+        let totalSize = Int64(data.size)
+        
+        while (Int64(offset) < totalSize) {
+            let (entry, bytesRead) = LogEntry.decode(data, Int64(offset))
+            if (!callback(entry, offset)) {
+                break
+            }
+            offset += UInt32(bytesRead)
+        }
     }
 }
 
@@ -183,8 +262,8 @@ public class VLogFile {
  * VLogOptions - VLog 配置
  */
 public struct VLogOptions {
-    public var maxFileSize: UInt32 = 1024 * 1024 * 1024  // 1GB
-    public var valueThreshold: Int64 = 1024              // 1KB
+    public var maxFileSize: UInt32 = 1024 * 1024 * 1024
+    public var valueThreshold: Int64 = 1024
     
     public init() {}
 }

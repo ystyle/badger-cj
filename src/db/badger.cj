@@ -9,7 +9,7 @@ import badgercj.manifest.*
 import badgercj.vlog.*
 import std.collection.concurrent.*
 
-public class Badger {
+public class Badger <: VLogGCDB {
     private let opt: Config
     private let manifest: Manifest
     private let manifestFile: ManifestFile
@@ -72,6 +72,7 @@ public class Badger {
         
         let vlog = VLogManager(Path(opt.Dir))
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
+        vlog.setDB(db)
         
         var recoveredVersion = mt.getMaxVersion()
         let lcVersion = lc.getMaxVersion()
@@ -328,13 +329,13 @@ public class Badger {
         for (req in reqs) {
             let entries = req.getEntries()
             
-            // Check if we need to flush (under lock)
             lock.writeLock.lock()
             if (mt.shouldFlush()) { flushMemTableInternal() }
             lock.writeLock.unlock()
             
-            // Write to memtable (no lock needed - skiplist is thread-safe)
             for (entry in entries) {
+                updateDiscardStats(entry.key)
+                
                 let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                     Some(vlog.write(LogEntry(entry.key, entry.value)))
                 } else {
@@ -359,13 +360,13 @@ public class Badger {
     }
     
     private func writeOneRequest(req: WriteRequest): Unit {
-        // Check if we need to flush (under lock)
         lock.writeLock.lock()
         if (mt.shouldFlush()) { flushMemTableInternal() }
         lock.writeLock.unlock()
         
-        // Write to memtable (no lock needed - skiplist is thread-safe)
         for (entry in req.getEntries()) {
+            updateDiscardStats(entry.key)
+            
             let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                 Some(vlog.write(LogEntry(entry.key, entry.value)))
             } else {
@@ -384,6 +385,15 @@ public class Badger {
         }
         
         req.done()
+    }
+    
+    private func updateDiscardStats(key: Array<Byte>): Unit {
+        if (let Some(oldVs) <- getVS(key)) {
+            if (oldVs.isValuePointer()) {
+                let vp = ValuePointer.decode(oldVs.value)
+                vlog.addDiscard(vp.fid, Int64(vp.len))
+            }
+        }
     }
     
     private func startCompactor(): Unit {
@@ -425,4 +435,38 @@ public class Badger {
     public func newSnapshot(): Snapshot { Snapshot(this) }
     public func getOpt(): Config { opt }
     public func getCompactStatus(): compactStatus { lc.getCompactStatus() }
+    
+    public func getVS(key: Array<Byte>): ?ValueStruct {
+        lock.readLock.lock()
+        try {
+            let readTs = version.load()
+            
+            if (let Some(vs) <- mt.getWithTs(key, readTs)) {
+                return Some(vs)
+            }
+            
+            for (i in 0..imm.size) {
+                let immMt = imm[imm.size - 1 - i]
+                if (let Some(vs) <- immMt.getWithTs(key, readTs)) {
+                    return Some(vs)
+                }
+            }
+            
+            if (let Some(vs) <- lc.get(key, readTs)) {
+                return Some(vs)
+            }
+            
+            return None
+        } finally {
+            lock.readLock.unlock()
+        }
+    }
+    
+    public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64): Unit {
+        let keyWithTs = keyWithTs(key, version)
+        let vs = ValueStruct(value, meta: meta, version: version)
+        mt.put(keyWithTs, vs)
+    }
+    
+    public func getValueThreshold(): UInt64 { opt.ValueThreshold }
 }

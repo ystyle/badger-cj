@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-03-13  
-**当前阶段：** ✅ Phase 7 已完成（完整 Compaction + VLog GC）
+**当前阶段：** ✅ Phase 7 已完成（完整 Compaction + 完整 VLog GC）
 
 ---
 
@@ -9,7 +9,7 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 171/178 通过 ✅ (7 skipped stress tests) |
+| **测试** | 178/178 通过 ✅ (vlog 测试 28/28) |
 | **性能** | 直接写入 ~680K keys/s，带 WAL ~500K keys/s |
 | **核心功能** | 全部完成 |
 
@@ -32,17 +32,17 @@
 | Compactor 后台协程 | 2h | ✅ | 自动触发 Compaction |
 | compact() 手动接口 | 1h | ✅ | 用户可手动触发完整 Compaction |
 
-### P1: VLog GC (~12h) ✅
+### P1: VLog GC 完整实现 (~12h) ✅
 
 | 任务 | 预估 | 状态 | 描述 |
 |------|------|------|------|
-| VLog 统计 | 2h | ✅ | getDiscardRatio 统计垃圾比例 |
-| GC 触发条件 | 2h | ✅ | runGC 在后台协程中每 60 秒执行 |
-| 有效值重写 | 4h | ⏳ | 简化实现：直接删除文件 |
-| 更新 SSTable 指针 | 2h | ⏳ | 简化实现：跳过 |
-| 删除旧 VLog 文件 | 1h | ✅ | files.remove() 回收空间 |
-| 单元测试 | 3h | ✅ | VLogManagerTest 验证 GC 正确性 |
-| Badger 集成 | 1h | ✅ | runVLogGC() API + 后台协程 |
+| DiscardStats 类 | 2h | ✅ | 跟踪每个 VLog 文件的垃圾统计 |
+| VLogGCDB 接口 | 1h | ✅ | 打破 Badger/VLogManager 循环依赖 |
+| iterate() 遍历 | 1h | ✅ | 遍历 VLog 文件所有 entry |
+| pickLog() 选择 | 1h | ✅ | 选择垃圾比例最高的文件 |
+| rewrite() 重写 | 3h | ✅ | 重写有效 entry 到新文件 |
+| Badger 集成 | 1h | ✅ | 实现 VLogGCDB 接口 + updateDiscardStats |
+| 单元测试 | 3h | ✅ | VLogGCTest + VLogManagerGCTest 验证 |
 
 ---
 
@@ -242,6 +242,9 @@ TOTAL: 80864ms
 | CRC32C 每次创建查找表 | 使用全局查找表 | `src/encoding/crc32.cj` |
 | LogEntry::encode 逐字节拷贝 | 使用 copyTo 批量拷贝 | `src/vlog/entry.cj` |
 | Skiplist.add 比较方向错误 | cmp < 0 继续，cmp > 0 停止 | `src/skiplist/skiplist.cj` |
+| VLog GC 循环依赖 | 定义 VLogGCDB 接口打破 Badger/VLogManager 循环 | `src/vlog/vlog_gc_db.cj` |
+| VLog GC 数据丢失风险 | 完整 rewrite：检查 LSM ValuePointer 匹配后重写 | `src/vlog/vlog_manager.cj` |
+| lambda 捕获可变变量 | 使用 Counter 包装类 | `src/vlog/vlog_gc_test.cj` |
 
 ### 仓颉语法注意事项
 
@@ -277,6 +280,7 @@ TOTAL: 80864ms
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v7.3 | 2026-03-13 | VLog GC 完整实现：DiscardStats/VLogGCDB接口/iterate/pickLog/rewrite，28/28 vlog 测试通过 |
 | v7.2 | 2026-03-13 | Phase 7 完成：完整多层级 Compaction + VLog GC，171 测试通过 |
 | v7.1 | 2026-03-13 | VLog GC 简化实现：getDiscardRatio/runGC + 后台协程 + 测试 |
 | v7.0 | 2026-03-13 | Compaction 选择逻辑 (getKeyRange, pickCompaction, fillTables, doCompact) |
