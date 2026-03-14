@@ -220,26 +220,25 @@ db.flushMemTable()
 
 ## 性能
 
-与 Go BadgerDB v4 性能对比（Arch Linux, AMD Ryzen 7 7840HS, 12GB heap）：
-
-**并发事务写入：**
+**并发事务写入（50 并发）：**
 
 | 规模 | 吞吐量 |
 |------|--------|
-| 50 x 100 = 5,000 keys | **441K keys/s** |
-| 50 x 1000 = 50,000 keys | **399K keys/s** |
-| 50 x 3000 = 150,000 keys | **397K keys/s** |
+| 50 x 100 = 5,000 keys | **459K keys/s** |
+| 50 x 1,000 = 50,000 keys | **450K keys/s** |
+| 50 x 3,000 = 150,000 keys | **396K keys/s** |
 
 **单操作延迟：**
 
 | 操作 | 延迟 |
 |------|------|
 | DB Get | ~2.9 µs |
-| DB Set (事务内) | ~7.4 µs |
+| DB Set (事务内) | ~10.8 µs |
+| Skiplist Put | ~2.0 µs |
 
-## 功能对比
+详细基准测试报告请参阅 [benchmark-report.md](docs/benchmark-report.md)。
 
-与 Go BadgerDB v4 的功能对比：
+## 功能
 
 ### ✅ 已实现
 
@@ -278,5 +277,6 @@ db.flushMemTable()
 
 ## 文档
 
+- [基准测试](docs/benchmark-report.md) - 性能测试报告
 - [进度跟踪](docs/progress-tracking.md) - 项目进度和实现细节
 - [设计文档](docs/plans/) - 各阶段设计文档

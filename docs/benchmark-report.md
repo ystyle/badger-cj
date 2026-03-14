@@ -1,8 +1,8 @@
 # Badger-cj 性能基准测试报告
 
-**测试日期：** 2026-03-12  
-**版本：** 无锁并发 SkipList + 事务写入优化  
-**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS, cjHeapSize=4gb
+**测试日期：** 2026-03-14  
+**版本：** v7.5 (完整 Compaction + readTs/oracle 修复)  
+**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS, cjHeapSize=12GB
 
 ---
 
@@ -14,11 +14,13 @@
 
 ```bash
 # Cangjie benchmark (单线程)
-cjpm bench
+cjHeapSize=12gb cjpm bench
 
-# Cangjie 性能测试 (多线程并发)
-cjpm build
-cjHeapSize=4gb ./target/release/bin/badgercj.examples.skiplist_perf
+# 并发事务写入性能
+cjHeapSize=12gb ./target/release/bin/badgercj.examples.txn_perf
+
+# 直接写入性能
+cjHeapSize=12gb ./target/release/bin/badgercj.examples.raw_write_perf
 
 # Go benchmark (并发)
 cd ~/Projects/badger
@@ -28,21 +30,19 @@ go test -bench=BenchmarkReadWrite -benchmem ./skl/
 
 ### 4. 大规模事务写入对比 (50 并发事务)
 
-| 规模 | Go (keys/s) | Cangjie (keys/s) | 差距 |
-|------|-------------|------------------|------|
-| 50×80 | 1,158,437 | 153,846 | **7.5x** |
-| 50×100 | 1,595,870 | 151,515 | **10.5x** |
-| 50×300 | 1,945,553 | 365,854 | **5.3x** |
-| 50×600 | 1,878,164 | 384,615 | **4.9x** |
-| 50×1000 | 1,474,528 | 251,256 | **5.9x** |
-| 50×2000 | 1,438,455 | 203,252 | **7.1x** |
-| 50×3000 | 1,498,882 | 189,029 | **7.9x** |
+| 规模 | 耗时 | 吞吐量 | 延迟 |
+|------|------|--------|------|
+| 50×100 | 10ms | **459,537 keys/s** | 2,176 ns/op |
+| 50×500 | 56ms | **443,409 keys/s** | 2,255 ns/op |
+| 50×1,000 | 111ms | **450,233 keys/s** | 2,221 ns/op |
+| 50×2,000 | 245ms | **407,000 keys/s** | 2,456 ns/op |
+| 50×3,000 | 378ms | **395,827 keys/s** | 2,526 ns/op |
 
 **结论：**
 - 事务成功率 100% (ok: 50, fail: 0)
-- 差距从最初的 8-12x 缩小到 **5-8x**
-- 小事务差距约 7-10x
-- 大事务 (600-1000 keys) 差距最小约 **5-6x**
+- 平均吞吐量: **400-450K keys/s**
+- 单操作延迟: **2.1-2.5 µs**
+- 随事务规模增大，吞吐量略有下降（协调开销）
 
 ---
 
@@ -52,10 +52,10 @@ go test -bench=BenchmarkReadWrite -benchmem ./skl/
 
 | 操作 | Go Badger v4 | Cangjie badger-cj | 比率 |
 |------|-------------|------------------|------|
-| **Skiplist Put** | 976 ns/op | 2,469 ns/op | **2.5x** |
-| **Skiplist Get** | - | 3,804 ns/op | - |
-| **DB Set** | 4,566 ns/op | 14,730 ns/op | **3.2x** |
-| **DB Get** | 708 ns/op | 3,901 ns/op | **5.5x** |
+| **Skiplist Put** | 976 ns/op | 1,958 ns/op | **2.0x** |
+| **Skiplist Get** | - | 3,990 ns/op | - |
+| **DB Set** | 4,566 ns/op | 10,840 ns/op | **2.4x** |
+| **DB Get** | 708 ns/op | 2,910 ns/op | **4.1x** |
 
 **注：** 单线程测试包含了创建 Arena/AtomicStorage 的开销
 
@@ -246,6 +246,8 @@ let node = table.findGe(seekKey)  // O(log n)
 | `src/db/db_bench.cj` | 2 | DB Set/Get |
 | `src/db/buffer_bench.cj` | 4 | ArrayList/Array/ByteBuffer 对比 |
 | `src/db/txn_bench.cj` | 3 | 事务写入基准测试 |
+| `src/examples/txn_perf/` | - | 并发事务性能测试 |
+| `src/examples/raw_write_perf/` | - | 直接写入性能测试 |
 
 ---
 
@@ -277,8 +279,8 @@ let node = table.findGe(seekKey)  // O(log n)
 
 ---
 
-**文档版本：** v3.0  
-**最后更新：** 2026-03-12
+**文档版本：** v4.0  
+**最后更新：** 2026-03-14
 
 ---
 
