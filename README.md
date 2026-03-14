@@ -1,6 +1,6 @@
 # badger-cj
 
-基于 LSM-Tree 的高性能 KV 存储引擎，移植自 Go [BadgerDB v4](https://github.com/dgraph-io/badger)。
+一个可嵌入、持久化且速度很快的基于LSM-Tree的键值 (KV) 数据库，移植自 Go [BadgerDB v4](https://github.com/dgraph-io/badger)。
 
 > ⚠️ **兼容性声明**
 > 
@@ -26,15 +26,17 @@ import badgercj.db.*
 
 main() {
     // 1. 打开数据库
-    let opt = Config(dir: "/tmp/mydb", valueDir: "/tmp/mydb")
+    let opt = Config(dir: "/tmp/mydb")
     let db = Badger.open(opt)
     
-    // 2. 写入数据
-    db.set("name".toByteArray(), "badger-cj".toByteArray())
+    // 2. 写入数据（使用事务）
+    db.update({ txn =>
+        txn.set("name".toArray(), "badger-cj".toArray())
+    })
     
     // 3. 读取数据
-    if (let Some(vs) <- db.get("name".toByteArray())) {
-        println("value: ${String(vs.value)}")
+    if (let Some(vs) <- db.get("name".toArray())) {
+        println("value: ${String.fromUtf8(vs.value)}")
     }
     
     // 4. 关闭数据库
@@ -48,9 +50,9 @@ main() {
 
 ```cangjie
 let opt = Config(
-    dir: "/tmp/mydb",           // 数据目录
-    valueDir: "/tmp/mydb",      // Value Log 目录（可与 dir 相同）
-    memTableSize: 64 * 1024 * 1024u64,  // MemTable 大小
+    dir: "/tmp/mydb",                      // 数据目录
+    memTableSize: 64 * 1024 * 1024u64,     // MemTable 大小 (默认 64MB)
+    numLevelZeroTables: 4,                 // L0 表数量阈值
 )
 let db = Badger.open(opt)
 
@@ -61,16 +63,20 @@ db.close()
 ### 读写数据
 
 ```cangjie
-// Set
-db.set("key".toByteArray(), "value".toByteArray())
+// 写入 - 使用事务
+db.update({ txn =>
+    txn.set("key".toArray(), "value".toArray())
+})
 
-// Get
-if (let Some(vs) <- db.get("key".toByteArray())) {
-    println("${vs.value}")  // Array<Byte>
+// 读取
+if (let Some(vs) <- db.get("key".toArray())) {
+    println("${String.fromUtf8(vs.value)}")  // Array<Byte>
 }
 
-// Delete
-db.delete("key".toByteArray())
+// 删除 - 使用事务
+db.update({ txn =>
+    txn.delete("key".toArray())
+})
 ```
 
 ## 事务
@@ -80,14 +86,19 @@ db.delete("key".toByteArray())
 ```cangjie
 // 读写事务 - 自动 commit/rollback
 db.update({ txn =>
-    txn.set("key".toByteArray(), "value".toByteArray())
-    txn.delete("old-key".toByteArray())
+    txn.set("key".toArray(), "value".toArray())
+    txn.delete("old-key".toArray())
+    
+    // 读取自己写入的数据 (read-your-writes)
+    if (let Some(val) <- txn.get("key".toArray())) {
+        println("value: ${String.fromUtf8(val)}")
+    }
 })
 
 // 只读事务
 db.view({ txn =>
-    if (let Some(val) <- txn.get("key".toByteArray())) {
-        println("value: ${String(val)}")
+    if (let Some(val) <- txn.get("key".toArray())) {
+        println("value: ${String.fromUtf8(val)}")
     }
 })
 ```
@@ -97,11 +108,26 @@ db.view({ txn =>
 ```cangjie
 let txn = db.newTransaction(update: true)
 try {
-    txn.set("key".toByteArray(), "value".toByteArray())
+    txn.set("key".toArray(), "value".toArray())
     txn.commit()
 } finally {
     txn.discard()
 }
+```
+
+### 批量写入
+
+```cangjie
+// 同步批量写入
+let entries = ArrayList<Entry>()
+entries.add(Entry("key1".toArray(), "value1".toArray()))
+entries.add(Entry("key2".toArray(), "value2".toArray()))
+db.batchSet(entries)
+
+// 异步批量写入
+db.batchSetAsync(entries, callback: { =>
+    println("batch write completed")
+})
 ```
 
 ## 迭代器
@@ -109,44 +135,74 @@ try {
 ### 遍历所有 key
 
 ```cangjie
-let txn = db.newTransaction(update: false)
-let iter = txn.newIterator(IteratorOptions())
-try {
+db.view({ txn =>
+    let iter = txn.newIterator(IteratorOptions())
     iter.rewind()
     while (iter.valid()) {
         let item = iter.item()
-        println("key: ${String(item.key)}, value: ${String(item.value)}")
+        println("key: ${String.fromUtf8(item.key())}")
         iter.next()
     }
-} finally {
-    iter.close()
-    txn.discard()
-}
+})
 ```
 
 ### 前缀扫描
 
 ```cangjie
-let opt = IteratorOptions(prefix: "user:".toByteArray())
-let iter = txn.newIterator(opt)
-try {
+db.view({ txn =>
+    let opt = IteratorOptions(prefix: "user:".toArray())
+    let iter = txn.newIterator(opt)
     iter.rewind()
     while (iter.valid()) {
         let item = iter.item()
-        println("${String(item.key)} = ${String(item.value)}")
+        println("${String.fromUtf8(item.key())} = ${String.fromUtf8(item.value())}")
         iter.next()
     }
-} finally {
-    iter.close()
-}
+})
 ```
 
 ### 反向遍历
 
 ```cangjie
-let opt = IteratorOptions(reverse: true)
-let iter = txn.newIterator(opt)
-// ... 同上
+db.view({ txn =>
+    let opt = IteratorOptions(reverse: true)
+    let iter = txn.newIterator(opt)
+    iter.rewind()
+    while (iter.valid()) {
+        let item = iter.item()
+        println("${String.fromUtf8(item.key())}")
+        iter.next()
+    }
+})
+```
+
+## 快照
+
+```cangjie
+// 创建快照
+let snapshot = db.newSnapshot()
+
+// 快照读取（一致性视图）
+if (let Some(item) <- snapshot.get("key".toArray())) {
+    println("value: ${String.fromUtf8(item.value())}")
+}
+
+// 快照迭代器
+let iter = snapshot.newIterator(IteratorOptions())
+// ... 使用迭代器
+
+// 释放快照
+snapshot.close()
+```
+
+## Compaction
+
+```cangjie
+// 手动触发 Compaction
+db.compact()
+
+// 刷新 MemTable 到 SSTable
+db.flushMemTable()
 ```
 
 ## 配置选项
@@ -154,31 +210,32 @@ let iter = txn.newIterator(opt)
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `dir` | "" | 数据存储目录 |
-| `valueDir` | "" | Value Log 目录 |
-| `memTableSize` | 1 MB | MemTable 大小 |
+| `memTableSize` | 64 MB | MemTable 大小 |
 | `tableSize` | 2 MB | SSTable 大小 |
 | `valueThreshold` | 1 MB | 超过此大小的 value 存入 VLog |
 | `maxLevels` | 7 | LSM 层数 |
+| `numLevelZeroTables` | 4 | L0 表数量阈值 |
 | `disableWAL` | false | 禁用 WAL（性能测试用） |
+| `detectConflicts` | true | 启用 SSI 冲突检测 |
 
 ## 性能
 
-与 Go BadgerDB v4 性能对比（Arch Linux, AMD Ryzen 7 7840HS, 16 线程）：
+与 Go BadgerDB v4 性能对比（Arch Linux, AMD Ryzen 7 7840HS, 12GB heap）：
 
-**并发性能（主场景）：**
+**并发事务写入：**
 
-| 操作 | Go | Cangjie | 倍数 |
-|------|-----|---------|------|
-| Concurrent Write | ~250 ns/op | 457 ns/op | **1.8x** |
-| Concurrent Read | ~96 ns/op | 116 ns/op | **1.2x** |
+| 规模 | 吞吐量 |
+|------|--------|
+| 50 x 100 = 5,000 keys | **441K keys/s** |
+| 50 x 1000 = 50,000 keys | **399K keys/s** |
+| 50 x 3000 = 150,000 keys | **397K keys/s** |
 
-**单操作性能：**
+**单操作延迟：**
 
-| 操作 | Go | Cangjie | 倍数 |
-|------|-----|---------|------|
-| Skiplist Put | 976 ns | 2,469 ns | 2.5x |
-| DB Set | 4,566 ns | 14,730 ns | 3.2x |
-| DB Get | 708 ns | 3,901 ns | 5.5x |
+| 操作 | 延迟 |
+|------|------|
+| DB Get | ~2.9 µs |
+| DB Set (事务内) | ~7.4 µs |
 
 ## 功能对比
 
@@ -188,7 +245,7 @@ let iter = txn.newIterator(opt)
 
 | 功能 | 说明 |
 |------|------|
-| **KV 操作** | Get/Set/Delete |
+| **KV 操作** | Get/Set/Delete（事务内） |
 | **事务** | Begin/Commit/Rollback/Update/View |
 | **SSI 隔离** | 可串行化快照隔离 + 冲突检测 |
 | **迭代器** | 前向/反向/Seek/前缀过滤 |
@@ -196,11 +253,12 @@ let iter = txn.newIterator(opt)
 | **MVCC** | 多版本并发控制 |
 | **WAL** | Write-Ahead Log + 崩溃恢复 |
 | **SSTable** | 前缀压缩 + Block 级别 CRC |
-| **Value Log** | 大值分离存储 |
+| **Value Log** | 大值分离存储 + GC |
 | **MANIFEST** | 元数据管理 |
-| **Compaction** | L0→L1 压缩（简化版） |
+| **Compaction** | 完整多层级 L0→L1→...→L6 |
 | **持久化** | DB.close() flush + DB.open() 恢复 |
 | **并发安全** | 无锁并发 SkipList (真 CAS) |
+| **批量写入** | batchSet / batchSetAsync |
 
 ### ⏳ 未实现
 
@@ -208,9 +266,7 @@ let iter = txn.newIterator(opt)
 |------|--------|------|
 | Managed DB | P2 | 手动管理时间戳 |
 | Stream API | P2 | 大规模数据处理 |
-| Transaction View | P2 | 回调式只读事务 |
 | Iterator 预取 | P2 | prefetchSize/prefetchValues |
-| Value Log GC | P3 | 垃圾回收优化 |
 | Backup/Restore | P4 | 数据备份恢复 |
 | Merge Operator | P4 | 原子更新操作 |
 | Encryption | P4 | 加密存储 |
