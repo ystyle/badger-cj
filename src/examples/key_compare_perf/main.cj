@@ -3,109 +3,125 @@ package badgercj.examples.key_compare_perf
 import std.time.*
 import std.random.*
 import std.collection.*
-import badgercj.arena.*
+import std.sync.*
 import badgercj.skiplist.*
 
+// 全局变量防止编译器优化
+let g_result: AtomicInt64 = AtomicInt64(0)
+
 main(): Int64 {
-    let shortKeyLen = 16
-    let longKeyLen = 256
-    let veryLongKeyLen = 1024
     let iterations = 1000000
+    let keyCount = 1000
     
-    // 准备 Arena 和 AtomicStorage
-    let arena = Arena(64 * 1024 * 1024)
-    let atomicStorage = AtomicStorage(100000)
-    let list = Skiplist(arena, atomicStorage)
+    // 准备不同大小的 key
+    let shortKeyLen = 16
+    let longKeyLen = 64
+    let veryLongKeyLen = 256
+    let superLongKeyLen = 1024
     
-    // 准备 key
-    let rng = Random(42u64)
-    var shortKeys = ArrayList<Array<Byte>>()
-    var longKeys = ArrayList<Array<Byte>>()
-    var veryLongKeys = ArrayList<Array<Byte>>()
+    // 生成两组不同的随机 key
+    let rng1 = Random(42u64)
+    let rng2 = Random(123u64)
     
-    for (i in 0..1000) {
-        shortKeys.add(randomKey(rng, shortKeyLen))
-        longKeys.add(randomKey(rng, longKeyLen))
-        veryLongKeys.add(randomKey(rng, veryLongKeyLen))
+    var shortKeysA = ArrayList<Array<Byte>>()
+    var longKeysA = ArrayList<Array<Byte>>()
+    var veryLongKeysA = ArrayList<Array<Byte>>()
+    var superLongKeysA = ArrayList<Array<Byte>>()
+    
+    var shortKeysB = ArrayList<Array<Byte>>()
+    var longKeysB = ArrayList<Array<Byte>>()
+    var veryLongKeysB = ArrayList<Array<Byte>>()
+    var superLongKeysB = ArrayList<Array<Byte>>()
+    
+    for (i in 0..keyCount) {
+        shortKeysA.add(randomKey(rng1, shortKeyLen))
+        longKeysA.add(randomKey(rng1, longKeyLen))
+        veryLongKeysA.add(randomKey(rng1, veryLongKeyLen))
+        superLongKeysA.add(randomKey(rng1, superLongKeyLen))
+        
+        shortKeysB.add(randomKey(rng2, shortKeyLen))
+        longKeysB.add(randomKey(rng2, longKeyLen))
+        veryLongKeysB.add(randomKey(rng2, veryLongKeyLen))
+        superLongKeysB.add(randomKey(rng2, superLongKeyLen))
     }
     
-    // 插入数据
-    for (key in shortKeys) {
-        list.add(key, 100u64)
-    }
-    for (key in longKeys) {
-        list.add(key, 200u64)
-    }
-    for (key in veryLongKeys) {
-        list.add(key, 300u64)
-    }
-    
-    println("=== Key Compare Performance Test ===")
-    println("Short key: ${shortKeyLen} bytes, Long key: ${longKeyLen} bytes, Very long key: ${veryLongKeyLen} bytes")
+    println("=== Byte Array Compare Performance Test ===")
     println("Iterations: ${iterations}")
+    println("比较两组不同的随机数组")
     println("")
     
-    // 测试短 key 比较
-    let start1 = MonoTime.now()
-    var count1: UInt64 = 0
-    for (_ in 0..iterations) {
-        let idx = rng.nextUInt32() % 1000
-        if (list.get(shortKeys[Int64(idx)]).isSome()) {
-            count1++
-        }
-    }
-    let elapsed1 = MonoTime.now() - start1
-    
-    println("Short key (${shortKeyLen} bytes):")
-    println("  Time: ${elapsed1.toNanoseconds() / 1000000}ms")
-    println("  Per op: ${elapsed1.toNanoseconds() / iterations}ns")
-    println("  Ops/s: ${iterations * 1000000000 / elapsed1.toNanoseconds()}")
+    // 测试 16 字节
+    testCompare("16 bytes", shortKeysA, shortKeysB, iterations)
     println("")
     
-    // 测试长 key 比较
-    let start2 = MonoTime.now()
-    var count2: UInt64 = 0
-    for (_ in 0..iterations) {
-        let idx = rng.nextUInt32() % 1000
-        if (list.get(longKeys[Int64(idx)]).isSome()) {
-            count2++
-        }
-    }
-    let elapsed2 = MonoTime.now() - start2
-    
-    println("Long key (${longKeyLen} bytes):")
-    println("  Time: ${elapsed2.toNanoseconds() / 1000000}ms")
-    println("  Per op: ${elapsed2.toNanoseconds() / iterations}ns")
-    println("  Ops/s: ${iterations * 1000000000 / elapsed2.toNanoseconds()}")
+    // 测试 64 字节
+    testCompare("64 bytes", longKeysA, longKeysB, iterations)
     println("")
     
-    // 测试超长 key 比较
-    let start3 = MonoTime.now()
-    var count3: UInt64 = 0
-    for (_ in 0..iterations) {
-        let idx = rng.nextUInt32() % 1000
-        if (list.get(veryLongKeys[Int64(idx)]).isSome()) {
-            count3++
-        }
-    }
-    let elapsed3 = MonoTime.now() - start3
-    
-    println("Very long key (${veryLongKeyLen} bytes):")
-    println("  Time: ${elapsed3.toNanoseconds() / 1000000}ms")
-    println("  Per op: ${elapsed3.toNanoseconds() / iterations}ns")
-    println("  Ops/s: ${iterations * 1000000000 / elapsed3.toNanoseconds()}")
+    // 测试 256 字节
+    testCompare("256 bytes", veryLongKeysA, veryLongKeysB, iterations)
     println("")
     
-    // 性能对比
-    let ratio2 = Float64(elapsed2.toNanoseconds()) / Float64(elapsed1.toNanoseconds())
-    let ratio3 = Float64(elapsed3.toNanoseconds()) / Float64(elapsed1.toNanoseconds())
-    println("Long key is ${ratio2}x slower than short key")
-    println("Very long key is ${ratio3}x slower than short key")
+    // 测试 1024 字节
+    testCompare("1024 bytes", superLongKeysA, superLongKeysB, iterations)
+    
+    println("")
+    println("Final result: ${g_result.load()}")
     
     0
 }
 
+func testCompare(name: String, keysA: ArrayList<Array<Byte>>, keysB: ArrayList<Array<Byte>>, iterations: Int64): Unit {
+    let keyCount = keysA.size
+    
+    // 逐字节比较 - 用两组不同的 key
+    let start1 = MonoTime.now()
+    for (i in 0..iterations) {
+        let idx = i % keyCount
+        let r = compareByteByByte(keysA[idx], keysB[idx])
+        g_result.fetchAdd(r)
+    }
+    let elapsed1 = MonoTime.now() - start1
+    
+    // FFI memcmp - 用两组不同的 key
+    let start2 = MonoTime.now()
+    for (i in 0..iterations) {
+        let idx = i % keyCount
+        let keyA = keysA[idx]
+        let keyB = keysB[idx]
+        let len = if (keyA.size < keyB.size) { keyA.size } else { keyB.size }
+        let r = Int64(fastMemcmp(keyA, 0, keyB, 0, len))
+        g_result.fetchAdd(r)
+    }
+    let elapsed2 = MonoTime.now() - start2
+    
+    let ns1 = elapsed1.toNanoseconds() / iterations
+    let ns2 = elapsed2.toNanoseconds() / iterations
+    
+    println("${name}:")
+    println("  逐字节: ${ns1}ns/op")
+    println("  FFI memcmp: ${ns2}ns/op")
+    if (ns1 > ns2) {
+        println("  FFI 快 ${Float64(ns1) / Float64(ns2)}x")
+    } else {
+        println("  逐字节快 ${Float64(ns2) / Float64(ns1)}x")
+    }
+}
+
+func compareByteByByte(a: Array<Byte>, b: Array<Byte>): Int64 {
+    let minLen = if (a.size < b.size) { a.size } else { b.size }
+    
+    for (i in 0..minLen) {
+        if (a[i] < b[i]) {
+            return -1
+        } else if (a[i] > b[i]) {
+            return 1
+        }
+    }
+    
+    return Int64(a.size - b.size)
+}
+
 func randomKey(rng: Random, len: Int64): Array<Byte> {
-    let arr = Array<Byte>(len, { _ => UInt8(rng.nextUInt32() % 256) })
-    return arr
+    Array<Byte>(len, { _ => UInt8(rng.nextUInt32() % 256) })
 }

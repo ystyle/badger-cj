@@ -15,6 +15,23 @@ package badgercj.skiplist
 import badgercj.arena.*
 import std.sync.*
 
+/**
+ * 逐字节比较 - 提取出来让编译器优化
+ */
+@Frozen
+public func compareBytes(buf: Array<Byte>, offset: Int64, other: Array<Byte>, len: Int64): Int64 {
+    for (i in 0..len) {
+        let b1 = buf[offset + i]
+        let b2 = other[i]
+        if (b1 < b2) {
+            return -1
+        } else if (b1 > b2) {
+            return 1
+        }
+    }
+    return 0
+}
+
 public class Node {
     private let arena: Arena
     private let offset: UInt32
@@ -54,25 +71,17 @@ public class Node {
             return Int64(keySize - otherSize)
         }
         
-        // 短 key 用逐字节比较（避免 FFI 开销）
+        let buf = arena.getBuf()
+        
+        // 短 key 用 @Frozen 优化的逐字节比较
         if (minLen < 64) {
-            let buf = arena.getBuf()
-            let baseOffset = Int64(keyOffset)
-            
-            for (i in 0..minLen) {
-                let b1 = buf[baseOffset + i]
-                let b2 = other[i]
-                if (b1 < b2) {
-                    return -1
-                } else if (b1 > b2) {
-                    return 1
-                }
+            let cmp = compareBytes(buf, Int64(keyOffset), other, minLen)
+            if (cmp != 0) {
+                return cmp
             }
         } else {
-            // 长 key 用 memcmp（SIMD 优化）
-            let buf = arena.getBuf()
+            // 长 key 用 FFI memcmp（SIMD 优化）
             let cmp = fastMemcmp(buf, Int64(keyOffset), other, 0, minLen)
-            
             if (cmp != 0) {
                 return Int64(cmp)
             }
