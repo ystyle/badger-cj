@@ -23,8 +23,8 @@ cjpm build -j 16
 # 运行
 ./target/release/bin/main
 
-# 运行所有测试(-j并发测试), 本项目部分基准测试在 stress tag的单元测试下面
-cjHeapSize=4gb cjpm test -j 16 --exclude-tags stress --no-progress
+# 运行所有测试(-j并发测试)
+cjpm test -j 16 --no-progress
 
 # 运行指定测试
 cjpm test --show-all-output --filter 'ParserTest.testParseRestParameter'
