@@ -10,7 +10,7 @@ import badgercj.table.*
 class DBTest {
     @TestCase
     func testDBOpenAndClose() {
-        let opt = Config(dir: "/tmp/badger_db_test1")
+        let opt = Config(dir: "/tmp/badger_db_test1", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
@@ -28,7 +28,7 @@ class DBTest {
     
     @TestCase
     func testDBGetNonExistent() {
-        let opt = Config(dir: "/tmp/badger_db_test2")
+        let opt = Config(dir: "/tmp/badger_db_test2", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         let result = db.get("nonexistent".toArray())
@@ -42,7 +42,7 @@ class DBTest {
     
     @TestCase
     func testDBDelete() {
-        let opt = Config(dir: "/tmp/badger_db_test3")
+        let opt = Config(dir: "/tmp/badger_db_test3", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
@@ -59,7 +59,7 @@ class DBTest {
     
     @TestCase
     func testDBOverwrite() {
-        let opt = Config(dir: "/tmp/badger_db_test4")
+        let opt = Config(dir: "/tmp/badger_db_test4", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -80,7 +80,7 @@ class DBTest {
     
     @TestCase
     func testDBMultipleKeys() {
-        let opt = Config(dir: "/tmp/badger_db_test5")
+        let opt = Config(dir: "/tmp/badger_db_test5", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -107,7 +107,7 @@ class DBTest {
         let dir = "/tmp/badger_db_test_recovery"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>

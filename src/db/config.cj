@@ -26,7 +26,7 @@ public class Config {
         detectConflicts!: Bool = true
     ) {
         this.Dir = dir
-        this.ValueDir = valueDir
+        this.ValueDir = if (valueDir == "") { dir } else { valueDir }
         this.MemTableSize = memTableSize
         this.ValueThreshold = valueThreshold
         this.MaxLevels = maxLevels

@@ -12,7 +12,7 @@ class ConcurrentTest {
     @Tag[stress]
     @TestCase
     func testConcurrentWrites() {
-        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test1"))
+        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test1", memTableSize: 1024 * 1024u64))
         
         let numThreads = 10
         let writesPerThread = 100
@@ -56,7 +56,7 @@ class ConcurrentTest {
     @Tag[stress]
     @TestCase
     func testConcurrentReadWriteMix() {
-        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test2"))
+        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test2", memTableSize: 1024 * 1024u64))
         
         db.update({ txn => txn.set("init".toArray(), "value".toArray()) })
         
@@ -99,7 +99,7 @@ class ConcurrentTest {
     @Tag[stress]
     @TestCase
     func testConcurrentIterators() {
-        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test4"))
+        let db = Badger.open(Config(dir: "/tmp/badger_concurrent_test4", memTableSize: 1024 * 1024u64))
         
         db.update({ txn =>
             for (i in 0..100) {
@@ -146,7 +146,7 @@ class ConcurrentTest {
     func testTransactionWritePerformance() {
         let dir = "/tmp/badger_txn_perf_test"
         cleanupConcurrentDir(dir)
-        let db = Badger.open(Config(dir: dir))
+        let db = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64))
         
         let numTxns = 50
         let keysPerTxn = 100

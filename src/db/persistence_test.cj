@@ -13,7 +13,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_full"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>
@@ -53,7 +53,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_txn"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         let txn1 = db1.newTransaction()
@@ -87,7 +87,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_cycles"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         for (cycle in 0..5) {
             let db = Badger.open(opt)
@@ -120,7 +120,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_concurrent"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         let futures = ArrayList<Future<Unit>>()
@@ -162,7 +162,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_flush"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>
@@ -191,7 +191,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_delete"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>
@@ -218,7 +218,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_overwrite"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn => txn.set("ovkey".toArray(), "original".toArray()) })
@@ -247,7 +247,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_large"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         let largeValue = Array<Byte>(10000, repeat: 0x41)
         
         let db1 = Badger.open(opt)
@@ -271,7 +271,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_lifecycle_empty"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.close()
@@ -287,7 +287,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_1"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>
@@ -321,7 +321,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_crash"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>
@@ -348,7 +348,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_multi"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
@@ -383,7 +383,7 @@ class PersistenceTest {
         let dir = "/tmp/badger_persistence_test_large"
         cleanupDir(dir)
         
-        let opt = Config(dir: dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         
         let db1 = Badger.open(opt)
         db1.update({ txn =>

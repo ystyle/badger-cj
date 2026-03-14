@@ -10,7 +10,7 @@ import badgercj.table.*
 class MemTableTest {
     @TestCase
     func testMemTablePutAndGet() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         let key: Array<Byte> = [1u8, 2u8, 3u8]
@@ -29,7 +29,7 @@ class MemTableTest {
     
     @TestCase
     func testMemTableGetNonExistent() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         let key: Array<Byte> = [1u8, 2u8, 3u8]
@@ -42,7 +42,7 @@ class MemTableTest {
     
     @TestCase
     func testMemTableOverwrite() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         let key: Array<Byte> = [1u8, 2u8, 3u8]
@@ -62,7 +62,7 @@ class MemTableTest {
     
     @TestCase
     func testMemTableSizeTracking() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         @Assert(mt.sizeInBytes(), 0u64)
@@ -126,7 +126,7 @@ class MemTableTest {
     
     @TestCase
     func testMemTableIterator() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         let key1: Array<Byte> = [1u8]
@@ -165,7 +165,7 @@ class MemTableTest {
     
     @TestCase
     func testMemTableWithExpiresAt() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         let key: Array<Byte> = [1u8, 2u8, 3u8]
@@ -187,7 +187,7 @@ class MemTableTest {
     
     @TestCase
     func testMemTableWithMeta() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 0, false)
         
         let key: Array<Byte> = [1u8, 2u8, 3u8]
@@ -210,7 +210,7 @@ class MemTableTest {
     
     @TestCase
     func testIsEmpty() {
-        let opt = Config(dir: "/tmp/badger_test")
+        let opt = Config(dir: "/tmp/badger_test", memTableSize: 1024 * 1024u64)
         let mt = MemTable(opt, 1, false)
         
         @Assert(mt.isEmpty(), true)

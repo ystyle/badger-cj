@@ -9,7 +9,7 @@ import std.collection.*
 class IteratorTest {
     @TestCase
     func testIteratorBasic() {
-        let opt = Config(dir: "/tmp/badger_iter_test1")
+        let opt = Config(dir: "/tmp/badger_iter_test1", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -51,7 +51,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorReverse() {
-        let opt = Config(dir: "/tmp/badger_iter_test2")
+        let opt = Config(dir: "/tmp/badger_iter_test2", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -87,7 +87,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorSeek() {
-        let opt = Config(dir: "/tmp/badger_iter_test4")
+        let opt = Config(dir: "/tmp/badger_iter_test4", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -115,7 +115,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorReadYourWrites() {
-        let opt = Config(dir: "/tmp/badger_iter_test6")
+        let opt = Config(dir: "/tmp/badger_iter_test6", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn => txn.set("key1".toArray(), "original1".toArray()) })
@@ -156,7 +156,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorEmpty() {
-        let opt = Config(dir: "/tmp/badger_iter_test8")
+        let opt = Config(dir: "/tmp/badger_iter_test8", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         // 不写入任何数据
@@ -174,7 +174,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorMultipleIterations() {
-        let opt = Config(dir: "/tmp/badger_iter_test9")
+        let opt = Config(dir: "/tmp/badger_iter_test9", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -213,7 +213,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorVersionOrder() {
-        let opt = Config(dir: "/tmp/badger_iter_test11")
+        let opt = Config(dir: "/tmp/badger_iter_test11", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -247,7 +247,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorPrefix() {
-        let opt = Config(dir: "/tmp/badger_iter_test12")
+        let opt = Config(dir: "/tmp/badger_iter_test12", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -280,7 +280,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorDelete() {
-        let opt = Config(dir: "/tmp/badger_iter_test14")
+        let opt = Config(dir: "/tmp/badger_iter_test14", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
@@ -314,7 +314,7 @@ class IteratorTest {
     
     @TestCase
     func testIteratorConsistency() {
-        let opt = Config(dir: "/tmp/badger_iter_test15")
+        let opt = Config(dir: "/tmp/badger_iter_test15", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         // 事务 1：写入数据

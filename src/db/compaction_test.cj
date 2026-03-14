@@ -62,7 +62,7 @@ class CompactionTest {
     
     @TestCase
     func testCompactionDelete() {
-        let opt = Config(dir: "/tmp/badger_compaction_test3")
+        let opt = Config(dir: "/tmp/badger_compaction_test3", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
         db.update({ txn =>
