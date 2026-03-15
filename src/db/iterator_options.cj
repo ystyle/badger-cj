@@ -9,7 +9,7 @@ import std.collection.*
  */
 public struct IteratorOptions {
     public var prefetchSize: Int64 = 100
-    public var prefetchValues: Bool = false
+    public var prefetchValues: Bool = true
     public var reverse: Bool = false
     public var allVersions: Bool = false
     public var internalAccess: Bool = false
@@ -17,18 +17,21 @@ public struct IteratorOptions {
     public var sinceTs: UInt64 = 0
     
     public init(
+        prefetchSize!: Int64 = 100,
+        prefetchValues!: Bool = true,
         reverse!: Bool = false,
-        prefix!: Array<Byte> = [],
-        prefetchValues!: Bool = false,
         allVersions!: Bool = false,
+        prefix!: Array<Byte> = [],
         sinceTs!: UInt64 = 0
     ) {
-        this.reverse = reverse
-        this.prefix = prefix
+        this.prefetchSize = prefetchSize
         this.prefetchValues = prefetchValues
+        this.reverse = reverse
         this.allVersions = allVersions
+        this.prefix = prefix
         this.sinceTs = sinceTs
-        this.prefetchSize = 100
         this.internalAccess = false
     }
 }
+
+public let DefaultIteratorOptions = IteratorOptions()
