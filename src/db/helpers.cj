@@ -2,6 +2,9 @@ package badgercj.db
 
 import std.collection.*
 import std.binary.*
+import std.time.*
+import badgercj.table.Meta
+import badgercj.table.ValueStruct
 
 /**
  * 辅助函数 - Iterator 使用的工具函数
@@ -165,4 +168,24 @@ public func walPath(dir: String, fid: UInt64): String {
 
 public func sstablePath(dir: String, fid: UInt64): String {
     "${dir}/${padFid(fid)}.sst"
+}
+
+/**
+ * isDeletedOrExpired - 检查是否已删除或过期
+ */
+public func isDeletedOrExpired(meta: Byte, expiresAt: UInt64): Bool {
+    if ((meta & Meta.bitDelete) != 0) { return true }
+    if (expiresAt == 0) { return false }
+    let now = DateTime.now().toUnixTimeStamp()
+    return expiresAt <= UInt64(now.toSeconds())
+}
+
+/**
+ * discardEntry - 检查 VLog GC 时是否应该丢弃该条目
+ */
+public func discardEntry(entryKey: Array<Byte>, vs: ValueStruct): Bool {
+    if (vs.version != parseTs(entryKey)) { return true }
+    if (isDeletedOrExpired(vs.meta, vs.expiresAt)) { return true }
+    if ((vs.meta & Meta.bitValuePointer) == 0) { return true }
+    return false
 }

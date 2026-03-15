@@ -2,6 +2,9 @@ package badgercj.db
 
 import std.unittest.*
 import std.unittest.testmacro.*
+import std.time.*
+import badgercj.table.Meta
+import badgercj.table.ValueStruct
 
 @Test
 class HelpersTest {
@@ -49,5 +52,41 @@ class HelpersTest {
 
         let path5 = sstablePath("/tmp/badger", 9999999u64)
         @Assert(path5, "/tmp/badger/9999999.sst")
+    }
+    
+    @TestCase
+    func testIsDeletedOrExpiredNotExpired() {
+        @Assert(!isDeletedOrExpired(0, 0))
+    }
+    
+    @TestCase
+    func testIsDeletedOrExpiredDeleted() {
+        @Assert(isDeletedOrExpired(Meta.bitDelete, 0))
+    }
+    
+    @TestCase
+    func testIsDeletedOrExpiredExpired() {
+        let pastTime = UInt64(DateTime.now().toUnixTimeStamp().toSeconds()) - 100u64
+        @Assert(isDeletedOrExpired(0, pastTime))
+    }
+    
+    @TestCase
+    func testIsDeletedOrExpiredNotExpiredYet() {
+        let futureTime = UInt64(DateTime.now().toUnixTimeStamp().toSeconds()) + 10000u64
+        @Assert(!isDeletedOrExpired(0, futureTime))
+    }
+    
+    @TestCase
+    func testDiscardEntryVersionMismatch() {
+        let key = keyWithTs("test".toArray(), 100u64)
+        let vs = ValueStruct("value".toArray(), version: 200u64)
+        @Assert(discardEntry(key, vs))
+    }
+    
+    @TestCase
+    func testDiscardEntryNotValuePointer() {
+        let key = keyWithTs("test".toArray(), 100u64)
+        let vs = ValueStruct("value".toArray(), meta: 0, version: 100u64)
+        @Assert(discardEntry(key, vs))
     }
 }
