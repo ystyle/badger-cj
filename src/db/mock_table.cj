@@ -79,4 +79,8 @@ public class MockTable <: TableInterface {
         }
         return maxVer
     }
+    
+    public func keyCount(): UInt32 {
+        UInt32(entries.size)
+    }
 }

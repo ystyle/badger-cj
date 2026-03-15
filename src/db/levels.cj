@@ -91,7 +91,7 @@ public class LevelsController {
         }
     }
     
-    public func getMaxVersion(): UInt64 {
+public func getMaxVersion(): UInt64 {
         var maxVer: UInt64 = 0
         for (handler in levels) {
             let ver = handler.getMaxVersion()
@@ -100,5 +100,38 @@ public class LevelsController {
             }
         }
         return maxVer
+    }
+    
+    public func getTableInfo(): ArrayList<SSTableInfo> {
+        let result = ArrayList<SSTableInfo>()
+        for (level in 0..levels.size) {
+            let infos = levels[level].getTableInfo(level)
+            for (info in infos) {
+                result.add(info)
+            }
+        }
+        return result
+    }
+    
+    public func getLevelInfo(): ArrayList<LevelInfo> {
+        let result = ArrayList<LevelInfo>()
+        for (level in 0..levels.size) {
+            let handler = levels[level]
+            let info = LevelInfo(
+                level: level,
+                numTables: handler.numTables(),
+                size: handler.totalSize(),
+                targetSize: Int64(levelMaxSize(level))
+            )
+            result.add(info)
+        }
+        return result
+    }
+    
+    private func levelMaxSize(level: Int): UInt64 {
+        if (level == 0) {
+            return UInt64(4) * 2 * 1024 * 1024u64
+        }
+        return 2 * 1024 * 1024u64 * UInt64(1 << ((level - 1) * 2))
     }
 }

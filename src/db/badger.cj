@@ -491,4 +491,39 @@ public class Badger <: VLogGCDB {
     }
     
     public func getValueThreshold(): UInt64 { opt.ValueThreshold }
+    
+    public func isClosed(): Bool {
+        !running.load()
+    }
+    
+    public func sync(): Unit {
+        lock.readLock.lock()
+        try {
+            mt.flushWAL()
+            for (immMt in imm) {
+                immMt.flushWAL()
+            }
+            vlog.sync()
+        } finally {
+            lock.readLock.unlock()
+        }
+    }
+    
+    public func size(): DBSize {
+        var lsmSize: Int64 = 0
+        for (level in 0..lc.numLevels()) {
+            lsmSize += lc.getLevelHandler(level).totalSize()
+        }
+        
+        let vlogSize = Int64(vlog.size())
+        return DBSize(lsm: lsmSize, vlog: vlogSize)
+    }
+    
+    public func tables(): ArrayList<SSTableInfo> {
+        lc.getTableInfo()
+    }
+    
+    public func levels(): ArrayList<LevelInfo> {
+        lc.getLevelInfo()
+    }
 }

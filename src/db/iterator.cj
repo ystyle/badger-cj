@@ -69,8 +69,6 @@ public class Iterator {
             return false
         }
         
-        // 前缀过滤检查
-        // item_.key 已经是 userKey（去掉时间戳），不需要再调用 parseKey
         if (opt.prefix.size > 0) {
             if (!hasPrefix(item_.key, opt.prefix)) {
                 return false
@@ -78,6 +76,10 @@ public class Iterator {
         }
         
         return true
+    }
+    
+    public func validForPrefix(prefix: Array<Byte>): Bool {
+        valid() && hasPrefix(item_.key, prefix)
     }
     
     public func next(): Unit {

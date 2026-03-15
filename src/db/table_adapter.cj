@@ -59,6 +59,10 @@ public class TableAdapter <: TableInterface {
         table.maxVersion
     }
     
+    public func keyCount(): UInt32 {
+        table.keyCount
+    }
+    
     public func getTable(): Table {
         table
     }

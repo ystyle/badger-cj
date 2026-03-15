@@ -1,45 +1,120 @@
 package badgercj.db
 
-/**
- * Config - 数据库配置
- */
 public class Config {
     public let Dir: String
-    public let ValueDir: String
     public let MemTableSize: UInt64
     public let ValueThreshold: UInt64
     public let MaxLevels: Int
     public let NumLevelZeroTables: Int
-    public let TableSize: UInt64
     public let DisableWAL: Bool
     public let DetectConflicts: Bool
     
     public init(
         dir!: String = "",
-        valueDir!: String = "",
         memTableSize!: UInt64 = 64 * 1024 * 1024u64,
         valueThreshold!: UInt64 = 1 * 1024 * 1024u64,
         maxLevels!: Int = 7,
         numLevelZeroTables!: Int = 4,
-        tableSize!: UInt64 = 2 * 1024 * 1024u64,
         disableWAL!: Bool = false,
         detectConflicts!: Bool = true
     ) {
         this.Dir = dir
-        this.ValueDir = if (valueDir == "") { dir } else { valueDir }
         this.MemTableSize = memTableSize
         this.ValueThreshold = valueThreshold
         this.MaxLevels = maxLevels
         this.NumLevelZeroTables = numLevelZeroTables
-        this.TableSize = tableSize
         this.DisableWAL = disableWAL
         this.DetectConflicts = detectConflicts
     }
     
+    public func withDir(dir: String): Config {
+        Config(
+            dir: dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts
+        )
+    }
+    
+    public func withMemTableSize(size: UInt64): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: size,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts
+        )
+    }
+    
+    public func withValueThreshold(threshold: UInt64): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: threshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts
+        )
+    }
+    
+    public func withMaxLevels(maxLevels: Int): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: maxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts
+        )
+    }
+    
+    public func withNumLevelZeroTables(n: Int): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: n,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts
+        )
+    }
+    
+    public func withDisableWAL(disable: Bool): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: disable,
+            detectConflicts: this.DetectConflicts
+        )
+    }
+    
+    public func withDetectConflicts(detect: Bool): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: detect
+        )
+    }
+    
     public func levelMaxSize(level: Int): UInt64 {
         if (level == 0) {
-            return UInt64(NumLevelZeroTables) * TableSize
+            return UInt64(NumLevelZeroTables) * 2 * 1024 * 1024u64
         }
-        return TableSize * UInt64(1 << ((level - 1) * 2))
+        return 2 * 1024 * 1024u64 * UInt64(1 << ((level - 1) * 2))
     }
 }

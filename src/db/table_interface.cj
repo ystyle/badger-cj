@@ -10,4 +10,5 @@ public interface TableInterface {
     func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct>
     func size(): Int64
     func getMaxVersion(): UInt64
+    func keyCount(): UInt32
 }

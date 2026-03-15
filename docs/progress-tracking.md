@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-03-15  
-**当前阶段：** ✅ P0 API 对齐已完成（TTL/异常/Item API）
+**当前阶段：** ✅ P1 API 扩展已完成（Config with*/DB info/validForPrefix）
 
 ---
 
@@ -9,10 +9,45 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 230/230 通过 ✅ |
+| **测试** | 243/243 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **核心功能** | 全部完成 |
-| **API 对齐** | P0 完成，对齐率 ~60% |
+| **API 对齐** | P0+P1 完成，对齐率 ~75% |
+
+---
+
+## P1: API 扩展（Config + DB Info + Iterator）✅ 已完成
+
+| 任务 | 状态 | 描述 |
+|------|------|------|
+| Config with* 链式方法 | ✅ | withDir/withMemTableSize/withDisableWAL 等 12 个方法 |
+| DB.isClosed() | ✅ | 检查数据库是否已关闭 |
+| DB.sync() | ✅ | 同步 WAL 和 VLog 到磁盘 |
+| DB.size() | ✅ | 返回 LSM 和 VLog 大小 |
+| DB.tables() | ✅ | 返回所有 SSTable 信息 |
+| DB.levels() | ✅ | 返回所有 Level 信息 |
+| Iterator.validForPrefix() | ✅ | 检查当前 key 是否匹配前缀 |
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/db/db_info.cj` | SSTableInfo/LevelInfo/DBSize 数据类 |
+| `src/db/p1_api_test.cj` | P1 API 测试（17 个用例） |
+
+### 测试覆盖
+
+| 测试类 | 用例数 | 覆盖内容 |
+|--------|--------|----------|
+| P1ConfigWithTest | 6 | withDir/withMemTableSize/withDisableWAL/链式调用 |
+| P1DBInfoApiTest | 5 | isClosed/size/tables/levels/sync |
+| P1ValidForPrefixTest | 2 | 前缀匹配/无匹配情况 |
+
+### 功能验证
+
+- Config 链式配置：`Config().withDir("/tmp").withDisableWAL(true)` ✅
+- DB 信息查询：`db.size()`, `db.tables()`, `db.levels()` ✅
+- Iterator 前缀迭代：`iter.seek(prefix); while(iter.validForPrefix(prefix))` ✅
 
 ---
 
@@ -318,6 +353,7 @@ TOTAL: 80864ms
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v7.6 | 2026-03-15 | P1 完成：Config with* 链式方法、DB 信息查询 API (isClosed/sync/size/tables/levels)、Iterator.validForPrefix，245 测试全部通过 ✅ |
 | v7.5 | 2026-03-14 | 修复 Compaction/readTs/oracle 恢复 bug：db.get 使用 oracle.currentTs()、oracle.initTs() 初始化、doCompact 持久化 SSTable+MANIFEST，194 测试全部通过 ✅ |
 | v7.4 | 2026-03-14 | 修复性能回归：移除 updateDiscardStats、修复 Atomic 初始化，194 测试通过 |
 | v7.3 | 2026-03-13 | VLog GC 完整实现：DiscardStats/VLogGCDB接口/iterate/pickLog/rewrite，28/28 vlog 测试通过 |

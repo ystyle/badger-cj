@@ -29,6 +29,7 @@ cjpm test -j 16 --no-progress
 # 运行指定测试
 cjpm test --show-all-output --filter 'ParserTest.testParseRestParameter'
 cjpm test --show-all-output --filter 'ParserTest.*'
+# Config(dir: "/tmp/badger_db_test5", memTableSize: 64 * 1024u64) 单元测试要减少memTableSize的测试，需要能cjpm test能通过不报内存溢出
 
 # 基准测试
 cjpm bench

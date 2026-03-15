@@ -146,4 +146,23 @@ public class LevelHandler {
             return maxVer
         }
     }
+    
+    public func getTableInfo(level: Int): ArrayList<SSTableInfo> {
+        synchronized(lock) {
+            let result = ArrayList<SSTableInfo>()
+            for (table in tables) {
+                let info = SSTableInfo(
+                    id: table.getId(),
+                    level: level,
+                    left: table.smallest(),
+                    right: table.biggest(),
+                    keyCount: table.keyCount(),
+                    onDiskSize: UInt32(table.size()),
+                    maxVersion: table.getMaxVersion()
+                )
+                result.add(info)
+            }
+            return result
+        }
+    }
 }

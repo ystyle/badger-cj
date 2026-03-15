@@ -84,6 +84,14 @@ public class VLogManager {
         }
     }
     
+    public func sync(): Unit {
+        synchronized (lock) {
+            for ((_, file) in files) {
+                file.sync()
+            }
+        }
+    }
+    
     public func size(): UInt64 {
         var total: UInt64 = 0
         synchronized (lock) {
@@ -244,6 +252,9 @@ public class VLogFile {
     }
     
     public func close(): Unit {
+    }
+    
+    public func sync(): Unit {
     }
     
     public func iterate(callback: (LogEntry, UInt32) -> Bool): Unit {

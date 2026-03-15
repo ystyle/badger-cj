@@ -49,6 +49,7 @@ main() {
 ### 打开/关闭数据库
 
 ```cangjie
+// 方式 1：直接配置
 let opt = Config(
     dir: "/tmp/mydb",                      // 数据目录
     memTableSize: 64 * 1024 * 1024u64,     // MemTable 大小 (默认 64MB)
@@ -56,8 +57,54 @@ let opt = Config(
 )
 let db = Badger.open(opt)
 
+// 方式 2：链式配置（推荐）
+let opt2 = Config()
+    .withDir("/tmp/mydb")
+    .withMemTableSize(128 * 1024 * 1024u64)
+    .withDisableWAL(false)
+
 // 使用完毕后关闭
 db.close()
+```
+
+**可用的 with* 方法：**
+
+| 方法 | 说明 |
+|------|------|
+| `withDir(dir)` | 数据目录 |
+| `withMemTableSize(size)` | MemTable 大小 |
+| `withValueThreshold(t)` | VLog 阈值 |
+| `withMaxLevels(n)` | LSM 层数 |
+| `withNumLevelZeroTables(n)` | L0 表数量阈值 |
+| `withDisableWAL(bool)` | 禁用 WAL |
+| `withDetectConflicts(bool)` | 冲突检测 |
+
+### 数据库状态与信息
+
+```cangjie
+// 检查是否已关闭
+if (db.isClosed()) {
+    println("database is closed")
+}
+
+// 同步数据到磁盘
+db.sync()
+
+// 获取存储大小
+let size = db.size()
+println("LSM: ${size.LSM} bytes, VLog: ${size.VLog} bytes")
+
+// 获取所有 SSTable 信息
+let tables = db.tables()
+for (t in tables) {
+    println("Table ${t.ID}: level=${t.Level}, keys=${t.KeyCount}")
+}
+
+// 获取所有 Level 信息
+let levels = db.levels()
+for (l in levels) {
+    println("Level ${l.Level}: ${l.NumTables} tables, ${l.Size} bytes")
+}
 ```
 
 ### 读写数据
@@ -185,6 +232,7 @@ db.view({ txn =>
 ### 前缀扫描
 
 ```cangjie
+// 方式 1：使用 IteratorOptions.prefix
 db.view({ txn =>
     let opt = IteratorOptions(prefix: "user:".toArray())
     let iter = txn.newIterator(opt)
@@ -192,6 +240,18 @@ db.view({ txn =>
     while (iter.valid()) {
         let item = iter.item()
         println("${String.fromUtf8(item.key())} = ${String.fromUtf8(item.value())}")
+        iter.next()
+    }
+})
+
+// 方式 2：使用 validForPrefix（更灵活）
+db.view({ txn =>
+    let iter = txn.newIterator()
+    let prefix = "user:".toArray()
+    iter.seek(prefix)  // 先定位到前缀开头
+    while (iter.validForPrefix(prefix)) {
+        let item = iter.item()
+        println("${String.fromUtf8(item.key())}")
         iter.next()
     }
 })
@@ -247,7 +307,6 @@ db.flushMemTable()
 |------|--------|------|
 | `dir` | "" | 数据存储目录 |
 | `memTableSize` | 64 MB | MemTable 大小 |
-| `tableSize` | 2 MB | SSTable 大小 |
 | `valueThreshold` | 1 MB | 超过此大小的 value 存入 VLog |
 | `maxLevels` | 7 | LSM 层数 |
 | `numLevelZeroTables` | 4 | L0 表数量阈值 |
@@ -283,7 +342,7 @@ db.flushMemTable()
 | **KV 操作** | Get/Set/Delete（事务内） |
 | **事务** | Begin/Commit/Rollback/Update/View |
 | **SSI 隔离** | 可串行化快照隔离 + 冲突检测 |
-| **迭代器** | 前向/反向/Seek/前缀过滤 |
+| **迭代器** | 前向/反向/Seek/前缀过滤/validForPrefix |
 | **快照** | 一致性快照读 |
 | **MVCC** | 多版本并发控制 |
 | **WAL** | Write-Ahead Log + 崩溃恢复 |
@@ -297,11 +356,16 @@ db.flushMemTable()
 | **TTL 过期** | withTTL() + 自动清理 |
 | **用户元数据** | withMeta() 自定义标记 |
 | **异常处理** | BadgerException + ErrorCode |
+| **链式配置** | Config.withDir().withMemTableSize()... |
+| **数据库信息** | isClosed/sync/size/tables/levels |
 
 ### ⏳ 未实现
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
+| WriteBatch | P1 | 批量写入优化 |
+| Compression | P2 | SSTable 压缩（需要 Snappy/Zstd 库） |
+| BloomFilter | P2 | 读取优化，减少磁盘访问 |
 | Managed DB | P2 | 手动管理时间戳 |
 | Stream API | P2 | 大规模数据处理 |
 | Iterator 预取 | P2 | prefetchSize/prefetchValues |
