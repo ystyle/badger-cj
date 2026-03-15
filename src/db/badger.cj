@@ -72,7 +72,7 @@ public class Badger <: VLogGCDB {
         
         let vlog = VLogManager(Path(opt.Dir))
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
-        vlog.setDB(db)
+        vlog.setDB(db, discardChecker: { key, vs => discardEntry(key, vs) })
         
         var recoveredVersion = mt.getMaxVersion()
         let lcVersion = lc.getMaxVersion()

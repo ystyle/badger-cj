@@ -22,6 +22,7 @@ public class VLogManager {
     private var offset: UInt32
     
     private var db: ?VLogGCDB
+    private var discardChecker: ?DiscardChecker
     private let discardStats: DiscardStats
     
     public init(dir: Path, opt!: VLogOptions = VLogOptions()) {
@@ -32,6 +33,7 @@ public class VLogManager {
         this.maxFid = 0
         this.offset = 0
         this.db = None
+        this.discardChecker = None
         this.discardStats = DiscardStats(dir)
         
         let newFile = VLogFile.create(Path("./0.vlog"), 0)
@@ -39,8 +41,9 @@ public class VLogManager {
         this.files[0] = newFile
     }
     
-    public func setDB(db: VLogGCDB): Unit {
+    public func setDB(db: VLogGCDB, discardChecker!: DiscardChecker = { _, _ => false }): Unit {
         this.db = Some(db)
+        this.discardChecker = Some(discardChecker)
     }
     
     public func write(entry: LogEntry): ValuePointer {
@@ -142,9 +145,9 @@ public class VLogManager {
     }
     
     public func rewrite(fid: UInt32): Bool {
-        match (db) {
-            case Some(gcDb) =>
-                let rewriter = GCFileRewriter(gcDb, fid)
+        match ((db, discardChecker)) {
+            case (Some(gcDb), Some(checker)) =>
+                let rewriter = GCFileRewriter(gcDb, fid, shouldDiscard: checker)
                 synchronized (lock) {
                     if (!files.contains(fid)) {
                         return false
@@ -163,7 +166,7 @@ public class VLogManager {
                     }
                 }
                 return true
-            case None =>
+            case _ =>
                 return false
         }
     }

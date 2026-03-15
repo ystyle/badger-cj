@@ -3,6 +3,8 @@ package badgercj.vlog
 import std.collection.*
 import badgercj.table.*
 
+public type DiscardChecker = (Array<Byte>, ValueStruct) -> Bool
+
 /**
  * GCFileRewriter - VLog GC 文件重写器
  * 
@@ -11,15 +13,17 @@ import badgercj.table.*
 public class GCFileRewriter {
     private let db: VLogGCDB
     private let targetFid: UInt32
+    private let shouldDiscard: DiscardChecker
     private var entries: ArrayList<(Array<Byte>, LogEntry)>
     private var totalSize: Int64
     private var discardSize: Int64
     private let maxBatchSize: Int64 = 10 * 1024 * 1024
     private let maxBatchCount: Int64 = 1000
     
-    public init(db: VLogGCDB, targetFid: UInt32) {
+    public init(db: VLogGCDB, targetFid: UInt32, shouldDiscard!: DiscardChecker = { _, _ => false }) {
         this.db = db
         this.targetFid = targetFid
+        this.shouldDiscard = shouldDiscard
         this.entries = ArrayList<(Array<Byte>, LogEntry)>()
         this.totalSize = 0
         this.discardSize = 0
@@ -29,6 +33,11 @@ public class GCFileRewriter {
         let entrySize = entry.size()
         
         if (let Some(vs) <- db.getVS(entry.key)) {
+            if (shouldDiscard(entry.key, vs)) {
+                discardSize += entrySize
+                return true
+            }
+            
             if (vs.isValuePointer()) {
                 let vp = ValuePointer.decode(vs.value)
                 
