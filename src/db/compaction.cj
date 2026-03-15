@@ -280,6 +280,9 @@ public class Compaction {
         var lastKey: Array<Byte> = []
         
         for ((key, vs) in allEntries) {
+            if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
+                continue
+            }
             if (lastKey.size == 0 || !sameKey(key, lastKey)) {
                 builder.add(key, vs)
                 lastKey = key
