@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-03-14  
-**当前阶段：** ✅ Phase 7 已完成（完整 Compaction + 完整 VLog GC）
+**最后更新：** 2026-03-15  
+**当前阶段：** ✅ P0 API 对齐已完成（TTL/异常/Item API）
 
 ---
 
@@ -9,9 +9,41 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 187/194 通过 ✅ (7 个 stress 测试跳过) |
+| **测试** | 220/220 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **核心功能** | 全部完成 |
+| **API 对齐** | P0 完成，对齐率 ~60% |
+
+---
+
+## P0: API 对齐（TTL + 异常 + Item）✅ 已完成
+
+| 任务 | 状态 | 描述 |
+|------|------|------|
+| BadgerException | ✅ | 异常类 + ErrorCode 枚举 |
+| Entry 重构 | ✅ | withMeta/withTTL/withDiscard |
+| WriteEntry 扩展 | ✅ | userMeta/expiresAt 字段 |
+| isDeletedOrExpired | ✅ | 过期检查辅助函数 |
+| 读取路径过期检查 | ✅ | badger.cj, iterator.cj |
+| 写入路径传递 | ✅ | 传递 userMeta/expiresAt |
+| Compaction 过期过滤 | ✅ | 跳过过期数据 |
+| VLog GC 过期丢弃 | ✅ | 通过回调实现 |
+| Item 完整 API | ✅ | keyCopy/valueCopy/size 等 |
+| IteratorOptions | ✅ | 完整字段 + DefaultIteratorOptions |
+
+### 新增文件
+
+- `src/db/exception.cj` - 异常类
+- `src/db/entry.cj` - Entry 类（从 badger.cj 分离）
+- `src/db/item_api_test.cj` - Item API 测试
+- `src/db/entry_test.cj` - Entry 测试
+
+### 功能验证
+
+- TTL 写入读取：过期数据返回 None ✅
+- Compaction 清理过期数据 ✅
+- VLog GC 丢弃过期条目 ✅
+- userMeta 正确传递 ✅
 
 ---
 
