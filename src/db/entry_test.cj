@@ -10,6 +10,7 @@ class EntryTest {
         let e = Entry("key".toArray(), "value".toArray())
         @Assert(e.key == "key".toArray())
         @Assert(e.value == "value".toArray())
+        @Assert(e.meta == 0)
         @Assert(e.userMeta == 0)
         @Assert(e.expiresAt == 0u64)
     }
@@ -32,7 +33,7 @@ class EntryTest {
     func testWithDiscard() {
         let e = Entry("key".toArray(), "value".toArray())
             .withDiscard()
-        @Assert((e.userMeta & Meta.bitDiscardEarlierVersions) != 0)
+        @Assert((e.meta & Meta.bitDiscardEarlierVersions) != 0)
     }
     
     @TestCase

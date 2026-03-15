@@ -10,15 +10,17 @@ let TxnMetaDelete: Byte = 0x01
 public struct TxnEntry {
     public let key: Array<Byte>
     public let value: Array<Byte>
-    public let meta: Byte
+    public let meta: Byte           // 内部标记（TxnMetaValue/TxnMetaDelete）
+    public let entryMeta: Byte      // Entry 的 meta（bitDiscardEarlierVersions 等）
     public let userMeta: Byte
     public let expiresAt: UInt64
     
     public init(key: Array<Byte>, value: Array<Byte>, meta: Byte, 
-                userMeta!: Byte = 0, expiresAt!: UInt64 = 0) {
+                entryMeta!: Byte = 0, userMeta!: Byte = 0, expiresAt!: UInt64 = 0) {
         this.key = key
         this.value = value
         this.meta = meta
+        this.entryMeta = entryMeta
         this.userMeta = userMeta
         this.expiresAt = expiresAt
     }
@@ -111,7 +113,8 @@ public class Transaction {
         
         addConflictKey(e.key)
         let meta = if (e.isDelete()) { TxnMetaDelete } else { TxnMetaValue }
-        writes.add(TxnEntry(e.key, e.value, meta, userMeta: e.userMeta, expiresAt: e.expiresAt))
+        writes.add(TxnEntry(e.key, e.value, meta, entryMeta: e.meta, 
+                           userMeta: e.userMeta, expiresAt: e.expiresAt))
     }
     
     public func delete(key: Array<Byte>): Unit {
@@ -145,7 +148,7 @@ public class Transaction {
         let req = db.reqPool.get(commitTs)
         for (entry in writes) {
             req.addEntry(entry.key, entry.value, isDelete: entry.isDelete(), 
-                         userMeta: entry.userMeta, expiresAt: entry.expiresAt)
+                         meta: entry.entryMeta, userMeta: entry.userMeta, expiresAt: entry.expiresAt)
         }
         
         db.writeCh.add(req)

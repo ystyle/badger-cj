@@ -222,7 +222,7 @@ public class Badger <: VLogGCDB {
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
         for (e in entries) {
-            req.addEntry(e.key, e.value, isDelete: e.isDelete(), userMeta: e.userMeta, expiresAt: e.expiresAt)
+            req.addEntry(e.key, e.value, isDelete: e.isDelete(), meta: e.meta, userMeta: e.userMeta, expiresAt: e.expiresAt)
         }
         writeCh.add(req)
         req.wait()
@@ -237,7 +237,7 @@ public class Badger <: VLogGCDB {
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
         for (e in entries) {
-            req.addEntry(e.key, e.value, isDelete: e.isDelete(), userMeta: e.userMeta, expiresAt: e.expiresAt)
+            req.addEntry(e.key, e.value, isDelete: e.isDelete(), meta: e.meta, userMeta: e.userMeta, expiresAt: e.expiresAt)
         }
         writeCh.add(req)
         
@@ -373,10 +373,12 @@ public class Badger <: VLogGCDB {
                 let vs = if (entry.isDelete) {
                     ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
                 } else if (let Some(vp) <- vpOpt) {
-                    ValueStruct(vp.encode(), meta: Meta.bitValuePointer, 
+                    let combinedMeta = Meta.bitValuePointer | entry.meta
+                    ValueStruct(vp.encode(), meta: combinedMeta, 
                                 userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
                 } else {
-                    ValueStruct(entry.value, userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
+                    ValueStruct(entry.value, meta: entry.meta, 
+                                userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
                 }
                 mt.put(keyWithTs, vs)
             }
@@ -403,10 +405,12 @@ public class Badger <: VLogGCDB {
             let vs = if (entry.isDelete) {
                 ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
             } else if (let Some(vp) <- vpOpt) {
-                ValueStruct(vp.encode(), meta: Meta.bitValuePointer, 
+                let combinedMeta = Meta.bitValuePointer | entry.meta
+                ValueStruct(vp.encode(), meta: combinedMeta, 
                             userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
             } else {
-                ValueStruct(entry.value, userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
+                ValueStruct(entry.value, meta: entry.meta, 
+                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
             }
             mt.put(keyWithTs, vs)
         }
