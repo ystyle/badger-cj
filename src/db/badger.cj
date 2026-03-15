@@ -9,18 +9,6 @@ import badgercj.manifest.*
 import badgercj.vlog.*
 import std.collection.concurrent.*
 
-public class Entry {
-    public let key: Array<Byte>
-    public let value: Array<Byte>
-    public let isDelete: Bool
-    
-    public init(key: Array<Byte>, value: Array<Byte>, isDelete!: Bool = false) {
-        this.key = key
-        this.value = value
-        this.isDelete = isDelete
-    }
-}
-
 public class Badger <: VLogGCDB {
     private let opt: Config
     private let manifest: Manifest
@@ -234,7 +222,7 @@ public class Badger <: VLogGCDB {
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
         for (e in entries) {
-            req.addEntry(e.key, e.value, isDelete: e.isDelete)
+            req.addEntry(e.key, e.value, isDelete: e.isDelete())
         }
         writeCh.add(req)
         req.wait()
@@ -249,7 +237,7 @@ public class Badger <: VLogGCDB {
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
         for (e in entries) {
-            req.addEntry(e.key, e.value, isDelete: e.isDelete)
+            req.addEntry(e.key, e.value, isDelete: e.isDelete())
         }
         writeCh.add(req)
         
