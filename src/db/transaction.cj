@@ -11,11 +11,16 @@ public struct TxnEntry {
     public let key: Array<Byte>
     public let value: Array<Byte>
     public let meta: Byte
+    public let userMeta: Byte
+    public let expiresAt: UInt64
     
-    public init(key: Array<Byte>, value: Array<Byte>, meta: Byte) {
+    public init(key: Array<Byte>, value: Array<Byte>, meta: Byte, 
+                userMeta!: Byte = 0, expiresAt!: UInt64 = 0) {
         this.key = key
         this.value = value
         this.meta = meta
+        this.userMeta = userMeta
+        this.expiresAt = expiresAt
     }
     
     public func isDelete(): Bool {
@@ -96,6 +101,19 @@ public class Transaction {
         writes.add(TxnEntry(key, value, TxnMetaValue))
     }
     
+    public func setEntry(e: Entry): Unit {
+        if (!update) {
+            throw Exception("Read-only transaction")
+        }
+        if (discarded) {
+            throw Exception("Transaction discarded")
+        }
+        
+        addConflictKey(e.key)
+        let meta = if (e.isDelete()) { TxnMetaDelete } else { TxnMetaValue }
+        writes.add(TxnEntry(e.key, e.value, meta, userMeta: e.userMeta, expiresAt: e.expiresAt))
+    }
+    
     public func delete(key: Array<Byte>): Unit {
         if (!update) {
             throw Exception("Read-only transaction")
@@ -126,7 +144,8 @@ public class Transaction {
         
         let req = db.reqPool.get(commitTs)
         for (entry in writes) {
-            req.addEntry(entry.key, entry.value, isDelete: entry.isDelete())
+            req.addEntry(entry.key, entry.value, isDelete: entry.isDelete(), 
+                         userMeta: entry.userMeta, expiresAt: entry.expiresAt)
         }
         
         db.writeCh.add(req)

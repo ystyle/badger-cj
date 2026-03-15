@@ -222,7 +222,7 @@ public class Badger <: VLogGCDB {
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
         for (e in entries) {
-            req.addEntry(e.key, e.value, isDelete: e.isDelete())
+            req.addEntry(e.key, e.value, isDelete: e.isDelete(), userMeta: e.userMeta, expiresAt: e.expiresAt)
         }
         writeCh.add(req)
         req.wait()
@@ -237,7 +237,7 @@ public class Badger <: VLogGCDB {
         oracle.bumpCommitTs(ts)
         let req = reqPool.get(ts)
         for (e in entries) {
-            req.addEntry(e.key, e.value, isDelete: e.isDelete())
+            req.addEntry(e.key, e.value, isDelete: e.isDelete(), userMeta: e.userMeta, expiresAt: e.expiresAt)
         }
         writeCh.add(req)
         
@@ -364,7 +364,7 @@ public class Badger <: VLogGCDB {
             
             for (entry in entries) {
                 let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
-                    Some(vlog.write(LogEntry(entry.key, entry.value)))
+                    Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
                 } else {
                     None
                 }
@@ -373,9 +373,10 @@ public class Badger <: VLogGCDB {
                 let vs = if (entry.isDelete) {
                     ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
                 } else if (let Some(vp) <- vpOpt) {
-                    ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+                    ValueStruct(vp.encode(), meta: Meta.bitValuePointer, 
+                                userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
                 } else {
-                    ValueStruct(entry.value, meta: 0, version: req.commitTs)
+                    ValueStruct(entry.value, userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
                 }
                 mt.put(keyWithTs, vs)
             }
@@ -393,7 +394,7 @@ public class Badger <: VLogGCDB {
         
         for (entry in req.getEntries()) {
             let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
-                Some(vlog.write(LogEntry(entry.key, entry.value)))
+                Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
             } else {
                 None
             }
@@ -402,9 +403,10 @@ public class Badger <: VLogGCDB {
             let vs = if (entry.isDelete) {
                 ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
             } else if (let Some(vp) <- vpOpt) {
-                ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: req.commitTs)
+                ValueStruct(vp.encode(), meta: Meta.bitValuePointer, 
+                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
             } else {
-                ValueStruct(entry.value, meta: 0, version: req.commitTs)
+                ValueStruct(entry.value, userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
             }
             mt.put(keyWithTs, vs)
         }
