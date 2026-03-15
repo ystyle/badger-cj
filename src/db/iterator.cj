@@ -146,10 +146,9 @@ public class Iterator {
             // 尝试从 value 解析 ValueStruct 以获取 meta
             let vsOpt = tryDecodeValueStruct(value)
             
-            // 检查删除标记
+            // 检查删除或过期
             if (let Some(vs) <- vsOpt) {
-                if (vs.isDelete()) {
-                    // 跳过已删除的 key
+                if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
                     if (!opt.allVersions) {
                         lastKey = safeCopy(lastKey, key)
                     }
@@ -173,18 +172,24 @@ public class Iterator {
             var actualValue: Array<Byte> = value
             var version: UInt64 = ts
             var meta: Byte = 0
+            var userMeta: Byte = 0
+            var expiresAt: UInt64 = 0
             
             if (let Some(vs) <- vsOpt) {
                 actualValue = vs.value
                 version = vs.version
                 meta = vs.meta
+                userMeta = vs.userMeta
+                expiresAt = vs.expiresAt
             }
             
             item_ = Item(
                 userKey,
                 actualValue,
                 version: version,
-                meta: meta
+                meta: meta,
+                userMeta: userMeta,
+                expiresAt: expiresAt
             )
             
             // 记录读（用于冲突检测）

@@ -174,7 +174,7 @@ public class Badger <: VLogGCDB {
             
             // Check memtable
             if (let Some(vs) <- mt.getWithTs(key, readTs)) {
-                if (vs.isDelete()) { return None }
+                if (isDeletedOrExpired(vs.meta, vs.expiresAt)) { return None }
                 if (vs.isValuePointer()) {
                     let vp = ValuePointer.decode(vs.value)
                     let entry = vlog.read(vp)
@@ -187,7 +187,7 @@ public class Badger <: VLogGCDB {
             for (i in 0..imm.size) {
                 let immMt = imm[imm.size - 1 - i]
                 if (let Some(vs) <- immMt.getWithTs(key, readTs)) {
-                    if (vs.isDelete()) { return None }
+                    if (isDeletedOrExpired(vs.meta, vs.expiresAt)) { return None }
                     if (vs.isValuePointer()) {
                         let vp = ValuePointer.decode(vs.value)
                         let entry = vlog.read(vp)
@@ -199,7 +199,7 @@ public class Badger <: VLogGCDB {
             
             // Check levels
             if (let Some(vs) <- lc.get(key, readTs)) {
-                if (vs.isDelete()) { return None }
+                if (isDeletedOrExpired(vs.meta, vs.expiresAt)) { return None }
                 if (vs.isValuePointer()) {
                     let vp = ValuePointer.decode(vs.value)
                     let entry = vlog.read(vp)
