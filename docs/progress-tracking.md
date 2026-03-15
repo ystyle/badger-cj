@@ -142,6 +142,8 @@
 | VLog GC 循环依赖 | VLogGCDB 接口解耦 |
 | Entry.meta vs userMeta | 分离内部标记和用户标记 |
 
+> 详细技术决策、仓颉语言陷阱、优化经验见 [cangjie-lessons-learned.md](./cangjie-lessons-learned.md)
+
 ---
 
 ## 文档索引
