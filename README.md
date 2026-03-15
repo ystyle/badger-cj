@@ -120,13 +120,49 @@ try {
 ```cangjie
 // 同步批量写入
 let entries = ArrayList<Entry>()
-entries.add(Entry("key1".toArray(), "value1".toArray()))
-entries.add(Entry("key2".toArray(), "value2".toArray()))
+entries.add(Entry.new("key1".toArray(), "value1".toArray()))
+entries.add(Entry.new("key2".toArray(), "value2".toArray()))
 db.batchSet(entries)
 
 // 异步批量写入
 db.batchSetAsync(entries, callback: { =>
     println("batch write completed")
+})
+```
+
+## TTL 过期
+
+```cangjie
+import std.time.*
+
+// 设置 TTL（24小时后过期）
+let entry = Entry.new("session".toArray(), "data".toArray())
+    .withTTL(Duration.hour * 24)
+db.batchSet(ArrayList<Entry>([entry]))
+
+// 过期数据读取返回 None
+if (db.get("session".toArray()).isNone()) {
+    println("session expired")
+}
+```
+
+## 用户自定义元数据
+
+```cangjie
+// 设置 userMeta（用户自定义标记）
+let entry = Entry.new("key".toArray(), "value".toArray())
+    .withMeta(0x42)  // 用户可设置任意值
+    .withTTL(Duration.hour)
+db.batchSet(ArrayList<Entry>([entry]))
+
+// 读取时获取 userMeta
+db.view({ txn =>
+    let iter = txn.newIterator()
+    iter.rewind()
+    if (iter.valid()) {
+        let item = iter.item()
+        println("userMeta: ${item.userMeta}")  // 0x42
+    }
 })
 ```
 
@@ -258,6 +294,9 @@ db.flushMemTable()
 | **持久化** | DB.close() flush + DB.open() 恢复 |
 | **并发安全** | 无锁并发 SkipList (真 CAS) |
 | **批量写入** | batchSet / batchSetAsync |
+| **TTL 过期** | withTTL() + 自动清理 |
+| **用户元数据** | withMeta() 自定义标记 |
+| **异常处理** | BadgerException + ErrorCode |
 
 ### ⏳ 未实现
 

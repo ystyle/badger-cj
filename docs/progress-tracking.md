@@ -9,7 +9,7 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 220/220 通过 ✅ |
+| **测试** | 230/230 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **核心功能** | 全部完成 |
 | **API 对齐** | P0 完成，对齐率 ~60% |
@@ -21,22 +21,35 @@
 | 任务 | 状态 | 描述 |
 |------|------|------|
 | BadgerException | ✅ | 异常类 + ErrorCode 枚举 |
-| Entry 重构 | ✅ | withMeta/withTTL/withDiscard |
-| WriteEntry 扩展 | ✅ | userMeta/expiresAt 字段 |
+| Entry 重构 | ✅ | meta/userMeta 分离 + withTTL/withMeta/withDiscard |
+| WriteEntry 扩展 | ✅ | meta/userMeta/expiresAt 字段 |
 | isDeletedOrExpired | ✅ | 过期检查辅助函数 |
 | 读取路径过期检查 | ✅ | badger.cj, iterator.cj |
-| 写入路径传递 | ✅ | 传递 userMeta/expiresAt |
+| 写入路径传递 | ✅ | 传递 meta/userMeta/expiresAt |
 | Compaction 过期过滤 | ✅ | 跳过过期数据 |
-| VLog GC 过期丢弃 | ✅ | 通过回调实现 |
-| Item 完整 API | ✅ | keyCopy/valueCopy/size 等 |
+| VLog GC 过期丢弃 | ✅ | DiscardChecker 回调 |
+| Item 完整 API | ✅ | keyCopy/valueCopy/size/isDeletedOrExpired |
 | IteratorOptions | ✅ | 完整字段 + DefaultIteratorOptions |
 
 ### 新增文件
 
-- `src/db/exception.cj` - 异常类
-- `src/db/entry.cj` - Entry 类（从 badger.cj 分离）
-- `src/db/item_api_test.cj` - Item API 测试
-- `src/db/entry_test.cj` - Entry 测试
+| 文件 | 说明 |
+|------|------|
+| `src/db/exception.cj` | 异常类 |
+| `src/db/entry.cj` | Entry 类（从 badger.cj 分离） |
+| `src/db/ttl_e2e_test.cj` | TTL 端到端测试（10 个用例） |
+| `src/db/entry_test.cj` | Entry API 测试 |
+| `src/db/item_api_test.cj` | Item API 测试 |
+
+### 测试覆盖
+
+| 测试类 | 用例数 | 覆盖内容 |
+|--------|--------|----------|
+| TTLE2ETest | 10 | 过期读取、迭代器跳过、Compaction 清理、userMeta 传递 |
+| EntryTest | 7 | withMeta/withTTL/withDiscard/静态工厂 |
+| ItemApiTest | 9 | keyCopy/valueCopy/size/discardEarlierVersions |
+| HelpersTest | 9 | isDeletedOrExpired/discardEntry |
+| ExceptionTest | 11 | ErrorCode/消息/静态工厂 |
 
 ### 功能验证
 
@@ -44,6 +57,7 @@
 - Compaction 清理过期数据 ✅
 - VLog GC 丢弃过期条目 ✅
 - userMeta 正确传递 ✅
+- withDiscard 设置内部 meta 位 ✅
 
 ---
 

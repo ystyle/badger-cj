@@ -1,12 +1,42 @@
 # P0 Core API Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+**状态：✅ 已完成** (2026-03-15)
 
 **Goal:** 实现 Badger-cj API 对齐的 P0 功能，包括异常类、Entry withMeta/withTTL/withDiscard、Item 完整 API、IteratorOptions 完整字段。
 
 **Architecture:** 新增异常类和 Entry 类，修改写入/读取路径传递 userMeta/expiresAt，在读取、Compaction、GC 三处添加过期检查。
 
 **Tech Stack:** 仓颉语言，std.time.DateTime，std.sync.Mutex
+
+---
+
+## 完成总结
+
+| 任务 | 状态 | 提交 |
+|------|------|------|
+| Task 1: BadgerException | ✅ | c03c9da |
+| Task 2: Entry 重构 | ✅ | 74ca804 |
+| Task 3: WriteEntry 扩展 | ✅ | 95ffa1c |
+| Task 4: isDeletedOrExpired | ✅ | c4c74aa |
+| Task 5: 读取路径过期检查 | ✅ | b9adb65 |
+| Task 6: 写入路径传递 | ✅ | 445da0b |
+| Task 7: Compaction 过期过滤 | ✅ | a78af8f |
+| Task 8: VLog GC 过期丢弃 | ✅ | d529e3b |
+| Task 9: Item 完整 API | ✅ | 279a144 |
+| Task 10: IteratorOptions | ✅ | 10058a6 |
+| Task 11: 测试验证 | ✅ | 230 个测试通过 |
+
+### 关键修复
+
+**Entry.meta 和 Entry.userMeta 分离** (9709d26)：
+- `meta`: 内部标记（bitDelete, bitDiscardEarlierVersions）
+- `userMeta`: 用户自定义标记（用户可设置任意值）
+
+### 新增测试
+
+- `src/db/ttl_e2e_test.cj` - 10 个 TTL 端到端测试
+- `src/db/entry_test.cj` - Entry API 测试
+- `src/db/item_api_test.cj` - Item API 测试
 
 ---
 

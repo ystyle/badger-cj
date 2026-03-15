@@ -1,5 +1,7 @@
 # P0 核心功能完善设计
 
+**状态：✅ 已完成** (2026-03-15)
+
 ## 概述
 
 实现 Badger-cj API 对齐的 P0 功能，包括异常类、Entry withMeta/withTTL/withDiscard、Item 完整 API、IteratorOptions 完整字段。
@@ -14,9 +16,9 @@
 
 ---
 
-## 1. BadgerException 异常类
+## 1. BadgerException 异常类 ✅
 
-### 设计
+### 实现
 
 ```cangjie
 public enum ErrorCode {
@@ -34,100 +36,101 @@ public enum ErrorCode {
 public class BadgerException <: Exception {
     public let code: ErrorCode
     
-    public init(code: ErrorCode, message: String) {
-        super(message)
-        this.code = code
-    }
+    public init(code: ErrorCode, message: String) { ... }
     
-    public static func databaseClosed(): BadgerException {
-        BadgerException(ErrorCode.DatabaseClosed, "database is closed")
-    }
-    
-    public static func transactionDiscarded(): BadgerException {
-        BadgerException(ErrorCode.TransactionDiscarded, "transaction has been discarded")
-    }
-    
-    public static func conflictDetected(): BadgerException {
-        BadgerException(ErrorCode.ConflictDetected, "transaction conflict detected")
-    }
-    
-    public static func keyNotFound(): BadgerException {
-        BadgerException(ErrorCode.KeyNotFound, "key not found")
-    }
-    
-    public static func invalidConfig(msg: String): BadgerException {
-        BadgerException(ErrorCode.InvalidConfig, msg)
-    }
+    public static func databaseClosed(): BadgerException { ... }
+    public static func transactionDiscarded(): BadgerException { ... }
+    public static func conflictDetected(): BadgerException { ... }
+    // ...
 }
 ```
 
 ### 文件
 
-- 新建 `src/db/exception.cj`
+- `src/db/exception.cj`
 
 ---
 
-## 2. Entry 类重构
+## 2. Entry 类重构 ✅
 
-### 设计
+### 关键设计决策
+
+**分离 meta 和 userMeta**：
+
+| 字段 | 用途 | 说明 |
+|------|------|------|
+| `meta` | 内部标记 | bitDelete, bitDiscardEarlierVersions 等 |
+| `userMeta` | 用户自定义 | 用户可设置任意值（0x00-0xFF） |
+
+**原因**：如果 userMeta 用于判断 isDelete()，用户设置 `withMeta(0x55)` 会触发误删（0x55 包含 bitDelete 位）。
+
+### 实现
 
 ```cangjie
 public class Entry {
     public let key: Array<Byte>
     public let value: Array<Byte>
-    public let userMeta: Byte
-    public let expiresAt: UInt64      // Unix timestamp (秒)
+    public let meta: Byte           // 内部标记（bitDelete, bitDiscardEarlierVersions）
+    public let userMeta: Byte       // 用户自定义标记
+    public let expiresAt: UInt64    // Unix timestamp (秒)
     
     public init(
         key: Array<Byte>, 
         value: Array<Byte>, 
+        meta!: Byte = 0,
         userMeta!: Byte = 0, 
         expiresAt!: UInt64 = 0
     ) {
         this.key = key
         this.value = value
+        this.meta = meta
         this.userMeta = userMeta
         this.expiresAt = expiresAt
     }
     
-    public func withMeta(meta: Byte): Entry {
-        Entry(key, value, userMeta: meta, expiresAt: expiresAt)
+    public static func new(key: Array<Byte>, value: Array<Byte>): Entry {
+        Entry(key, value)
+    }
+    
+    public static func delete(key: Array<Byte>): Entry {
+        Entry(key, [], meta: Meta.bitDelete)
+    }
+    
+    public func withMeta(userMeta: Byte): Entry {
+        Entry(key, value, meta: meta, userMeta: userMeta, expiresAt: expiresAt)
     }
     
     public func withTTL(dur: Duration): Entry {
-        let now = UInt64(DateTime.now().toUnixTimestamp())
-        Entry(key, value, userMeta: userMeta, expiresAt: now + UInt64(dur.toSeconds()))
+        let now = DateTime.now().toUnixTimeStamp()
+        Entry(key, value, meta: meta, userMeta: userMeta, 
+              expiresAt: UInt64(now.toSeconds()) + UInt64(dur.toSeconds()))
     }
     
     public func withDiscard(): Entry {
-        Entry(key, value, userMeta: userMeta | Meta.bitDiscardEarlierVersions, expiresAt: expiresAt)
+        Entry(key, value, meta: meta | Meta.bitDiscardEarlierVersions, 
+              userMeta: userMeta, expiresAt: expiresAt)
     }
-}
-
-// 工厂函数
-public func newEntry(key: Array<Byte>, value: Array<Byte>): Entry {
-    Entry(key, value)
-}
-
-public func newDeleteEntry(key: Array<Byte>): Entry {
-    Entry(key, [], userMeta: Meta.bitDelete)
+    
+    public func isDelete(): Bool {
+        (meta & Meta.bitDelete) != 0
+    }
 }
 ```
 
 ### 说明
 
-- `withMeta`: 设置用户自定义元数据
+- `meta`: 内部标记，由 `withDiscard()` 和 `Entry.delete()` 设置
+- `userMeta`: 用户自定义标记，由 `withMeta()` 设置，可以是任意值
 - `withTTL`: 设置过期时间，Duration 转换为 Unix 时间戳
-- `withDiscard`: 设置丢弃旧版本标记，通过 userMeta 的 bitDiscardEarlierVersions 位实现
+- `withDiscard`: 设置丢弃旧版本标记，修改 meta 字段
 
 ### 文件
 
-- 新建 `src/db/entry.cj`
-- 删除 `src/db/badger.cj` 中的旧 Entry 定义
+- `src/db/entry.cj`
 
 ---
 
-## 3. 写入路径改动
+## 3. 写入路径改动 ✅
 
 ### 3.1 WriteEntry 添加字段
 
@@ -137,8 +140,9 @@ public struct WriteEntry {
     public let key: Array<Byte>
     public let value: Array<Byte>
     public let isDelete: Bool
-    public let userMeta: Byte       // 新增
-    public let expiresAt: UInt64    // 新增
+    public let meta: Byte           // 内部标记
+    public let userMeta: Byte       // 用户标记
+    public let expiresAt: UInt64    // 过期时间
     
     public init(key: Array<Byte>, value: Array<Byte>, 
                 isDelete: Bool, userMeta: Byte = 0, expiresAt: UInt64 = 0)
