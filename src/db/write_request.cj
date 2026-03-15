@@ -8,12 +8,22 @@ public struct WriteEntry {
     public let key: Array<Byte>
     public let value: Array<Byte>
     public let isDelete: Bool
+    public let userMeta: Byte
+    public let expiresAt: UInt64
     public var vp: ?ValuePointer
     
-    public init(key: Array<Byte>, value: Array<Byte>, isDelete!: Bool = false) {
+    public init(
+        key: Array<Byte>, 
+        value: Array<Byte>, 
+        isDelete!: Bool = false,
+        userMeta!: Byte = 0,
+        expiresAt!: UInt64 = 0
+    ) {
         this.key = key
         this.value = value
         this.isDelete = isDelete
+        this.userMeta = userMeta
+        this.expiresAt = expiresAt
         this.vp = None
     }
 }
@@ -29,15 +39,28 @@ public class WriteRequest {
         this.counter = SyncCounter(1)
     }
     
-    public init(key: Array<Byte>, value: Array<Byte>, commitTs: UInt64, isDelete!: Bool = false) {
+    public init(
+        key: Array<Byte>, 
+        value: Array<Byte>, 
+        commitTs: UInt64, 
+        isDelete!: Bool = false,
+        userMeta!: Byte = 0,
+        expiresAt!: UInt64 = 0
+    ) {
         this.commitTs = commitTs
         this.entries = ArrayList<WriteEntry>()
-        this.entries.add(WriteEntry(key, value, isDelete: isDelete))
+        this.entries.add(WriteEntry(key, value, isDelete: isDelete, userMeta: userMeta, expiresAt: expiresAt))
         this.counter = SyncCounter(1)
     }
     
-    public func addEntry(key: Array<Byte>, value: Array<Byte>, isDelete!: Bool = false): Unit {
-        entries.add(WriteEntry(key, value, isDelete: isDelete))
+    public func addEntry(
+        key: Array<Byte>, 
+        value: Array<Byte>, 
+        isDelete!: Bool = false,
+        userMeta!: Byte = 0,
+        expiresAt!: UInt64 = 0
+    ): Unit {
+        entries.add(WriteEntry(key, value, isDelete: isDelete, userMeta: userMeta, expiresAt: expiresAt))
     }
     
     public func getEntries(): ArrayList<WriteEntry> {
