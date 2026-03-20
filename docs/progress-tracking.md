@@ -83,11 +83,12 @@
 - KV 存储 (Get/Set/Delete)
 - MemTable (基于 Skiplist)
 - WAL (Write-Ahead Log)
-- SSTable (带前缀压缩)
+- SSTable (带前缀压缩 + BloomFilter)
 - Value Log (大值分离存储)
 - MANIFEST (元数据管理)
 - Compaction (完整多层级)
 - VLog GC (后台自动回收)
+- BloomFilter (读取优化)
 
 ### 事务系统 ✅
 - Oracle 全局时间戳管理
@@ -170,6 +171,7 @@
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-03-20 | v7.7 | P0 BloomFilter 完成：TableBuilder/Table 集成，默认 1% 误判率，252 测试通过 |
 | 2026-03-15 | v7.6 | P1 完成：Config with*/DB info/validForPrefix |
 | 2026-03-15 | v7.5 | P0 完成：TTL/异常/Item API |
 | 2026-03-14 | v7.4 | Phase 7 完成：Compaction + VLog GC |

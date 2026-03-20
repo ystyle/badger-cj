@@ -1,7 +1,7 @@
 # Badger-cj API 对齐报告
 
-**最后更新：** 2026-03-15  
-**状态：** P0+P1 已完成，对齐率 ~75%
+**最后更新：** 2026-03-20  
+**状态：** P0+P1 已完成，对齐率 ~80%
 
 ---
 
@@ -15,7 +15,8 @@
 | Entry | 5 | 5 | 100% |
 | Iterator | 7 | 6 | 86% |
 | IteratorOptions | 6 | 6 | 100% |
-| Config | 15 | 7 | 47% |
+| Config | 15 | 8 | 53% |
+| BloomFilter | 5 | 5 | 100% |
 | BadgerException | 9 | 9 | 100% |
 
 ---
@@ -101,6 +102,17 @@
 | withNumLevelZeroTables() | ✅ | L0 阈值 |
 | withDisableWAL() | ✅ | 禁用 WAL |
 | withDetectConflicts() | ✅ | 冲突检测 |
+| withBloomFalsePositive() | ✅ | Bloom 过滤器误判率 |
+
+### BloomFilter
+
+| API | 状态 | 说明 |
+|-----|------|------|
+| new(numKeys, bitsPerKey) | ✅ | 创建过滤器 |
+| add(key) | ✅ | 添加 key |
+| mayContain(key) | ✅ | 检查 key 是否可能存在 |
+| finish() | ✅ | 完成构建 |
+| data() | ✅ | 序列化数据 |
 
 ---
 
@@ -143,12 +155,33 @@
 | NumLevelZeroTables | ✅ | L0 触发阈值 |
 | DisableWAL | ✅ | 禁用 WAL |
 | DetectConflicts | ✅ | SSI 冲突检测 |
+| BloomFalsePositive | ✅ | Bloom 过滤器误判率 (默认 0.01) |
 | Compression | ⏳ | 待实现（需 Snappy 库） |
-| BloomFalsePositive | ⏳ | 待实现 |
 
 ---
 
 ## 设计决策
+
+### BloomFilter 实现
+
+**格式**：兼容 Go BadgerDB
+- 前 n 字节：位数组
+- 最后 1 字节：k（哈希函数数量）
+
+**集成路径**：
+```
+TableBuilder.add(key)
+    ↓ 收集 hash(key)
+TableBuilder.finish()
+    ↓ buildBloomFilter()
+TableIndex 存储 bloomFilter
+    ↓ 写入 SSTable
+Table.get(key)
+    ↓ mayContain(key) 快速过滤
+找到 block → 读取数据
+```
+
+**性能收益**：对于不存在的 key，避免读取 block，减少磁盘 I/O。
 
 ### Entry.meta vs userMeta 分离
 
@@ -207,4 +240,6 @@ public interface VLogGCDB {
 | ExceptionTest | 11 | 异常处理 |
 | CompactionTest | 5 | Compaction |
 | VLogGCTest | 6 | VLog GC |
-| **总计** | **243** | |
+| BloomFilterTest | 6 | BloomFilter |
+| TableBloomFilterTest | 3 | Table BloomFilter |
+| **总计** | **252** | |
