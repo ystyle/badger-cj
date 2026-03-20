@@ -1,8 +1,8 @@
 # io_uring I/O 优化设计
 
 **日期**: 2026-03-11
-**状态**: 📋 待审核
-**优先级**: P2（可选优化）
+**状态**: 🔍 审核中
+**优先级**: P0
 **预计时间**: 20-30h
 
 ---
@@ -173,7 +173,7 @@ foreign func io_uring_prep_fsync(sqe: CPointer<io_uring_sqe>, fd: Int32, fsync_f
 // iovec 结构
 @C
 struct iovec {
-    var iovBase: CPointer<Unit>
+    var iovBase: CPointer<UInt8>  // 使用 UInt8 而非 Unit
     var iovLen: UIntNative
 }
 ```
@@ -217,16 +217,20 @@ public class IoUringWriter <: FileWriter {
                 return
             }
             
-            // 准备 writev
+            // 准备 writev - 使用 acquireArrayRawData 获取原始指针
+            let handle = acquireArrayRawData(data)
             var iov = iovec()
-            iov.iovBase = CPointer<Unit>(data.asBuffer())
-            iov.iovLen = data.size
+            iov.iovBase = handle.ptr
+            iov.iovLen = UIntNative(data.size)
             
             io_uring_prep_writev(sqe, fd, inout iov, 1, offset)
             sqe.userData = offset  // 用于完成时识别
             
-            offset += data.size
+            offset += UInt64(data.size)
             pendingOps++
+            
+            // 释放 handle（io_uring 会拷贝数据）
+            releaseArrayRawData(handle)
             
             // 批量提交
             if (pendingOps >= 16) {
@@ -402,7 +406,17 @@ cjpm build
 
 ---
 
-**文档版本**: v1.0
+**文档版本**: v1.1
 **创建日期**: 2026-03-11
-**最后更新**: 2026-03-11
-**状态**: 📋 待审核
+**最后更新**: 2026-03-20
+**状态**: 🔍 审核中
+
+## 更新历史
+
+### v1.1 (2026-03-20)
+- 优先级从 P2 提升到 P0
+- 修正 FFI 语法：`asBuffer()` → `acquireArrayRawData()`
+- 修正 iovec.iovBase 类型：`CPointer<Unit>` → `CPointer<UInt8>`
+
+### v1.0 (2026-03-11)
+- 初始设计文档
