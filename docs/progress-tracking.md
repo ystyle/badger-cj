@@ -241,9 +241,9 @@
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| Backup/Restore | P2 | 数据备份恢复 |
-| Stream API | P2 | 大规模数据处理 |
-| Managed DB | P2 | 手动管理时间戳 |
+| Stream API | P1 | 并发迭代框架，Backup 依赖 |
+| Backup/Restore | P1 | 数据备份恢复，依赖 Stream API |
+| Managed DB | P3 | 手动管理时间戳（数据迁移/CDC） |
 | Compression | P2 | SSTable 压缩（需 Snappy 库） |
 | Merge Operator | P4 | 原子更新操作 |
 | Encryption | P4 | 加密存储 |
