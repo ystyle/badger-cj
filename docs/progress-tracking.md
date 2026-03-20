@@ -132,8 +132,8 @@
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
+| io_uring | P0 | Linux 文件写入优化 |
 | WriteBatch | P1 | 批量写入优化 |
-| io_uring | P1 | 文件写入优化(linux) |
 | Backup/Restore | P2 | 数据备份恢复 |
 | Stream API | P2 | 大规模数据处理 |
 | Managed DB | P2 | 手动管理时间戳 |
