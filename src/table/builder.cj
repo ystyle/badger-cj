@@ -24,9 +24,11 @@ import badgercj.encoding.*
  */
 public class TableBuilder {
     private let blockSize: Int64
+    private let bloomFalsePositive: Float64
     private var currentBlock: BlockBuilder
     private var buf: ArrayList<Byte>
     private var blockOffsets: ArrayList<BlockOffset>
+    private var keyHashes: ArrayList<UInt32>
     private var keyCount: UInt32
     private var maxVersion: UInt64
     private var uncompressedSize: UInt32
@@ -34,11 +36,13 @@ public class TableBuilder {
     private var tableSmallest: Array<Byte>
     private var tableBiggest: Array<Byte>
     
-    public init(blockSize!: Int64 = 4 * 1024) {
+    public init(blockSize!: Int64 = 4 * 1024, bloomFalsePositive!: Float64 = 0.01) {
         this.blockSize = blockSize
+        this.bloomFalsePositive = bloomFalsePositive
         this.currentBlock = BlockBuilder(blockSize: blockSize)
         this.buf = ArrayList<Byte>()
         this.blockOffsets = ArrayList<BlockOffset>()
+        this.keyHashes = ArrayList<UInt32>()
         this.keyCount = 0
         this.maxVersion = 0
         this.uncompressedSize = 0
@@ -68,6 +72,10 @@ public class TableBuilder {
             if (!currentBlock.add(key, value)) {
                 throw Exception("Key too large for block: ${key.size} bytes")
             }
+        }
+        
+        if (bloomFalsePositive > 0.0) {
+            keyHashes.add(BloomFilter.hash(key))
         }
         
         keyCount++
@@ -201,11 +209,15 @@ public class TableBuilder {
             indexBuf.add(UInt8((bo.len >> 24) & 0xFF))
         }
         
-        let bloomFilterLen: UInt32 = 0
+        let bloomFilterData = buildBloomFilter()
+        let bloomFilterLen = UInt32(bloomFilterData.size)
         indexBuf.add(UInt8(bloomFilterLen & 0xFF))
         indexBuf.add(UInt8((bloomFilterLen >> 8) & 0xFF))
         indexBuf.add(UInt8((bloomFilterLen >> 16) & 0xFF))
         indexBuf.add(UInt8((bloomFilterLen >> 24) & 0xFF))
+        for (b in bloomFilterData) {
+            indexBuf.add(b)
+        }
         
         indexBuf.add(UInt8(maxVersion & 0xFF))
         indexBuf.add(UInt8((maxVersion >> 8) & 0xFF))
@@ -261,6 +273,22 @@ public class TableBuilder {
             }
         }
         return Int64(a.size) - Int64(b.size)
+    }
+    
+    private func buildBloomFilter(): Array<Byte> {
+        if (bloomFalsePositive <= 0.0 || keyHashes.size == 0) {
+            return []
+        }
+        
+        let bitsPerKey = BloomFilter.calcBitsPerKey(bloomFalsePositive)
+        let bf = BloomFilter(numKeys: Int64(keyHashes.size), bitsPerKey: bitsPerKey)
+        
+        for (h in keyHashes) {
+            bf.addHash(h)
+        }
+        
+        bf.finish()
+        return bf.data()
     }
     
     public func isEmpty(): Bool {

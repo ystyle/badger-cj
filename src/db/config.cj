@@ -8,6 +8,7 @@ public class Config {
     public let NumLevelZeroTables: Int
     public let DisableWAL: Bool
     public let DetectConflicts: Bool
+    public let BloomFalsePositive: Float64
     
     public init(
         dir!: String = "",
@@ -16,7 +17,8 @@ public class Config {
         maxLevels!: Int = 7,
         numLevelZeroTables!: Int = 4,
         disableWAL!: Bool = false,
-        detectConflicts!: Bool = true
+        detectConflicts!: Bool = true,
+        bloomFalsePositive!: Float64 = 0.01
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -25,6 +27,7 @@ public class Config {
         this.NumLevelZeroTables = numLevelZeroTables
         this.DisableWAL = disableWAL
         this.DetectConflicts = detectConflicts
+        this.BloomFalsePositive = bloomFalsePositive
     }
     
     public func withDir(dir: String): Config {
@@ -35,7 +38,8 @@ public class Config {
             maxLevels: this.MaxLevels,
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
-            detectConflicts: this.DetectConflicts
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive
         )
     }
     
@@ -47,7 +51,8 @@ public class Config {
             maxLevels: this.MaxLevels,
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
-            detectConflicts: this.DetectConflicts
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive
         )
     }
     
@@ -59,7 +64,8 @@ public class Config {
             maxLevels: this.MaxLevels,
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
-            detectConflicts: this.DetectConflicts
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive
         )
     }
     
@@ -71,7 +77,8 @@ public class Config {
             maxLevels: maxLevels,
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
-            detectConflicts: this.DetectConflicts
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive
         )
     }
     
@@ -83,7 +90,8 @@ public class Config {
             maxLevels: this.MaxLevels,
             numLevelZeroTables: n,
             disableWAL: this.DisableWAL,
-            detectConflicts: this.DetectConflicts
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive
         )
     }
     
@@ -95,7 +103,8 @@ public class Config {
             maxLevels: this.MaxLevels,
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: disable,
-            detectConflicts: this.DetectConflicts
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive
         )
     }
     
@@ -107,7 +116,21 @@ public class Config {
             maxLevels: this.MaxLevels,
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
-            detectConflicts: detect
+            detectConflicts: detect,
+            bloomFalsePositive: this.BloomFalsePositive
+        )
+    }
+    
+    public func withBloomFalsePositive(fp: Float64): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: fp
         )
     }
     

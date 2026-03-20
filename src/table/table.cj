@@ -11,6 +11,7 @@ public class Table {
     private let data: Array<Byte>
     public let id: UInt64
     private let index: TableIndex
+    private let bloomFilter: ?BloomFilter
     
     public let smallest: Array<Byte>
     public let biggest: Array<Byte>
@@ -21,6 +22,12 @@ public class Table {
         this.id = id
         this.data = data
         this.index = TableIndex.decodeFromData(data)
+        
+        if (index.bloomFilter.size > 0) {
+            this.bloomFilter = Some(BloomFilter(index.bloomFilter))
+        } else {
+            this.bloomFilter = None
+        }
         
         if (index.tableSmallest.size > 0) {
             this.smallest = index.tableSmallest
@@ -37,6 +44,10 @@ public class Table {
     }
     
     public func get(key: Array<Byte>): Option<Array<Byte>> {
+        if (!mayContain(key)) {
+            return None
+        }
+        
         let idx = findBlock(key)
         if (idx < 0) {
             return None
@@ -50,6 +61,24 @@ public class Table {
             return Some(iter.value())
         }
         return None
+    }
+    
+    public func mayContain(key: Array<Byte>): Bool {
+        match (bloomFilter) {
+            case Some(bf) => bf.mayContain(key)
+            case None => true
+        }
+    }
+    
+    public func hasBloomFilter(): Bool {
+        bloomFilter.isSome()
+    }
+    
+    public func bloomFilterSize(): Int64 {
+        match (bloomFilter) {
+            case Some(bf) => bf.size()
+            case None => 0
+        }
     }
     
     public func newIterator(): TableIterator {

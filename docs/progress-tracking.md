@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-03-15  
-**当前阶段：** ✅ P1 API 扩展已完成
+**最后更新：** 2026-03-20  
+**当前阶段：** ✅ P0 BloomFilter 已完成
 
 ---
 
@@ -9,13 +9,22 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 243/243 通过 ✅ |
+| **测试** | 252/252 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
-| **API 对齐** | P0+P1 完成，对齐率 ~75% |
+| **API 对齐** | P0+P1 完成，对齐率 ~80% |
 
 ---
 
 ## 已完成阶段
+
+### P0: BloomFilter ✅ (2026-03-20)
+
+| 功能 | 说明 |
+|------|------|
+| BloomFilter 类 | 兼容 Go BadgerDB 格式 |
+| TableBuilder 集成 | 构建时生成 filter |
+| Table 读取优化 | mayContain() 快速过滤 |
+| Config.BloomFalsePositive | 默认 0.01 (1% 误判率) |
 
 ### P1: API 扩展 ✅ (2026-03-15)
 
@@ -123,12 +132,13 @@
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
 | WriteBatch | P1 | 批量写入优化 |
-| Compression | P2 | SSTable 压缩（需 Snappy 库） |
-| BloomFilter | P2 | 读取优化 |
-| Managed DB | P2 | 手动管理时间戳 |
+| io_uring | P1 | 文件写入优化(linux) |
+| Backup/Restore | P2 | 数据备份恢复 |
 | Stream API | P2 | 大规模数据处理 |
-| Backup/Restore | P4 | 数据备份恢复 |
+| Managed DB | P2 | 手动管理时间戳 |
+| Compression | P2 | SSTable 压缩（需 Snappy 库） |
 | Merge Operator | P4 | 原子更新操作 |
+| Encryption | P4 | 加密存储 |
 
 ---
 

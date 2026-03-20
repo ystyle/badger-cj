@@ -314,24 +314,23 @@ class IteratorTest {
     
     @TestCase
     func testIteratorConsistency() {
-        let opt = Config(dir: "/tmp/badger_iter_test15", memTableSize: 1024 * 1024u64)
+        let dir = "/tmp/badger_iter_test15"
+        cleanupIterDir(dir)
+        
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        // 事务 1：写入数据
         let txn1 = db.newTransaction(update: true)
         txn1.set("key1".toArray(), "value1".toArray())
         txn1.commit()
         
-        // 创建只读事务和迭代器
         let txn2 = db.newTransaction(update: false)
         let iter = txn2.newIterator()
         
-        // 事务 3：写入更多数据
         let txn3 = db.newTransaction(update: true)
         txn3.set("key2".toArray(), "value2".toArray())
         txn3.commit()
         
-        // 迭代器应该只能看到 key1（基于 txn2 的 readTs）
         var count: Int64 = 0
         iter.rewind()
         while (iter.valid()) {
@@ -341,10 +340,10 @@ class IteratorTest {
         
         iter.close()
         
-        @Assert(count, 1)  // 只能看到 key1
+        @Assert(count, 1)
         
         db.close()
-        cleanupIterDir("/tmp/badger_iter_test15")
+        cleanupIterDir(dir)
     }
 }
 

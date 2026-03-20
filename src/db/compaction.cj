@@ -276,7 +276,7 @@ public class Compaction {
         
         sortEntries(allEntries)
         
-        let builder = TableBuilder()
+        let builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive)
         var lastKey: Array<Byte> = []
         
         for ((key, vs) in allEntries) {
