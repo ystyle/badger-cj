@@ -7,6 +7,7 @@ import std.time.*
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
+import badgercj.io_uring.*
 import std.collection.concurrent.*
 
 public class Badger <: VLogGCDB {
@@ -95,7 +96,7 @@ public class Badger <: VLogGCDB {
     
     public func close(): Unit {
         running.store(false)
-        writeCh.close()  // Wake up blocking remove()
+        writeCh.close()
         if (let Some(p) <- pipeline) {
             p.close()
         }
@@ -108,14 +109,21 @@ public class Badger <: VLogGCDB {
         
         lock.writeLock.lock()
         try {
+            let allTables = ArrayList<MemTable>()
             if (!mt.isEmpty()) {
-                let changes = flushMemTableToDisk(mt)
-                manifestFile.saveChanges(changes)
+                allTables.add(mt)
+            }
+            for (immMt in imm) {
+                allTables.add(immMt)
             }
             
-            for (immMt in imm) {
-                let changes = flushMemTableToDisk(immMt)
-                manifestFile.saveChanges(changes)
+            if (allTables.size > 1 && opt.UseIoUring) {
+                flushMemTablesBatch(allTables)
+            } else {
+                for (t in allTables) {
+                    let changes = flushMemTableToDisk(t)
+                    manifestFile.saveChanges(changes)
+                }
             }
             imm.clear()
             
@@ -126,6 +134,40 @@ public class Badger <: VLogGCDB {
             manifestFile.close()
         } finally {
             lock.writeLock.unlock()
+        }
+    }
+    
+    private func flushMemTablesBatch(tables: ArrayList<MemTable>): Unit {
+        let requests = ArrayList<FileWriteRequest>()
+        let tableDataList = ArrayList<(UInt64, Array<Byte>)>()
+        
+        for (t in tables) {
+            let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive)
+            let iter = t.iterator()
+            while (iter.hasNext()) {
+                if (let Some(e) <- iter.next()) {
+                    let (key, vs) = e
+                    builder.add(key, vs)
+                }
+            }
+            let data = builder.finish()
+            
+            let tableID = nextFileID.fetchAdd(1)
+            let path = sstablePath(opt.Dir, tableID)
+            
+            requests.add(FileWriteRequest(path, data))
+            tableDataList.add((tableID, data))
+        }
+        
+        writeFilesBatch(requests, useIoUring: true)
+        
+        for ((tableID, data) in tableDataList) {
+            let table = Table(tableID, data)
+            lc.addTable(0, TableAdapter(table))
+            
+            let changes = ManifestChangeSet()
+            changes.add(ManifestChange(tableID, ManifestChangeOp.Create, level: 0))
+            manifestFile.saveChanges(changes)
         }
     }
     
@@ -142,9 +184,7 @@ public class Badger <: VLogGCDB {
         
         let tableID = nextFileID.fetchAdd(1)
         let path = sstablePath(opt.Dir, tableID)
-        let f = File(Path(path), Write)
-        f.write(data)
-        f.close()
+        writeFile(path, data, useIoUring: opt.UseIoUring)
         
         let table = Table(tableID, data)
         lc.addTable(0, TableAdapter(table))

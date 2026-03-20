@@ -9,6 +9,7 @@ public class Config {
     public let DisableWAL: Bool
     public let DetectConflicts: Bool
     public let BloomFalsePositive: Float64
+    public let UseIoUring: Bool
     
     public init(
         dir!: String = "",
@@ -18,7 +19,8 @@ public class Config {
         numLevelZeroTables!: Int = 4,
         disableWAL!: Bool = false,
         detectConflicts!: Bool = true,
-        bloomFalsePositive!: Float64 = 0.01
+        bloomFalsePositive!: Float64 = 0.01,
+        useIoUring!: Bool = true
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -28,6 +30,7 @@ public class Config {
         this.DisableWAL = disableWAL
         this.DetectConflicts = detectConflicts
         this.BloomFalsePositive = bloomFalsePositive
+        this.UseIoUring = useIoUring
     }
     
     public func withDir(dir: String): Config {
@@ -39,7 +42,8 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -52,7 +56,8 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -65,7 +70,8 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -78,7 +84,8 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -91,7 +98,8 @@ public class Config {
             numLevelZeroTables: n,
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -104,7 +112,8 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: disable,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -117,7 +126,8 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
             detectConflicts: detect,
-            bloomFalsePositive: this.BloomFalsePositive
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring
         )
     }
     
@@ -130,7 +140,22 @@ public class Config {
             numLevelZeroTables: this.NumLevelZeroTables,
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
-            bloomFalsePositive: fp
+            bloomFalsePositive: fp,
+            useIoUring: this.UseIoUring
+        )
+    }
+    
+    public func withUseIoUring(use: Bool): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: use
         )
     }
     

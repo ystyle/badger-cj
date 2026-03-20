@@ -293,9 +293,7 @@ public class Compaction {
         if (data.size > 0) {
             let tableId = db.getVersion()
             let path = sstablePath(db.getOpt().Dir, tableId)
-            let f = File(Path(path), Write)
-            f.write(data)
-            f.close()
+            writeFile(path, data, useIoUring: db.getOpt().UseIoUring)
             
             let table = Table(tableId, data)
             result.add(TableAdapter(table))

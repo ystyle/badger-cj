@@ -33,4 +33,20 @@ output-type = "executable"
 [package.package-configuration."badgercj.examples.key_compare_perf"]
 output-type = "executable"
 
+[package.package-configuration."badgercj.examples.sstable_write_perf"]
+output-type = "executable"
+
+[package.package-configuration."badgercj.examples.iouring_integration_test"]
+output-type = "executable"
+
+[package.package-configuration."badgercj.examples.iouring_batch_test"]
+output-type = "executable"
+
 [dependencies]
+
+# Linux 平台特定配置 - 链接 liburing
+[target.x86_64-unknown-linux-gnu]
+  link-option = "-luring"
+
+[target.aarch64-unknown-linux-gnu]
+  link-option = "-luring"
