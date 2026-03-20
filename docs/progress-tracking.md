@@ -206,6 +206,7 @@
 - 用户元数据 (userMeta)
 - 链式配置 (with*)
 - 数据库信息查询
+- WriteBatch (batchSet/batchSetAsync)
 
 ### 并发与持久化 ✅
 - 无锁并发 SkipList (真 CAS)
@@ -240,7 +241,6 @@
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| WriteBatch | P1 | 批量写入优化 |
 | Backup/Restore | P2 | 数据备份恢复 |
 | Stream API | P2 | 大规模数据处理 |
 | Managed DB | P2 | 手动管理时间戳 |
@@ -282,7 +282,7 @@
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
-| 2026-03-21 | v7.10 | P0 io_uring 批量优化完成：IoUringPool、writeFilesBatch()、flushMemTablesBatch()、10-60% 性能提升 |
+| 2026-03-21 | v7.10 | P0 io_uring 批量优化完成：IoUringPool、writeFilesBatch()、flushMemTablesBatch()、10-60% 性能提升；确认 WriteBatch 已实现 |
 | 2026-03-20 | v7.9 | P0 io_uring 集成完成：SSTable 写入、Config.UseIoUring、writeFile() 工具函数、262 测试通过 |
 | 2026-03-20 | v7.8 | P0 io_uring FFI 绑定完成：条件编译、异步写入器、257 测试通过 |
 | 2026-03-20 | v7.7 | P0 BloomFilter 完成：TableBuilder/Table 集成，默认 1% 误判率 |
