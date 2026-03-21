@@ -38,8 +38,10 @@ public class Entry {
     
     public func withTTL(dur: Duration): Entry {
         let now = DateTime.now().toUnixTimeStamp()
+        // 确保至少 1 秒的 TTL（dur.toSeconds() 对于小于 1 秒的 Duration 会返回 0）
+        let ttlSeconds = if (dur.toSeconds() < 1) { Int64(1) } else { dur.toSeconds() }
         Entry(key, value, meta: meta, userMeta: userMeta, 
-              expiresAt: UInt64(now.toSeconds()) + UInt64(dur.toSeconds()))
+              expiresAt: UInt64(now.toSeconds()) + UInt64(ttlSeconds))
     }
     
     public func withDiscard(): Entry {
