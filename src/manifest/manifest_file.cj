@@ -11,18 +11,24 @@ protected class ManifestFile {
     private var bufferedOut: ?BufferedOutputStream<File>
     private let manifest: Manifest
     private let mutex: Mutex
+    private let inMemory: Bool
     
-    private init(path: String, manifest: Manifest) {
+    private init(path: String, manifest: Manifest, inMemory: Bool) {
         this.path = path
         this.file = None
         this.bufferedOut = None
         this.manifest = manifest
         this.mutex = Mutex()
+        this.inMemory = inMemory
+    }
+    
+    public static func memory(): ManifestFile {
+        ManifestFile("", Manifest(), true)
     }
     
     public static func open(path: String): ManifestFile {
         let manifest = Manifest()
-        let mf = ManifestFile(path, manifest)
+        let mf = ManifestFile(path, manifest, false)
         
         let p = Path(path)
         let dir = p.parent
@@ -80,6 +86,12 @@ protected class ManifestFile {
     public func saveChanges(changes: ManifestChangeSet): Unit {
         mutex.lock()
         try {
+            manifest.applyChanges(changes.changes)
+            
+            if (inMemory) {
+                return
+            }
+            
             let encoded = changes.encode()
             
             let out = bufferedOut ?? throw Exception("ManifestFile not open")
@@ -92,14 +104,16 @@ protected class ManifestFile {
             
             out.write(encoded)
             out.flush()
-            
-            manifest.applyChanges(changes.changes)
         } finally {
             mutex.unlock()
         }
     }
     
     public func close(): Unit {
+        if (inMemory) {
+            return
+        }
+        
         if (let Some(out) <- bufferedOut) {
             out.flush()
             out.close()

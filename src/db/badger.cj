@@ -62,23 +62,46 @@ public class Badger <: VLogGCDB {
     }
     
     public static func open(opt: Config): Badger {
-        if (!exists(Path(opt.Dir))) {
+        // InMemory 模式验证
+        if (opt.InMemory && opt.Dir != "") {
+            throw BadgerException.invalidConfig("Cannot use InMemory mode with Dir set")
+        }
+        
+        // 创建目录（非 InMemory 模式）
+        if (!opt.InMemory && !exists(Path(opt.Dir))) {
             Directory.create(Path(opt.Dir), recursive: true)
         }
         
-        let manifestPath = manifestPath(opt.Dir)
-        let manifestFile = ManifestFile.open(manifestPath)
+        // MANIFEST
+        var manifestFile: ManifestFile
+        if (opt.InMemory) {
+            manifestFile = ManifestFile.memory()
+        } else {
+            manifestFile = ManifestFile.open(manifestPath(opt.Dir))
+        }
         let manifest = manifestFile.getManifest()
         
-        let lc = LevelsController(manifest: manifest, dir: opt.Dir)
-        lc.loadTables()
+        // LevelsController
+        let lc = LevelsController(manifest: manifest, dir: opt.Dir, inMemory: opt.InMemory)
+        if (!opt.InMemory) {
+            lc.loadTables()
+        }
         
         let fid = Int64(manifest.nextFileID)
-        let mt = MemTable(opt, fid, true)
+        let walExists = !opt.InMemory
+        let mt = MemTable(opt, fid, walExists)
         
-        let vlog = VLogManager(Path(opt.Dir))
+        // VLog（InMemory 模式不需要）
+        var vlog: VLogManager
+        if (opt.InMemory) {
+            vlog = VLogManager()
+        } else {
+            vlog = VLogManager(Path(opt.Dir))
+        }
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
-        vlog.setDB(db, discardChecker: { key, vs => discardEntry(key, vs) })
+        if (!opt.InMemory) {
+            vlog.setDB(db, discardChecker: { key, vs => discardEntry(key, vs) })
+        }
         
         var recoveredVersion = mt.getMaxVersion()
         let lcVersion = lc.getMaxVersion()
@@ -110,6 +133,12 @@ public class Badger <: VLogGCDB {
         }
         if (let Some(fut) <- compactorFut) {
             fut.get()
+        }
+        
+        // InMemory 模式：跳过持久化操作
+        if (opt.InMemory) {
+            oracle.stop()
+            return
         }
         
         lock.writeLock.lock()
@@ -158,17 +187,26 @@ public class Badger <: VLogGCDB {
             let data = builder.finish()
             
             let tableID = nextFileID.fetchAdd(1)
-            let path = sstablePath(opt.Dir, tableID)
-            
-            requests.add(FileWriteRequest(path, data))
             tableDataList.add((tableID, data))
+            
+            // 非 InMemory 模式才写文件
+            if (!opt.InMemory) {
+                let path = sstablePath(opt.Dir, tableID)
+                requests.add(FileWriteRequest(path, data))
+            }
         }
         
-        writeFilesBatch(requests, useIoUring: true)
+        if (!opt.InMemory) {
+            writeFilesBatch(requests, useIoUring: true)
+        }
         
         for ((tableID, data) in tableDataList) {
-            let table = Table(tableID, data)
-            lc.addTable(0, TableAdapter(table))
+            if (opt.InMemory) {
+                lc.addMemoryTable(tableID, data)
+            } else {
+                let table = Table(tableID, data)
+                lc.addTable(0, TableAdapter(table))
+            }
             
             let changes = ManifestChangeSet()
             changes.add(ManifestChange(tableID, ManifestChangeOp.Create, level: 0))
@@ -188,11 +226,19 @@ public class Badger <: VLogGCDB {
         let data = builder.finish()
         
         let tableID = nextFileID.fetchAdd(1)
-        let path = sstablePath(opt.Dir, tableID)
-        writeFile(path, data, useIoUring: opt.UseIoUring)
         
-        let table = Table(tableID, data)
-        lc.addTable(0, TableAdapter(table))
+        // InMemory 模式不写文件
+        if (!opt.InMemory) {
+            let path = sstablePath(opt.Dir, tableID)
+            writeFile(path, data, useIoUring: opt.UseIoUring)
+        }
+        
+        if (opt.InMemory) {
+            lc.addMemoryTable(tableID, data)
+        } else {
+            let table = Table(tableID, data)
+            lc.addTable(0, TableAdapter(table))
+        }
         
         let changes = ManifestChangeSet()
         changes.add(ManifestChange(tableID, ManifestChangeOp.Create, level: 0))
@@ -464,6 +510,11 @@ public class Badger <: VLogGCDB {
     }
     
     private func startCompactor(): Unit {
+        // InMemory 模式不需要 Compaction
+        if (opt.InMemory) {
+            return
+        }
+        
         let fut = spawn {
             let compaction = Compaction(this)
             var gcCounter = 0
@@ -482,10 +533,19 @@ public class Badger <: VLogGCDB {
     }
     
     public func runVLogGC(discardRatio: Float64): Bool {
+        // InMemory 模式不需要 VLog GC
+        if (opt.InMemory) {
+            return false
+        }
         vlog.runGC(discardRatio)
     }
     
     public func compact(): Unit {
+        // InMemory 模式不需要 Compaction
+        if (opt.InMemory) {
+            return
+        }
+        
         let compaction = Compaction(this)
         while (true) {
             let prio = compaction.pickCompaction()

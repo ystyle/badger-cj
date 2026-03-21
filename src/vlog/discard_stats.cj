@@ -15,11 +15,20 @@ protected class DiscardStats {
     private let lock: Mutex
     private var stats: HashMap<UInt32, Int64>
     private let filePath: Path
+    private let inMemory: Bool
+    
+    public init() {
+        this.lock = Mutex()
+        this.stats = HashMap<UInt32, Int64>()
+        this.filePath = Path("")
+        this.inMemory = true
+    }
     
     public init(dir: Path) {
         this.lock = Mutex()
         this.stats = HashMap<UInt32, Int64>()
         this.filePath = dir.join("DISCARD")
+        this.inMemory = false
         load()
     }
     
@@ -69,7 +78,7 @@ protected class DiscardStats {
     }
     
     private func load(): Unit {
-        if (!exists(filePath)) {
+        if (inMemory || !exists(filePath)) {
             return
         }
         
@@ -90,6 +99,10 @@ protected class DiscardStats {
     }
     
     private func flush(): Unit {
+        if (inMemory) {
+            return
+        }
+        
         try {
             let data = ArrayList<Byte>()
             for ((fid, val) in stats) {

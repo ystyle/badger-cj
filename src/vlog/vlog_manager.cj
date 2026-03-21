@@ -15,6 +15,7 @@ protected class VLogManager {
     private let dir: Path
     private let opt: VLogOptions
     private let lock: Mutex
+    private let inMemory: Bool
     
     private var files: HashMap<UInt32, VLogFile>
     private var maxFid: UInt32
@@ -25,10 +26,28 @@ protected class VLogManager {
     private var discardChecker: ?DiscardChecker
     private let discardStats: DiscardStats
     
+    public init() {
+        this.dir = Path("")
+        this.opt = VLogOptions()
+        this.lock = Mutex()
+        this.inMemory = true
+        this.files = HashMap<UInt32, VLogFile>()
+        this.maxFid = 0
+        this.offset = 0
+        this.db = None
+        this.discardChecker = None
+        this.discardStats = DiscardStats()
+        
+        // InMemory 模式下不创建实际文件
+        this.currentFile = VLogFile.memory(0)
+        this.files[0] = this.currentFile
+    }
+    
     public init(dir: Path, opt!: VLogOptions = VLogOptions()) {
         this.dir = dir
         this.opt = opt
         this.lock = Mutex()
+        this.inMemory = false
         this.files = HashMap<UInt32, VLogFile>()
         this.maxFid = 0
         this.offset = 0
@@ -222,6 +241,10 @@ public class VLogFile {
         this.fid = fid
         this.path = path
         this.buf = buf
+    }
+    
+    public static func memory(fid: UInt32): VLogFile {
+        return VLogFile(fid, Path(""), ArrayList<Byte>())
     }
     
     public static func create(path: Path, fid: UInt32): VLogFile {

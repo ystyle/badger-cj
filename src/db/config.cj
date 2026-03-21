@@ -10,6 +10,7 @@ public class Config {
     public let DetectConflicts: Bool
     public let BloomFalsePositive: Float64
     public let UseIoUring: Bool
+    public let InMemory: Bool
     
     public init(
         dir!: String = "",
@@ -20,17 +21,26 @@ public class Config {
         disableWAL!: Bool = false,
         detectConflicts!: Bool = true,
         bloomFalsePositive!: Float64 = 0.01,
-        useIoUring!: Bool = true
+        useIoUring!: Bool = true,
+        inMemory!: Bool = false
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
-        this.ValueThreshold = valueThreshold
         this.MaxLevels = maxLevels
         this.NumLevelZeroTables = numLevelZeroTables
-        this.DisableWAL = disableWAL
         this.DetectConflicts = detectConflicts
         this.BloomFalsePositive = bloomFalsePositive
         this.UseIoUring = useIoUring
+        this.InMemory = inMemory
+        
+        // InMemory 模式：ValueThreshold 设为最大值，所有数据进 LSM
+        if (inMemory) {
+            this.ValueThreshold = UInt64.Max
+            this.DisableWAL = true
+        } else {
+            this.ValueThreshold = valueThreshold
+            this.DisableWAL = disableWAL
+        }
     }
     
     public func withDir(dir: String): Config {
@@ -43,7 +53,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -57,7 +68,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -71,7 +83,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -85,7 +98,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -99,7 +113,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -113,7 +128,8 @@ public class Config {
             disableWAL: disable,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -127,7 +143,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: detect,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -141,7 +158,8 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: fp,
-            useIoUring: this.UseIoUring
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory
         )
     }
     
@@ -155,7 +173,23 @@ public class Config {
             disableWAL: this.DisableWAL,
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
-            useIoUring: use
+            useIoUring: use,
+            inMemory: this.InMemory
+        )
+    }
+    
+    public func withInMemory(inMemory: Bool): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring,
+            inMemory: inMemory
         )
     }
     

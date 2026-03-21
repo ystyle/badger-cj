@@ -11,6 +11,7 @@ import badgercj.utils.{compareKeys, keysEqual, hasPrefix}
 protected class Table {
     private let data: Array<Byte>
     public let id: UInt64
+    public let isInMemory: Bool
     private let index: TableIndex
     private let bloomFilter: ?BloomFilter
     
@@ -19,9 +20,10 @@ protected class Table {
     public let keyCount: UInt32
     public let maxVersion: UInt64
     
-    public init(id: UInt64, data: Array<Byte>) {
+    public init(id: UInt64, data: Array<Byte>, inMemory!: Bool = false) {
         this.id = id
         this.data = data
+        this.isInMemory = inMemory
         this.index = TableIndex.decodeFromData(data)
         
         if (index.bloomFilter.size > 0) {

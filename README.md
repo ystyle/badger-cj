@@ -63,6 +63,10 @@ let opt2 = Config()
     .withMemTableSize(128 * 1024 * 1024u64)
     .withDisableWAL(false)
 
+// 方式 3：纯内存模式（适合测试、临时缓存）
+let opt3 = Config(inMemory: true)
+let db3 = Badger.open(opt3)
+
 // 使用完毕后关闭
 db.close()
 ```
@@ -78,6 +82,33 @@ db.close()
 | `withNumLevelZeroTables(n)` | L0 表数量阈值 |
 | `withDisableWAL(bool)` | 禁用 WAL |
 | `withDetectConflicts(bool)` | 冲突检测 |
+| `withInMemory(bool)` | 纯内存模式 |
+
+### InMemory 模式
+
+纯内存模式，不写入磁盘，适合：
+- 单元测试（无需清理文件）
+- 临时缓存
+- 性能测试
+
+```cangjie
+// 创建内存数据库
+let db = Badger.open(Config(inMemory: true, memTableSize: 64 * 1024u64))
+
+// 使用方式与普通数据库相同
+db.update({ txn =>
+    txn.set("key".toArray(), "value".toArray())
+})
+
+db.close()  // 关闭后数据丢失
+```
+
+**特点：**
+- 不创建任何目录/文件
+- WAL 自动禁用
+- VLog 自动禁用（所有数据进 LSM）
+- Compaction 跳过
+- 关闭后数据丢失
 
 ### 数据库状态与信息
 
@@ -380,6 +411,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `numLevelZeroTables` | 4 | L0 表数量阈值 |
 | `disableWAL` | false | 禁用 WAL（性能测试用） |
 | `detectConflicts` | true | 启用 SSI 冲突检测 |
+| `inMemory` | false | 纯内存模式（不持久化） |
 
 ## 性能
 
@@ -430,6 +462,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | **io_uring** | 异步 I/O，Linux 下默认开启，10-60% 性能提升 |
 | **Stream API** | 大规模并发数据处理 |
 | **Backup/Restore** | 全量/增量备份，支持 TTL 和 UserMeta |
+| **InMemory 模式** | 纯内存模式，适合测试和临时缓存 |
 
 ### ⏳ 待完善
 

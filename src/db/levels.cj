@@ -13,13 +13,17 @@ protected class LevelsController {
     private let dir: String
     private let nextFileID: UInt64
     private let cstatus: compactStatus
+    private let inMemory: Bool
+    private let memoryTables: HashMap<UInt64, Array<Byte>>
     
-    public init(manifest!: Manifest = Manifest(), dir!: String = "") {
+    public init(manifest!: Manifest = Manifest(), dir!: String = "", inMemory!: Bool = false) {
         this.manifest = manifest
         this.dir = dir
+        this.inMemory = inMemory
         this.nextFileID = manifest.nextFileID
         this.levels = ArrayList<LevelHandler>()
         this.cstatus = compactStatus(7)
+        this.memoryTables = HashMap<UInt64, Array<Byte>>()
         
         for (i in 0..7) {
             levels.add(LevelHandler(i))
@@ -42,6 +46,12 @@ protected class LevelsController {
             return
         }
         levels[level].addTable(table)
+    }
+    
+    public func addMemoryTable(id: UInt64, data: Array<Byte>): Unit {
+        memoryTables[id] = data
+        let table = Table(id, data, inMemory: true)
+        levels[0].addTable(TableAdapter(table))
     }
     
     public func getLevelHandler(level: Int): LevelHandler {
