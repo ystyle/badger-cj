@@ -12,7 +12,9 @@ public class ValueLog {
     private let buf: ArrayList<Byte>
     private var offset: UInt32
     
+    // initialSize: 初始大小（当前实现使用动态数组，保留用于未来优化）
     public init(initialSize!: Int64 = 1024 * 1024) {
+        _ = initialSize  // 忽略未使用参数
         this.buf = ArrayList<Byte>()
         this.offset = 0
     }

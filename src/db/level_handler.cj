@@ -112,7 +112,8 @@ protected class LevelHandler {
         }
     }
     
-    public func appendIterators(iters: ArrayList<SimpleIterator>, reverse: Bool): Unit {
+    // reverse: 是否反向迭代（当前实现未使用，保留用于未来扩展）
+    public func appendIterators(iters: ArrayList<SimpleIterator>, _: Bool): Unit {
         synchronized(lock) {
             for (table in tables) {
                 iters.add(TableInterfaceIterator(table))

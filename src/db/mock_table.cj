@@ -34,7 +34,8 @@ public class MockTable <: TableInterface {
         return id
     }
     
-    public func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct> {
+    // readTs: 读取时间戳（当前实现未使用，Mock 表不支持 MVCC）
+    public func get(key: Array<Byte>, _: UInt64): Option<ValueStruct> {
         for (entry in entries) {
             if (keysEqual(entry[0], key)) {
                 return Some(entry[1])

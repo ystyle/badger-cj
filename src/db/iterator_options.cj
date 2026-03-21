@@ -34,4 +34,4 @@ public struct IteratorOptions {
     }
 }
 
-public let DefaultIteratorOptions = IteratorOptions()
+public let DefaultIteratorOptions: IteratorOptions = IteratorOptions()

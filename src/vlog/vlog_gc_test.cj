@@ -69,15 +69,17 @@ class MockVLogGCDB <: VLogGCDB {
         this.setCount = 0
     }
     
-    public func setData(key: Array<Byte>, value: Array<Byte>, meta!: Byte = 0): Unit {
+    // Mock 实现忽略参数，仅计数
+    public func setData(_: Array<Byte>, _: Array<Byte>, meta!: Byte): Unit {
+        _ = meta  // 忽略未使用参数
         setCount++
     }
     
-    public func getVS(key: Array<Byte>): ?ValueStruct {
+    public func getVS(_: Array<Byte>): ?ValueStruct {
         None
     }
     
-    public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64, expiresAt: UInt64): Unit {
+    public func setRaw(_: Array<Byte>, _: Array<Byte>, _: Byte, _: UInt64, _: UInt64): Unit {
         setCount++
     }
     

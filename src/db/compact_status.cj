@@ -199,7 +199,7 @@ public struct keyRange {
         return true
     }
     
-    public mut func extendRange(other: keyRange) {
+    public mut func extendRange(other: keyRange): Unit {
         if (other.isEmpty()) {
             return
         }
@@ -228,4 +228,4 @@ public struct keyRange {
     }
 }
 
-public let infRange = keyRange(inf: true)
+public let infRange: keyRange = keyRange(inf: true)

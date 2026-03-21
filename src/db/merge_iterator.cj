@@ -165,7 +165,8 @@ public open class SimpleIterator {
         // 空实现
     }
     
-    public open func seek(key: Array<Byte>): Unit {
+    // key: 定位键（空迭代器忽略此参数）
+    public open func seek(_: Array<Byte>): Unit {
         // 空实现
     }
 }

@@ -216,7 +216,8 @@ protected class BackupReader {
         db.doneRestore()
     }
     
-    private func readBlock(blockSize: UInt64): Unit {
+    // blockSize: block 大小（当前未使用，保留用于未来验证）
+    private func readBlock(_: UInt64): Unit {
         let countBuf = readBytes(4)
         if (countBuf.size < 4) {
             throw BadgerException.corruptionError("Unexpected end of backup file")

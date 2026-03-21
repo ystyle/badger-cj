@@ -101,11 +101,13 @@ public class Stream {
         rangeChan.close()
     }
     
+    // readTs: 读取时间戳（当前使用 txn 内部时间戳，保留用于未来扩展）
+    // threadId: 线程 ID（当前实现未使用，保留用于调试日志）
     private func produceKVs(
         rangeChan: NotifyingWriteChannel<KeyRange>,
-        readTs: UInt64,
+        _: UInt64,
         kvChan: NotifyingWriteChannel<ArrayList<StreamKV>>,
-        threadId: Int64
+        _: Int64
     ): Unit {
         let txn = db.newTransaction(update: false)
         try {

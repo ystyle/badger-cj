@@ -107,8 +107,9 @@ protected func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
 
 /**
  * safeCopy - 安全复制数组
+ * dst: 目标数组（保留参数，当前实现直接返回新数组）
  */
-protected func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
+protected func safeCopy(_: Array<Byte>, src: Array<Byte>): Array<Byte> {
     if (src.size == 0) {
         return []
     }
