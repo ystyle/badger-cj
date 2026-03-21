@@ -37,13 +37,6 @@ protected class LevelsController {
         return None
     }
     
-    public func addTable(level: Int, table: MockTable): Unit {
-        if (level < 0 || level >= levels.size) {
-            return
-        }
-        levels[level].addTable(table)
-    }
-    
     public func addTable(level: Int, table: TableInterface): Unit {
         if (level < 0 || level >= levels.size) {
             return
