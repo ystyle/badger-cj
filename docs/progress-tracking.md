@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-03-21  
-**当前阶段：** ✅ P1 Stream API 完成
+**当前阶段：** ✅ P1 Stream API + 代码重构完成
 
 ---
 
@@ -9,7 +9,7 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 269/269 通过 ✅ |
+| **测试** | 265/265 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 
@@ -36,6 +36,20 @@
 - testBasicStream: 基本流式迭代
 - testStreamWithPrefix: 前缀过滤
 - testStreamCollectAll: 收集所有 KV
+
+### P1: 代码重构 ✅ (2026-03-21)
+
+提取重复代码到 `src/utils/` 公共包：
+
+| 文件 | 函数 | 来源 |
+|------|------|------|
+| `utils/key_utils.cj` | compareKeys, keysEqual, hasPrefix, hashKey | 12+ 处重复删除 |
+| `utils/byte_utils.cj` | u32ToLE, u32FromLE, u64ToLE, u64FromLE | encoding/crc32.cj |
+
+**重构效果：**
+- 删除 `table/table_index.cj` 中 3 个私有函数 (readUInt32/readUInt64/readBytes)
+- 统一使用 utils 公共函数
+- 代码更简洁，维护更方便
 
 ### P0: io_uring 批量优化 ✅ (2026-03-21)
 
@@ -146,15 +160,15 @@
 
 ---
 
-## 当前任务：WriteBatch 批量写入优化
+## 当前任务：Backup/Restore 数据备份恢复
 
 ### 待实现
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
-| WriteBatch API | 批量写入优化接口 | P1 |
-| Backup/Restore | 数据备份恢复 | P2 |
-| Stream API | 大规模数据处理 | P2 |
+| Backup/Restore | 数据备份恢复，依赖 Stream API | P1 |
+| Managed DB | 手动管理时间戳（数据迁移/CDC） | P3 |
+| Compression | SSTable 压缩（需 Snappy 库） | P2 |
 
 ### io_uring 优化已完成 ✅
 
@@ -169,8 +183,6 @@
 **后续可选优化（非必须）：**
 - O_DIRECT 直接 I/O
 - SQPOLL 内核轮询模式
-
-### 集成设计要点
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -261,7 +273,7 @@
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| Backup/Restore | P1 | 数据备份恢复，依赖 Stream API |
+| Backup/Restore | P1 | 数据备份恢复，依赖 Stream API ✅ |
 | Managed DB | P3 | 手动管理时间戳（数据迁移/CDC） |
 | Compression | P2 | SSTable 压缩（需 Snappy 库） |
 | Merge Operator | P4 | 原子更新操作 |
@@ -304,7 +316,8 @@
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
-| 2026-03-21 | v7.11 | P1 Stream API 完成：StreamKV/Stream/KeyRange/ranges()、MergeIterator 去重修复、269 测试通过 |
+| 2026-03-21 | v7.12 | P1 代码重构：提取 utils/key_utils.cj 和 utils/byte_utils.cj，删除 15+ 处重复代码 |
+| 2026-03-21 | v7.11 | P1 Stream API 完成：StreamKV/Stream/KeyRange/ranges()、MergeIterator 去重修复、265 测试通过 |
 | 2026-03-21 | v7.10 | P0 io_uring 批量优化完成：IoUringPool、writeFilesBatch()、flushMemTablesBatch()、10-60% 性能提升；确认 WriteBatch 已实现 |
 | 2026-03-20 | v7.9 | P0 io_uring 集成完成：SSTable 写入、Config.UseIoUring、writeFile() 工具函数、262 测试通过 |
 | 2026-03-20 | v7.8 | P0 io_uring FFI 绑定完成：条件编译、异步写入器、257 测试通过 |
