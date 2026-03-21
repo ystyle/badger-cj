@@ -19,7 +19,7 @@ import std.sync.*
  * 逐字节比较 - 提取出来让编译器优化
  */
 @Frozen
-public func compareBytes(buf: Array<Byte>, offset: Int64, other: Array<Byte>, len: Int64): Int64 {
+protected func compareBytes(buf: Array<Byte>, offset: Int64, other: Array<Byte>, len: Int64): Int64 {
     for (i in 0..len) {
         let b1 = buf[offset + i]
         let b2 = other[i]
@@ -32,7 +32,7 @@ public func compareBytes(buf: Array<Byte>, offset: Int64, other: Array<Byte>, le
     return 0
 }
 
-public class Node {
+protected class Node {
     private let arena: Arena
     private let offset: UInt32
     private let atomicStorage: AtomicStorage

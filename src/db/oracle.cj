@@ -35,7 +35,7 @@ public class TxnState {
     }
 }
 
-public class Oracle {
+protected class Oracle {
     private let isManaged: Bool
     private let detectConflicts: Bool
     

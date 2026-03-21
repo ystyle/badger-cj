@@ -17,7 +17,7 @@ public enum ManifestChangeOp {
  * 
  * 手动 Protobuf 编码，兼容 Go BadgerDB
  */
-public class ManifestChange {
+protected class ManifestChange {
     public let id: UInt64
     public let op: ManifestChangeOp
     public let level: UInt32
@@ -118,7 +118,7 @@ public class ManifestChange {
 /**
  * ManifestChangeSet - 变更集合
  */
-public class ManifestChangeSet {
+protected class ManifestChangeSet {
     public let changes: ArrayList<ManifestChange>
     
     public init() {

@@ -24,7 +24,7 @@ class Segment {
     }
 }
 
-public class AtomicStorage {
+protected class AtomicStorage {
     private let segments: ArrayList<Segment>
     private let segmentLock: Mutex
     private let nodeCount: AtomicInt64

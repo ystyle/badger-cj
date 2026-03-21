@@ -108,7 +108,7 @@ public class WAL {
         }
     }
     
-    public func replay(mt: MemTable): Unit {
+    protected func replay(mt: MemTable): Unit {
         let entries = readAll()
         
         for (entry in entries) {

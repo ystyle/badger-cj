@@ -23,7 +23,7 @@ import badgercj.utils.compareKeys
  * │  Checksum Size (4 bytes)               │
  * └─────────────────────────────────────────┘
  */
-public class TableBuilder {
+protected class TableBuilder {
     private let blockSize: Int64
     private let bloomFalsePositive: Float64
     private var currentBlock: BlockBuilder

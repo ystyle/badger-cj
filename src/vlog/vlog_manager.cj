@@ -11,7 +11,7 @@ import badgercj.table.*
  * 
  * 管理多个 VLog 文件，支持大值分离存储
  */
-public class VLogManager {
+protected class VLogManager {
     private let dir: Path
     private let opt: VLogOptions
     private let lock: Mutex

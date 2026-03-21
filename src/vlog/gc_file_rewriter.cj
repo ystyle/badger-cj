@@ -10,7 +10,7 @@ public type DiscardChecker = (Array<Byte>, ValueStruct) -> Bool
  * 
  * 用于在 GC 期间批量重写有效 entry，同时统计垃圾大小
  */
-public class GCFileRewriter {
+protected class GCFileRewriter {
     private let db: VLogGCDB
     private let targetFid: UInt32
     private let shouldDiscard: DiscardChecker

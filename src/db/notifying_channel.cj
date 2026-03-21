@@ -3,7 +3,7 @@ package badgercj.db
 import std.sync.*
 import std.collection.*
 
-public class NotifyingWriteChannel<T> {
+protected class NotifyingWriteChannel<T> {
     private let queue = ArrayList<T>()
     private let mutex = Mutex()
     private let cond: Condition

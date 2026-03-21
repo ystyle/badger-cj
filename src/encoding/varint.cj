@@ -11,7 +11,7 @@ import std.collection.*
 /**
  * Varint 编码器
  */
-public class Varint {
+protected class Varint {
     /**
      * 将 UInt64 编码为 Varint 字节数组
      * 
@@ -82,13 +82,13 @@ public class Varint {
 /**
  * 便捷函数：编码 UInt64 为 Varint
  */
-public func encodeVarint(value: UInt64): Array<Byte> {
+protected func encodeVarint(value: UInt64): Array<Byte> {
     return Varint.encode(value)
 }
 
 /**
  * 便捷函数：解码 Varint 为 UInt64
  */
-public func decodeVarint(data: Array<Byte>, offset: Int64): (UInt64, Int64) {
+protected func decodeVarint(data: Array<Byte>, offset: Int64): (UInt64, Int64) {
     return Varint.decode(data, offset)
 }

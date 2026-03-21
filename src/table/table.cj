@@ -8,7 +8,7 @@ import badgercj.utils.{compareKeys, keysEqual, hasPrefix}
 /**
  * Table - SSTable 读取器
  */
-public class Table {
+protected class Table {
     private let data: Array<Byte>
     public let id: UInt64
     private let index: TableIndex

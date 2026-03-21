@@ -22,7 +22,7 @@ import badgercj.io_uring.*
  * 
  * 返回：实际写入的字节数
  */
-public func writeFile(path: String, data: Array<Byte>, useIoUring!: Bool = true): Int64 {
+protected func writeFile(path: String, data: Array<Byte>, useIoUring!: Bool = true): Int64 {
     if (useIoUring) {
         if (let Some(writer) <- createIoUringWriter(path)) {
             writer.write(data)
@@ -43,7 +43,7 @@ public func writeFile(path: String, data: Array<Byte>, useIoUring!: Bool = true)
  * 
  * 强制使用同步写入，不尝试 io_uring
  */
-public func syncWriteFile(path: String, data: Array<Byte>): Int64 {
+protected func syncWriteFile(path: String, data: Array<Byte>): Int64 {
     let f = File(Path(path), Write)
     f.write(data)
     f.close()

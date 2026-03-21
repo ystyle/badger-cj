@@ -14,7 +14,7 @@ import std.math.*
  * 
  * 参考：github.com/dgraph-io/badger/v4/util/bloom.go
  */
-public class BloomFilter {
+protected class BloomFilter {
     private var bits: ArrayList<Byte>
     private var numBits: Int64
     private var numHashes: Int64

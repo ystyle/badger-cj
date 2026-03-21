@@ -7,7 +7,7 @@ import std.fs.*
 import std.io.*
 import badgercj.utils.compareKeys
 
-public class LevelsController {
+protected class LevelsController {
     private let levels: ArrayList<LevelHandler>
     private let manifest: Manifest
     private let dir: String
@@ -92,7 +92,7 @@ public class LevelsController {
         }
     }
     
-public func getMaxVersion(): UInt64 {
+protected func getMaxVersion(): UInt64 {
         var maxVer: UInt64 = 0
         for (handler in levels) {
             let ver = handler.getMaxVersion()

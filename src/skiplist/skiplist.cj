@@ -15,7 +15,7 @@ import badgercj.utils.compareKeys
 
 private let HEIGHT_INCREASE: UInt32 = 1431655765u32
 
-public class Skiplist {
+protected class Skiplist {
     private let arena: Arena
     private let atomicStorage: AtomicStorage
     private let head: Node

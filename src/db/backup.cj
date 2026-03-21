@@ -16,7 +16,7 @@ private let MaxBatchSize: Int64 = 16 << 20
 private let MetaTxn: Byte = 0x02
 private let MetaFinTxn: Byte = 0x04
 
-public class BackupWriter {
+protected class BackupWriter {
     private let writer: ByteBuffer
     private var maxVersion: UInt64
     private let kvList: ArrayList<StreamKV>
@@ -135,7 +135,7 @@ public class BackupWriter {
     }
 }
 
-public class BackupReader {
+protected class BackupReader {
     private let reader: ByteBuffer
     private let db: Badger
     private var entries: ArrayList<Entry>

@@ -10,7 +10,7 @@ import badgercj.utils.compareKeys
  * 使用前缀压缩减少 key 的存储空间
  * 参考：github.com/dgraph-io/badger/v4/table/builder.go
  */
-public class BlockBuilder {
+protected class BlockBuilder {
     private let blockSize: Int64
     private var buf: ArrayList<Byte>
     private var baseKey: Array<Byte>

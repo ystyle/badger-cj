@@ -7,7 +7,7 @@ import badgercj.utils.compareKeys
  * 
  * 遍历 Block 中的所有 entry
  */
-public class BlockIterator {
+protected class BlockIterator {
     private let data: Array<Byte>
     private var offset: Int64
     private var entryOffsets: Array<UInt32>

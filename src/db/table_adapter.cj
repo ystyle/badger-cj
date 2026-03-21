@@ -6,7 +6,7 @@ import badgercj.table.*
 public class TableAdapter <: TableInterface {
     private let table: Table
     
-    public init(table: Table) {
+    protected init(table: Table) {
         this.table = table
     }
     
@@ -79,7 +79,7 @@ public class TableAdapter <: TableInterface {
         table.keySplits(n, prefix)
     }
     
-    public func getTable(): Table {
+    protected func getTable(): Table {
         table
     }
 }

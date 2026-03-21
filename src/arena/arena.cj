@@ -24,7 +24,7 @@ public const MAX_NODE_SIZE: Int64 = 104      // 最大节点大小
  * 使用固定大小的 byte 数组作为底层存储
  * 使用 AtomicUInt32 实现并发安全的分配
  */
-public class Arena {
+protected class Arena {
     // 底层存储（固定大小）
     private let buf: Array<Byte>
     

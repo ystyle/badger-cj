@@ -39,8 +39,8 @@ public class Transaction {
     public let readTs: UInt64
     private var commitTs: UInt64
     
-    public let reads: HashSet<UInt64>
-    public let conflictKeys: HashSet<UInt64>
+    protected let reads: HashSet<UInt64>
+    protected let conflictKeys: HashSet<UInt64>
     
     private let writes: ArrayList<TxnEntry>
     private var committed: Bool
@@ -172,11 +172,11 @@ public class Transaction {
         }
     }
     
-    public func getDB(): Badger {
+    protected func getDB(): Badger {
         return db
     }
     
-    public func isUpdate(): Bool {
+    protected func isUpdate(): Bool {
         return update
     }
     
@@ -187,15 +187,15 @@ public class Transaction {
         return Iterator(this, opt)
     }
     
-    public func getWrites(): ArrayList<TxnEntry> {
+    protected func getWrites(): ArrayList<TxnEntry> {
         return writes
     }
     
-    public func isCommitted(): Bool {
+    protected func isCommitted(): Bool {
         return committed
     }
     
-    public func isDiscarded(): Bool {
+    protected func isDiscarded(): Bool {
         return discarded
     }
     

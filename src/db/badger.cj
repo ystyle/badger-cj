@@ -25,16 +25,16 @@ public class Badger <: VLogGCDB {
     private let imm: ArrayList<MemTable>
     private let version: AtomicUInt64
     private var nextFileID: AtomicUInt64
-    public let oracle: Oracle
+    protected let oracle: Oracle
     private let vlog: VLogManager
-    public let writeCh: NotifyingWriteChannel<WriteRequest>
+    protected let writeCh: NotifyingWriteChannel<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
     private var compactorFut: ?Future<Unit>
     private var pipeline: ?WritePipeline
-    public let reqPool: WriteRequestPool
+    protected let reqPool: WriteRequestPool
     
-    public init(
+    protected init(
         opt: Config,
         mt: MemTable,
         manifest: Manifest,
@@ -199,18 +199,18 @@ public class Badger <: VLogGCDB {
         return changes
     }
     
-    public func getMemTable(): MemTable { mt }
-    public func getImmMemTables(): ArrayList<MemTable> { imm }
+    protected func getMemTable(): MemTable { mt }
+    protected func getImmMemTables(): ArrayList<MemTable> { imm }
     
-    public func getMemTables(): ArrayList<MemTable> {
+    protected func getMemTables(): ArrayList<MemTable> {
         let tables = ArrayList<MemTable>()
         tables.add(mt)
         for (immMt in imm) { tables.add(immMt) }
         return tables
     }
     
-    public func getLevelsController(): LevelsController { lc }
-    public func getManifestFile(): ManifestFile { manifestFile }
+    protected func getLevelsController(): LevelsController { lc }
+    protected func getManifestFile(): ManifestFile { manifestFile }
     
     public func get(key: Array<Byte>, readTsOpt!: ?UInt64 = None): Option<ValueStruct> {
         lock.readLock.lock()
@@ -302,9 +302,9 @@ public class Badger <: VLogGCDB {
         finally { lock.writeLock.unlock() }
     }
     
-    public func getVersion(): UInt64 { version.load() }
+    protected func getVersion(): UInt64 { version.load() }
     
-    public func flushWAL(): Unit {
+    protected func flushWAL(): Unit {
         mt.flushWAL()
     }
     
@@ -498,10 +498,10 @@ public class Badger <: VLogGCDB {
         }
     }
     
-    public func getLevelHandler(level: Int64): LevelHandler { lc.getLevelHandler(level) }
+    protected func getLevelHandler(level: Int64): LevelHandler { lc.getLevelHandler(level) }
     public func newSnapshot(): Snapshot { Snapshot(this) }
-    public func getOpt(): Config { opt }
-    public func getCompactStatus(): compactStatus { lc.getCompactStatus() }
+    protected func getOpt(): Config { opt }
+    protected func getCompactStatus(): compactStatus { lc.getCompactStatus() }
     
     public func getVS(key: Array<Byte>): ?ValueStruct {
         lock.readLock.lock()
@@ -572,7 +572,7 @@ public class Badger <: VLogGCDB {
         lc.getLevelInfo()
     }
     
-    public func ranges(prefix: Array<Byte>, numRanges: Int64): ArrayList<KeyRange> {
+    protected func ranges(prefix: Array<Byte>, numRanges: Int64): ArrayList<KeyRange> {
         var splits = ArrayList<Array<Byte>>()
         let tables = this.tables()
         
@@ -784,13 +784,13 @@ public class Badger <: VLogGCDB {
         backupReader.restore()
     }
     
-    public func updateNextTs(ts: UInt64): Unit {
+    protected func updateNextTs(ts: UInt64): Unit {
         if (ts >= oracle.nextTs()) {
             oracle.bumpCommitTs(ts + 1)
         }
     }
     
-    public func doneRestore(): Unit {
+    protected func doneRestore(): Unit {
         let nextTs = oracle.nextTs()
         oracle.doneUntil(nextTs - 1)
     }

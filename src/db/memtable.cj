@@ -10,7 +10,7 @@ import badgercj.table.*
  * 
  * 基于 Skiplist 的内存 KV 存储
  */
-public class MemTable {
+protected class MemTable {
     private let opt: Config
     private let fid: Int64
     private let table: Skiplist
@@ -23,7 +23,7 @@ public class MemTable {
     private let replaying: AtomicBool
     private let maxVersion: AtomicUInt64
     
-    public init(opt: Config, fid: Int64, walExists: Bool) {
+    protected init(opt: Config, fid: Int64, walExists: Bool) {
         this.opt = opt
         this.fid = fid
         this.walExists = walExists
@@ -180,7 +180,7 @@ public class SkipIterator {
     private let atomicStorage: AtomicStorage
     private var current: ?Node
     
-    public init(table: Skiplist) {
+    protected init(table: Skiplist) {
         this.table = table
         this.atomicStorage = table.getAtomicStorage()
         this.current = None

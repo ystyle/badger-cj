@@ -12,7 +12,7 @@ package badgercj.utils
  * 返回值: < 0 表示 a < b, = 0 表示相等, > 0 表示 a > b
  */
 @Frozen
-public func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
+protected func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
     let minLen = if (a.size < b.size) { a.size } else { b.size }
     for (i in 0..minLen) {
         if (a[i] != b[i]) {
@@ -25,7 +25,7 @@ public func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
 /**
  * keysEqual - 检查两个字节数组是否相等
  */
-public func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
+protected func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
     if (a.size != b.size) {
         return false
     }
@@ -40,7 +40,7 @@ public func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
 /**
  * hasPrefix - 检查 key 是否有指定前缀
  */
-public func hasPrefix(key: Array<Byte>, prefix: Array<Byte>): Bool {
+protected func hasPrefix(key: Array<Byte>, prefix: Array<Byte>): Bool {
     if (prefix.size == 0) {
         return true
     }
@@ -61,7 +61,7 @@ public func hasPrefix(key: Array<Byte>, prefix: Array<Byte>): Bool {
  * 用于冲突检测
  */
 @OverflowWrapping
-public func hashKey(key: Array<Byte>): UInt64 {
+protected func hashKey(key: Array<Byte>): UInt64 {
     var h: UInt64 = 5381
     for (b in key) {
         h = ((h << 5) + h) + UInt64(b)

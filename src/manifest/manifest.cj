@@ -20,7 +20,7 @@ public class TableInfo {
 /**
  * Manifest - 数据库元数据
  */
-public class Manifest {
+protected class Manifest {
     public var levels: ArrayList<ArrayList<TableInfo>>
     public var keyID: UInt64
     public var nextFileID: UInt64

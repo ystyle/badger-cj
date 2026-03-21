@@ -8,7 +8,7 @@ import badgercj.utils.{compareKeys, u32FromLE, u64FromLE}
  * 
  * 从 TableIndex 数据解析而来
  */
-public class TableIndex {
+protected class TableIndex {
     public let offsets: ArrayList<BlockOffset>
     public let bloomFilter: Array<Byte>
     public let maxVersion: UInt64

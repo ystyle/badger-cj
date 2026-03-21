@@ -5,7 +5,7 @@ import std.collection.*
 /**
  * TableIterator - Table 迭代器
  */
-public class TableIterator {
+protected class TableIterator {
     private let table: Table
     private var blockIdx: Int64
     private var blockIter: BlockIterator

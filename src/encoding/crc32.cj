@@ -32,7 +32,7 @@ private func makeTable(poly: UInt32): ArrayList<UInt32> {
 
 private let globalTable: ArrayList<UInt32> = makeTable(CastagnoliPoly)
 
-public class CRC32C {
+protected class CRC32C {
     private var crc: UInt32
 
     public init() {
@@ -78,7 +78,7 @@ public class CRC32C {
 }
 
 @OverflowWrapping
-public func checksumCRC32C(data: Array<Byte>): UInt32 {
+protected func checksumCRC32C(data: Array<Byte>): UInt32 {
     var c: UInt32 = 0xFFFFFFFFu32
     for (b in data) {
         let idx: UInt32 = (c ^ UInt32(b)) & 0xFFu32

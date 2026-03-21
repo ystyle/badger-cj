@@ -3,7 +3,7 @@ package badgercj.db
 import std.sync.*
 import std.collection.*
 
-public class WaterMark {
+protected class WaterMark {
     private let name: String
     private let doneUntil_: AtomicUInt64
     private let lastIndex_: AtomicUInt64

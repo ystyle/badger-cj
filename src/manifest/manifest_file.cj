@@ -5,7 +5,7 @@ import std.io.*
 import std.collection.*
 import std.sync.*
 
-public class ManifestFile {
+protected class ManifestFile {
     private let path: String
     private var file: ?File
     private var bufferedOut: ?BufferedOutputStream<File>

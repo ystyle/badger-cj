@@ -8,7 +8,7 @@ import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.utils.compareKeys
 
-public class Compaction {
+protected class Compaction {
     private let db: Badger
     private let lock: Mutex
     

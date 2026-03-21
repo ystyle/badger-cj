@@ -21,7 +21,7 @@ foreign func memcmp(s1: CPointer<Byte>, s2: CPointer<Byte>, n: UIntNative): Int3
  * 仅用于长 key（>= 64 字节）
  */
 @Frozen
-public func fastMemcmp(buf1: Array<Byte>, offset1: Int64, buf2: Array<Byte>, offset2: Int64, len: Int64): Int32 {
+protected func fastMemcmp(buf1: Array<Byte>, offset1: Int64, buf2: Array<Byte>, offset2: Int64, len: Int64): Int32 {
     unsafe {
         let handle1 = acquireArrayRawData(buf1)
         let handle2 = acquireArrayRawData(buf2)

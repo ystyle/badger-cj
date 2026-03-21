@@ -20,7 +20,7 @@ private let badgerPrefix: ArrayList<Byte> = ArrayList<Byte>([98, 97, 100, 103, 1
  * 
  * BadgerDB 的 key 格式: [原始key][8字节时间戳(取反)]
  */
-public func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
+protected func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
     let keyLen = key.size
     let result = Array<Byte>(keyLen + 8, repeat: 0)
     key.copyTo(result)
@@ -36,7 +36,7 @@ public func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
 /**
  * parseTs - 从 key 中解析时间戳
  */
-public func parseTs(key: Array<Byte>): UInt64 {
+protected func parseTs(key: Array<Byte>): UInt64 {
     if (key.size < 8) {
         return 0
     }
@@ -54,7 +54,7 @@ public func parseTs(key: Array<Byte>): UInt64 {
  * 注意：此函数假设 key 可能带有 8 字节时间戳
  * 对于不带时间戳的 user key（如查询时的 key），需要特别处理
  */
-public func parseKey(key: Array<Byte>): Array<Byte> {
+protected func parseKey(key: Array<Byte>): Array<Byte> {
     if (key.size <= 8) {
         return key
     }
@@ -66,7 +66,7 @@ public func parseKey(key: Array<Byte>): Array<Byte> {
  * parseKeyIfHasTs - 如果 key 带有时间戳则解析，否则返回原 key
  * 用于 sameKey 比较
  */
-public func parseKeyIfHasTs(key: Array<Byte>, hasTs: Bool): Array<Byte> {
+protected func parseKeyIfHasTs(key: Array<Byte>, hasTs: Bool): Array<Byte> {
     if (!hasTs || key.size <= 8) {
         return key
     }
@@ -80,7 +80,7 @@ public func parseKeyIfHasTs(key: Array<Byte>, hasTs: Bool): Array<Byte> {
  * 假设：第一个参数 a 带时间戳（从存储读取），第二个参数 b 是 user key（不带时间戳）
  * 如果 b 的长度 > 8 且与 a 去掉时间戳后长度相同，说明 b 也带时间戳
  */
-public func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
+protected func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
     // a 带时间戳，提取 user key
     let userKeyA = parseKey(a)
     
@@ -108,7 +108,7 @@ public func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
 /**
  * safeCopy - 安全复制数组
  */
-public func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
+protected func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
     if (src.size == 0) {
         return []
     }
@@ -121,7 +121,7 @@ public func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
 /**
  * isBadgerKey - 检查是否是内部 key
  */
-public func isBadgerKey(key: Array<Byte>): Bool {
+protected func isBadgerKey(key: Array<Byte>): Bool {
     if (key.size < badgerPrefix.size) {
         return false
     }
@@ -135,7 +135,7 @@ public func isBadgerKey(key: Array<Byte>): Bool {
     return true
 }
 
-public func manifestPath(dir: String): String {
+protected func manifestPath(dir: String): String {
     "${dir}/MANIFEST"
 }
 
@@ -149,18 +149,18 @@ private func padFid(fid: UInt64): String {
     }
 }
 
-public func walPath(dir: String, fid: UInt64): String {
+protected func walPath(dir: String, fid: UInt64): String {
     "${dir}/${padFid(fid)}.wal"
 }
 
-public func sstablePath(dir: String, fid: UInt64): String {
+protected func sstablePath(dir: String, fid: UInt64): String {
     "${dir}/${padFid(fid)}.sst"
 }
 
 /**
  * isDeletedOrExpired - 检查是否已删除或过期
  */
-public func isDeletedOrExpired(meta: Byte, expiresAt: UInt64): Bool {
+protected func isDeletedOrExpired(meta: Byte, expiresAt: UInt64): Bool {
     if ((meta & Meta.bitDelete) != 0) { return true }
     if (expiresAt == 0) { return false }
     let now = DateTime.now().toUnixTimeStamp()
@@ -170,7 +170,7 @@ public func isDeletedOrExpired(meta: Byte, expiresAt: UInt64): Bool {
 /**
  * discardEntry - 检查 VLog GC 时是否应该丢弃该条目
  */
-public func discardEntry(entryKey: Array<Byte>, vs: ValueStruct): Bool {
+protected func discardEntry(entryKey: Array<Byte>, vs: ValueStruct): Bool {
     if (vs.version != parseTs(entryKey)) { return true }
     if (isDeletedOrExpired(vs.meta, vs.expiresAt)) { return true }
     if ((vs.meta & Meta.bitValuePointer) == 0) { return true }

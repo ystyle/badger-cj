@@ -19,7 +19,7 @@ public class MemTableIterator <: SimpleIterator {
     private var currentValue: Array<Byte>
     private var valid_: Bool
     
-    public init(mt: MemTable, reverse!: Bool = false) {
+    protected init(mt: MemTable, reverse!: Bool = false) {
         super()
         this.mt = mt
         this.reverse = reverse
@@ -162,7 +162,7 @@ class LazySkipIterator {
     private let atomicStorage: AtomicStorage
     private var current: ?Node
     
-    public init(table: Skiplist, atomicStorage: AtomicStorage) {
+    protected init(table: Skiplist, atomicStorage: AtomicStorage) {
         this.table = table
         this.atomicStorage = atomicStorage
         this.current = None

@@ -232,7 +232,7 @@ public class Stream {
 /**
  * KeyRange - key 范围 [left, right)
  */
-public class KeyRange {
+protected class KeyRange {
     public let left: Array<Byte>
     public var right: Array<Byte>
     public var hasRight: Bool

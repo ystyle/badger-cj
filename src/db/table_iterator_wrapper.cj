@@ -14,7 +14,7 @@ public class TableIteratorWrapper <: SimpleIterator {
     private var currentValue: Array<Byte>
     private var valid_: Bool
     
-    public init(table: Table) {
+    protected init(table: Table) {
         super()
         this.tableIter = table.newIterator()
         this.currentKey = []

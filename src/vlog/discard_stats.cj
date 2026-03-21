@@ -11,7 +11,7 @@ import std.io.*
  * 记录每个 VLog 文件中被删除/覆盖的数据大小，
  * 用于 GC 选择垃圾最多的文件进行清理。
  */
-public class DiscardStats {
+protected class DiscardStats {
     private let lock: Mutex
     private var stats: HashMap<UInt32, Int64>
     private let filePath: Path

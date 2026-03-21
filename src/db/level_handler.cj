@@ -5,7 +5,7 @@ import std.collection.*
 import std.sync.*
 import badgercj.utils.compareKeys
 
-public class LevelHandler {
+protected class LevelHandler {
     private let level: Int
     private var tables: ArrayList<TableInterface>
     private let lock: Mutex
