@@ -47,6 +47,14 @@ public class Entry {
               userMeta: userMeta, expiresAt: expiresAt)
     }
     
+    public func withExpiresAt(exp: UInt64): Entry {
+        Entry(key, value, meta: meta, userMeta: userMeta, expiresAt: exp)
+    }
+    
+    public func withInternalMeta(m: Byte): Entry {
+        Entry(key, value, meta: m, userMeta: userMeta, expiresAt: expiresAt)
+    }
+    
     public func isDelete(): Bool {
         (meta & Meta.bitDelete) != 0
     }

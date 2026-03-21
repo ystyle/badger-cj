@@ -4,12 +4,16 @@ import std.fs.*
 import std.sync.*
 import std.collection.*
 import std.time.*
+import std.io.*
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
 import badgercj.io_uring.*
 import badgercj.utils.{compareKeys, hasPrefix}
 import std.collection.concurrent.*
+
+private let MetaTxn: Byte = 0x02
+private let MetaFinTxn: Byte = 0x04
 
 public class Badger <: VLogGCDB {
     private let opt: Config
@@ -525,9 +529,9 @@ public class Badger <: VLogGCDB {
         }
     }
     
-    public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64): Unit {
+    public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64, expiresAt: UInt64): Unit {
         let keyWithTs = keyWithTs(key, version)
-        let vs = ValueStruct(value, meta: meta, version: version)
+        let vs = ValueStruct(value, meta: meta, version: version, expiresAt: expiresAt)
         mt.put(keyWithTs, vs)
     }
     
@@ -705,5 +709,89 @@ public class Badger <: VLogGCDB {
                 count++
             }
         }
+    }
+    
+    public func Backup(writer: OutputStream, since!: UInt64 = 0): UInt64 {
+        let backupWriter = BackupWriter(this, writer)
+        
+        let stream = Stream(this)
+        stream.sinceTs = since
+        
+        stream.keyToList = { key: Array<Byte>, iter: Iterator =>
+            let list = ArrayList<StreamKV>()
+            
+            while (iter.valid()) {
+                let item = iter.item()
+                
+                if (compareKeys(item.key, key) != 0) {
+                    break
+                }
+                
+                if (item.version < since) {
+                    iter.next()
+                    continue
+                }
+                
+                if (item.isDeletedOrExpired()) {
+                    iter.next()
+                    continue
+                }
+                
+                let val = item.valueCopy()
+                
+                let meta: Byte = item.meta & (!(MetaTxn | MetaFinTxn | Meta.bitValuePointer))
+                
+                list.add(StreamKV(
+                    key: item.keyCopy(),
+                    value: val,
+                    userMeta: item.userMeta,
+                    version: item.version,
+                    expiresAt: item.expiresAt,
+                    meta: meta
+                ))
+                
+                if (item.discardEarlierVersions()) {
+                    list.add(StreamKV(
+                        key: item.keyCopy(),
+                        value: [],
+                        userMeta: 0,
+                        version: item.version - 1,
+                        expiresAt: 0,
+                        meta: Meta.bitDelete
+                    ))
+                    break
+                }
+                
+                iter.next()
+            }
+            
+            list
+        }
+        
+        stream.send = { kvs: ArrayList<StreamKV> =>
+            for (kv in kvs) {
+                backupWriter.addKV(kv)
+            }
+        }
+        
+        stream.orchestrate()
+        
+        return backupWriter.finish()
+    }
+    
+    public func Restore(reader: InputStream): Unit {
+        let backupReader = BackupReader(this, reader)
+        backupReader.restore()
+    }
+    
+    public func updateNextTs(ts: UInt64): Unit {
+        if (ts >= oracle.nextTs()) {
+            oracle.bumpCommitTs(ts + 1)
+        }
+    }
+    
+    public func doneRestore(): Unit {
+        let nextTs = oracle.nextTs()
+        oracle.doneUntil(nextTs - 1)
     }
 }

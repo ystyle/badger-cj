@@ -77,7 +77,7 @@ class MockVLogGCDB <: VLogGCDB {
         None
     }
     
-    public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64): Unit {
+    public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64, expiresAt: UInt64): Unit {
         setCount++
     }
     

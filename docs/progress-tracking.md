@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-03-21  
-**当前阶段：** ✅ P1 Stream API + 代码重构完成
+**当前阶段：** ✅ P1 Backup/Restore 完成
 
 ---
 
@@ -9,13 +9,41 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 265/265 通过 ✅ |
+| **测试** | 270/270 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 
 ---
 
 ## 已完成阶段
+
+### P1: Backup/Restore ✅ (2026-03-21)
+
+| 功能 | 说明 |
+|------|------|
+| BackupWriter | 写入备份数据流，支持 KVList 分块 |
+| BackupReader | 读取备份数据流，恢复到新 DB |
+| Badger.Backup() | 全量/增量备份，返回 maxVersion |
+| Badger.Restore() | 从备份文件恢复数据 |
+| TTL 支持 | expiresAt 正确保留和恢复 |
+
+**文件格式：**
+```
+Header (12 bytes): Magic("BADCJ") + Version(UInt32) + Flags(UInt32)
+KVList Block (repeated): Size(UInt64) + Count(UInt32) + MaxVersion(UInt64) + KV entries
+KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Meta
+```
+
+**测试用例：**
+- testBackupRestore: 基本备份恢复
+- testBackupWithTTL: TTL 数据备份恢复
+- testIncrementalBackup: 增量备份（since 参数）
+- testBackupEmptyDB: 空数据库备份
+- testBackupWithUserMeta: 用户元数据保留
+
+**关键修复：**
+- `setRaw()` 方法添加 `expiresAt` 参数，确保 TTL 数据正确恢复
+- VLogGCDB 接口同步更新，GC 流程也传递 expiresAt
 
 ### P1: Stream API ✅ (2026-03-21)
 
@@ -160,99 +188,14 @@
 
 ---
 
-## 当前任务：Backup/Restore 数据备份恢复
-
-### 待实现
+## 当前任务：下一阶段功能
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
-| Backup/Restore | 数据备份恢复，依赖 Stream API | P1 |
-| Managed DB | 手动管理时间戳（数据迁移/CDC） | P3 |
 | Compression | SSTable 压缩（需 Snappy 库） | P2 |
-
-### io_uring 优化已完成 ✅
-
-**最终结论：10-60% 性能提升**
-
-| 场景 | 效果 |
-|------|------|
-| 小 MemTable + 频繁 flush | ✅ 1.1-1.2x |
-| 大 MemTable (64MB+) | ✅ 1.2-1.6x |
-| 高并发 + 多 imm MemTable | ✅ 最高 1.9x |
-
-**后续可选优化（非必须）：**
-- O_DIRECT 直接 I/O
-- SQPOLL 内核轮询模式
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  写入路径                                                   │
-│    ↓                                                        │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │ TableBuilder │    │    VLog     │    │     WAL     │     │
-│  │   (SSTable)  │    │  (大值存储)  │    │  (事务日志)  │     │
-│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘     │
-│         │                  │                  │             │
-│         └──────────────────┼──────────────────┘             │
-│                            ↓                                │
-│              createIoUringWriter(path)                      │
-│                            │                                │
-│              ┌─────────────┴─────────────┐                  │
-│              ↓                           ↓                  │
-│      Linux + 可用                   其他情况                 │
-│      IoUringFileWriter            普通文件写入               │
-│      (异步批量写入)               (同步写入)                  │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 已实现功能
-
-### 核心功能 ✅
-- KV 存储 (Get/Set/Delete)
-- MemTable (基于 Skiplist)
-- WAL (Write-Ahead Log)
-- SSTable (带前缀压缩 + BloomFilter)
-- Value Log (大值分离存储)
-- MANIFEST (元数据管理)
-- Compaction (完整多层级)
-- VLog GC (后台自动回收)
-- BloomFilter (读取优化)
-
-### 事务系统 ✅
-- Oracle 全局时间戳管理
-- WaterMark 完成追踪
-- SSI 可串行化快照隔离
-- 冲突检测
-- Read-your-writes 语义
-
-### 迭代器 ✅
-- 前向/反向迭代
-- Seek 定位
-- 前缀过滤
-- validForPrefix
-
-### API 增强 ✅
-- TTL 过期 + 自动清理
-- 用户元数据 (userMeta)
-- 链式配置 (with*)
-- 数据库信息查询
-- WriteBatch (batchSet/batchSetAsync)
-
-### 并发与持久化 ✅
-- 无锁并发 SkipList (真 CAS)
-- DB.close() flush
-- DB.open() 恢复
-- 崩溃恢复
-
-### io_uring ✅
-- FFI 绑定 (条件编译)
-- 异步文件写入器
-- 缓冲区管理
-- 跨平台接口
-- SSTable 写入集成
-- Config.UseIoUring 配置
+| Managed DB | 手动管理时间戳（数据迁移/CDC） | P3 |
+| Merge Operator | 合并操作（计数器/集合等） | P2 |
+| Encryption | 加密存储 | P4 |
 
 ---
 
@@ -269,22 +212,11 @@
 
 ---
 
-## 待实现功能
-
-| 功能 | 优先级 | 说明 |
-|------|--------|------|
-| Backup/Restore | P1 | 数据备份恢复，依赖 Stream API ✅ |
-| Managed DB | P3 | 手动管理时间戳（数据迁移/CDC） |
-| Compression | P2 | SSTable 压缩（需 Snappy 库） |
-| Merge Operator | P4 | 原子更新操作 |
-| Encryption | P4 | 加密存储 |
-
----
-
 ## 技术决策记录
 
 | 问题 | 解决方案 |
 |------|---------|
+| Backup/Restore TTL 丢失 | setRaw() 添加 expiresAt 参数，VLogGCDB 接口同步更新 |
 | Stream API ranges 分割 | 使用用户 key（去掉时间戳）作为分割点 |
 | MergeIterator 重复 key | fix() 中处理相同 key，推进其中一个迭代器 |
 | allVersions 模式去重 | Iterator.parseItem() 根据 allVersions 决定是否跳过相同 key |
@@ -316,6 +248,7 @@
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-03-21 | v7.13 | P1 Backup/Restore 完成：全量/增量备份、TTL/UserMeta 支持、setRaw() 添加 expiresAt 参数、270 测试通过 |
 | 2026-03-21 | v7.12 | P1 代码重构：提取 utils/key_utils.cj 和 utils/byte_utils.cj，删除 15+ 处重复代码 |
 | 2026-03-21 | v7.11 | P1 Stream API 完成：StreamKV/Stream/KeyRange/ranges()、MergeIterator 去重修复、265 测试通过 |
 | 2026-03-21 | v7.10 | P0 io_uring 批量优化完成：IoUringPool、writeFilesBatch()、flushMemTablesBatch()、10-60% 性能提升；确认 WriteBatch 已实现 |

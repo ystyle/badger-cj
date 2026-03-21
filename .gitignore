@@ -13,3 +13,6 @@ cjpmw.sh
 Test-v*.data
 Test-v*.svg
 /opencode.json
+docs/common_platform.md
+docs/common_platform_build.md
+

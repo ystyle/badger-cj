@@ -206,6 +206,12 @@ public class Oracle {
         readMark.stop()
     }
     
+    public func doneUntil(ts: UInt64): Unit {
+        txnMark.begin(ts)
+        txnMark.done(ts)
+        txnMark.setDoneUntil(ts)
+    }
+    
     private func waitForTxnMark(ts: UInt64): Unit {
         var retries = 0
         let maxRetries = 1000

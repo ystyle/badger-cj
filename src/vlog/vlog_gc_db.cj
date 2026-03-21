@@ -9,6 +9,6 @@ import badgercj.table.*
  */
 public interface VLogGCDB {
     func getVS(key: Array<Byte>): ?ValueStruct
-    func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64): Unit
+    func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64, expiresAt: UInt64): Unit
     func getValueThreshold(): UInt64
 }

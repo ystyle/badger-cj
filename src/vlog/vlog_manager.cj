@@ -181,7 +181,7 @@ public class VLogManager {
     
     private func batchRewrite(gcDb: VLogGCDB, entries: ArrayList<(Array<Byte>, LogEntry)>): Unit {
         for ((key, entry) in entries) {
-            gcDb.setRaw(key, entry.value, entry.meta, entry.version)
+            gcDb.setRaw(key, entry.value, entry.meta, entry.version, entry.expiresAt)
         }
     }
     

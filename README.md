@@ -301,6 +301,74 @@ db.compact()
 db.flushMemTable()
 ```
 
+## Stream API
+
+用于大规模并发数据处理：
+
+```cangjie
+import std.sync.*
+
+// 基本用法：遍历所有 KV
+let count = AtomicInt64(0)
+let stream = Stream(db)
+stream.send = { kvs =>
+    count.fetchAdd(kvs.size)
+}
+stream.orchestrate()
+println("Total keys: ${count.load()}")
+
+// 前缀过滤
+let stream2 = Stream(db)
+stream2.prefix = "user:".toArray()
+stream2.send = { kvs =>
+    for (kv in kvs) {
+        println("key: ${String.fromUtf8(kv.key)}")
+    }
+}
+stream2.orchestrate()
+
+// 自定义并发数（默认 8）
+let stream3 = Stream(db)
+stream3.numSpawn = 16
+stream3.send = { kvs => /* 处理 */ }
+stream3.orchestrate()
+```
+
+**Stream 配置项：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `prefix` | [] | 前缀过滤 |
+| `numSpawn` | 8 | 并发 spawn 数（仓颉线程） |
+| `sinceTs` | 0 | 起始时间戳（增量处理） |
+| `chooseKey` | None | key 过滤回调 |
+| `keyToList` | None | 自定义 key 转列表逻辑 |
+| `send` | None | KV 列表处理回调 |
+
+## Backup/Restore
+
+```cangjie
+import std.io.*
+import std.fs.*
+
+// 备份数据库
+let backupPath = "/tmp/backup.data"
+let file = File(backupPath, OpenMode.Write)
+let maxVersion = db.Backup(file)
+println("Backup completed, max version: ${maxVersion}")
+file.close()
+
+// 恢复到新数据库
+let db2 = Badger.open(Config(dir: "/tmp/restored_db"))
+let restoreFile = File(backupPath, OpenMode.Read)
+db2.Restore(restoreFile)
+restoreFile.close()
+
+// 增量备份（只备份指定版本后的数据）
+let incrementalFile = File("/tmp/incremental.data", OpenMode.Write)
+db.Backup(incrementalFile, since: lastBackupVersion)
+```
+
 ## 配置选项
 
 | 参数 | 默认值 | 说明 |
@@ -358,20 +426,17 @@ db.flushMemTable()
 | **异常处理** | BadgerException + ErrorCode |
 | **链式配置** | Config.withDir().withMemTableSize()... |
 | **数据库信息** | isClosed/sync/size/tables/levels |
+| **BloomFilter** | 读取优化，默认 1% 误判率 |
+| **io_uring** | 异步 I/O，Linux 下默认开启，10-60% 性能提升 |
+| **Stream API** | 大规模并发数据处理 |
+| **Backup/Restore** | 全量/增量备份，支持 TTL 和 UserMeta |
 
-### ⏳ 未实现
+### ⏳ 待完善
 
-| 功能 | 优先级 | 说明 |
-|------|--------|------|
-| WriteBatch | P1 | 批量写入优化 |
-| Compression | P2 | SSTable 压缩（需要 Snappy/Zstd 库） |
-| BloomFilter | P2 | 读取优化，减少磁盘访问 |
-| Managed DB | P2 | 手动管理时间戳 |
-| Stream API | P2 | 大规模数据处理 |
-| Iterator 预取 | P2 | prefetchSize/prefetchValues |
-| Backup/Restore | P4 | 数据备份恢复 |
-| Merge Operator | P4 | 原子更新操作 |
-| Encryption | P4 | 加密存储 |
+| 功能 | 说明 |
+|------|------|
+| Compression | SSTable 压缩（需要 Snappy/Zstd 库） |
+| Encryption | 加密存储 |
 
 ## 参考
 

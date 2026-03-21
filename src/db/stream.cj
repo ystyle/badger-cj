@@ -41,7 +41,7 @@ public class Stream {
     private let db: Badger
     
     public var prefix: Array<Byte>
-    public var numGo: Int64
+    public var numSpawn: Int64
     public var sinceTs: UInt64
     public var chooseKey: ?(Item) -> Bool
     public var keyToList: ?(Array<Byte>, Iterator) -> ArrayList<StreamKV>
@@ -50,7 +50,7 @@ public class Stream {
     public init(db: Badger) {
         this.db = db
         this.prefix = []
-        this.numGo = 8
+        this.numSpawn = 8
         this.sinceTs = 0
         this.chooseKey = None
         this.keyToList = None
@@ -69,12 +69,12 @@ public class Stream {
         
         produceRanges(rangeChan)
         
-        for (threadId in 0..numGo) {
+        for (threadId in 0..numSpawn) {
             let tid = threadId
             spawn {
                 produceKVs(rangeChan, readTs, kvChan, tid)
                 let done = counter.fetchAdd(1) + 1
-                if (done == numGo) {
+                if (done == numSpawn) {
                     kvChan.close()
                 }
             }
@@ -84,7 +84,7 @@ public class Stream {
     }
     
     private func produceRanges(rangeChan: NotifyingWriteChannel<KeyRange>): Unit {
-        let ranges = db.ranges(prefix, numGo)
+        let ranges = db.ranges(prefix, numSpawn)
         
         if (ranges.isEmpty()) {
             if (prefix.size > 0) {

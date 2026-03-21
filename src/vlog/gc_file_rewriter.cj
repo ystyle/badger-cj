@@ -63,7 +63,7 @@ public class GCFileRewriter {
         }
         
         for ((key, entry) in entries) {
-            db.setRaw(key, entry.value, entry.meta, entry.version)
+            db.setRaw(key, entry.value, entry.meta, entry.version, entry.expiresAt)
         }
         
         entries = ArrayList<(Array<Byte>, LogEntry)>()
