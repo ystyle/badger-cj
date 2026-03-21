@@ -1,5 +1,7 @@
 package badgercj.table
 
+import badgercj.utils.compareKeys
+
 /**
  * BlockIterator - Block 迭代器
  * 
@@ -201,26 +203,6 @@ public class BlockIterator {
         }
         let value = data[offset..(offset + Int64(valueLen))]
         return Some(ValueStruct(value, meta: meta, userMeta: userMeta, version: version, expiresAt: expiresAt))
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        
-        for (i in 0..minLen) {
-            if (a[i] < b[i]) {
-                return -1
-            } else if (a[i] > b[i]) {
-                return 1
-            }
-        }
-        
-        if (a.size < b.size) {
-            return -1
-        } else if (a.size > b.size) {
-            return 1
-        }
-        
-        return 0
     }
     
     public func isValid(): Bool {

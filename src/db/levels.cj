@@ -5,6 +5,7 @@ import badgercj.manifest.*
 import std.collection.*
 import std.fs.*
 import std.io.*
+import badgercj.utils.compareKeys
 
 public class LevelsController {
     private let levels: ArrayList<LevelHandler>
@@ -133,5 +134,32 @@ public func getMaxVersion(): UInt64 {
             return UInt64(4) * 2 * 1024 * 1024u64
         }
         return 2 * 1024 * 1024u64 * UInt64(1 << ((level - 1) * 2))
+    }
+    
+    public func keySplits(numPerTable: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>> {
+        let splits = ArrayList<Array<Byte>>()
+        for (handler in levels) {
+            let tables = handler.getTables()
+            for (table in tables) {
+                let tableSplits = table.keySplits(numPerTable, prefix)
+                for (s in tableSplits) {
+                    splits.add(s)
+                }
+            }
+        }
+        sortSplits(splits)
+        splits
+    }
+    
+    private func sortSplits(splits: ArrayList<Array<Byte>>): Unit {
+        for (i in 0..splits.size) {
+            for (j in i + 1..splits.size) {
+                if (compareKeys(splits[i], splits[j]) > 0) {
+                    let tmp = splits[i]
+                    splits[i] = splits[j]
+                    splits[j] = tmp
+                }
+            }
+        }
     }
 }

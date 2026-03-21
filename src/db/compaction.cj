@@ -6,6 +6,7 @@ import std.fs.*
 import std.io.*
 import badgercj.table.*
 import badgercj.manifest.*
+import badgercj.utils.compareKeys
 
 public class Compaction {
     private let db: Badger
@@ -362,22 +363,5 @@ public class Compaction {
                 handler.addTable(t)
             }
         }
-    }
-    
-    private func sameKey(a: Array<Byte>, b: Array<Byte>): Bool {
-        let keyA = parseKey(a)
-        let keyB = parseKey(b)
-        
-        if (keyA.size != keyB.size) {
-            return false
-        }
-        
-        for (i in 0..keyA.size) {
-            if (keyA[i] != keyB[i]) {
-                return false
-            }
-        }
-        
-        return true
     }
 }

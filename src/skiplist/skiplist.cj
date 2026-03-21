@@ -11,6 +11,7 @@ package badgercj.skiplist
 import std.sync.*
 import std.random.*
 import badgercj.arena.*
+import badgercj.utils.compareKeys
 
 private let HEIGHT_INCREASE: UInt32 = 1431655765u32
 
@@ -250,26 +251,6 @@ public class Skiplist {
             prev = next
         }
         return (prev, next)
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        
-        for (i in 0..minLen) {
-            if (a[i] < b[i]) {
-                return -1
-            } else if (a[i] > b[i]) {
-                return 1
-            }
-        }
-        
-        if (a.size < b.size) {
-            return -1
-        } else if (a.size > b.size) {
-            return 1
-        }
-        
-        return 0
     }
     
     public func getArena(): Arena {

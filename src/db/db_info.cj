@@ -7,6 +7,7 @@ public class SSTableInfo {
     public let Right: Array<Byte>
     public let KeyCount: UInt32
     public let OnDiskSize: UInt32
+    public let UncompressedSize: UInt32
     public let MaxVersion: UInt64
     
     public init(
@@ -16,6 +17,7 @@ public class SSTableInfo {
         right!: Array<Byte> = [],
         keyCount!: UInt32 = 0,
         onDiskSize!: UInt32 = 0,
+        uncompressedSize!: UInt32 = 0,
         maxVersion!: UInt64 = 0
     ) {
         this.ID = id
@@ -24,6 +26,7 @@ public class SSTableInfo {
         this.Right = right
         this.KeyCount = keyCount
         this.OnDiskSize = onDiskSize
+        this.UncompressedSize = uncompressedSize
         this.MaxVersion = maxVersion
     }
 }

@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-03-21  
-**当前阶段：** ✅ P0 io_uring 优化完成
+**当前阶段：** ✅ P1 Stream API 完成
 
 ---
 
@@ -9,13 +9,33 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 262/262 通过 ✅ |
+| **测试** | 269/269 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
-| **API 对齐** | P0+P1 完成，对齐率 ~80% |
+| **API 对齐** | P0+P1 完成，对齐率 ~85% |
 
 ---
 
 ## 已完成阶段
+
+### P1: Stream API ✅ (2026-03-21)
+
+| 功能 | 说明 |
+|------|------|
+| StreamKV struct | 流式 KV 数据结构 |
+| Stream class | 并发迭代框架，支持 prefix/numGo/sinceTs/chooseKey/keyToList/send |
+| KeyRange class | key 范围 [left, right) |
+| Badger.ranges() | 生成 key 范围分割，用于并发迭代 |
+| MergeIterator 去重修复 | 修复了重复 key 问题 |
+
+**关键发现：**
+- MergeIterator 需要在 `fix()` 中处理相同 key 的情况（推进其中一个迭代器）
+- `ranges()` 方法需要使用用户 key（去掉时间戳）作为分割点
+- `allVersions = true` 时迭代器返回所有版本，需要 `defaultToList` 正确处理
+
+**测试用例：**
+- testBasicStream: 基本流式迭代
+- testStreamWithPrefix: 前缀过滤
+- testStreamCollectAll: 收集所有 KV
 
 ### P0: io_uring 批量优化 ✅ (2026-03-21)
 
@@ -241,7 +261,6 @@
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| Stream API | P1 | 并发迭代框架，Backup 依赖 |
 | Backup/Restore | P1 | 数据备份恢复，依赖 Stream API |
 | Managed DB | P3 | 手动管理时间戳（数据迁移/CDC） |
 | Compression | P2 | SSTable 压缩（需 Snappy 库） |
@@ -254,6 +273,9 @@
 
 | 问题 | 解决方案 |
 |------|---------|
+| Stream API ranges 分割 | 使用用户 key（去掉时间戳）作为分割点 |
+| MergeIterator 重复 key | fix() 中处理相同 key，推进其中一个迭代器 |
+| allVersions 模式去重 | Iterator.parseItem() 根据 allVersions 决定是否跳过相同 key |
 | 仓颉无 unsafe.Pointer | UInt32 offset 索引 Arena |
 | 仓颉无 FlatBuffers | 手动实现兼容编码 |
 | SkipList 伪 CAS 不安全 | AtomicStorage 真正 CAS |
@@ -282,6 +304,7 @@
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-03-21 | v7.11 | P1 Stream API 完成：StreamKV/Stream/KeyRange/ranges()、MergeIterator 去重修复、269 测试通过 |
 | 2026-03-21 | v7.10 | P0 io_uring 批量优化完成：IoUringPool、writeFilesBatch()、flushMemTablesBatch()、10-60% 性能提升；确认 WriteBatch 已实现 |
 | 2026-03-20 | v7.9 | P0 io_uring 集成完成：SSTable 写入、Config.UseIoUring、writeFile() 工具函数、262 测试通过 |
 | 2026-03-20 | v7.8 | P0 io_uring FFI 绑定完成：条件编译、异步写入器、257 测试通过 |

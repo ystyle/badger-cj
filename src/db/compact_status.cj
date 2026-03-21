@@ -2,6 +2,7 @@ package badgercj.db
 
 import std.collection.*
 import std.sync.*
+import badgercj.utils.{compareKeys, keysEqual}
 
 public class levelCompactStatus {
     public var ranges: ArrayList<keyRange>
@@ -224,14 +225,6 @@ public struct keyRange {
             return false
         }
         return keysEqual(left, other.left) && keysEqual(right, other.right)
-    }
-    
-    private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
-        if (a.size != b.size) { return false }
-        for (i in 0..a.size) {
-            if (a[i] != b[i]) { return false }
-        }
-        return true
     }
 }
 

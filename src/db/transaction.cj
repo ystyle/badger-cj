@@ -3,6 +3,7 @@ package badgercj.db
 import std.collection.*
 import std.sync.*
 import std.overflow.*
+import badgercj.utils.{hashKey, keysEqual}
 
 let TxnMetaValue: Byte = 0x00
 let TxnMetaDelete: Byte = 0x01
@@ -206,25 +207,5 @@ public class Transaction {
     private func addConflictKey(key: Array<Byte>): Unit {
         let fp = hashKey(key)
         conflictKeys.add(fp)
-    }
-    
-    private func hashKey(key: Array<Byte>): UInt64 {
-        var hash: UInt64 = 5381
-        for (b in key) {
-            hash = hash.wrappingMul(33).wrappingAdd(UInt64(b))
-        }
-        return hash
-    }
-    
-    private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
-        if (a.size != b.size) {
-            return false
-        }
-        for (i in 0..a.size) {
-            if (a[i] != b[i]) {
-                return false
-            }
-        }
-        return true
     }
 }

@@ -8,6 +8,7 @@ import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
 import badgercj.io_uring.*
+import badgercj.utils.{compareKeys, hasPrefix}
 import std.collection.concurrent.*
 
 public class Badger <: VLogGCDB {
@@ -565,5 +566,144 @@ public class Badger <: VLogGCDB {
     
     public func levels(): ArrayList<LevelInfo> {
         lc.getLevelInfo()
+    }
+    
+    public func ranges(prefix: Array<Byte>, numRanges: Int64): ArrayList<KeyRange> {
+        var splits = ArrayList<Array<Byte>>()
+        let tables = this.tables()
+        
+        let maxLevel = Int64(opt.MaxLevels) - 1
+        for (ti in tables) {
+            if (ti.Level != maxLevel) {
+                continue
+            }
+            let userKey = parseKey(ti.Right)
+            if (hasPrefix(userKey, prefix)) {
+                splits.add(userKey)
+            }
+        }
+        
+        if (splits.size < 32) {
+            let numTables = if (tables.size == 0) { 1 } else { tables.size }
+            var numPerTable = 32 / numTables
+            if (numPerTable == 0) {
+                numPerTable = 1
+            }
+            let lcSplits = lc.keySplits(numPerTable, prefix)
+            for (s in lcSplits) {
+                let userKey = parseKey(s)
+                splits.add(userKey)
+            }
+        }
+        
+        if (splits.size < 32) {
+            let maxPerSplit: Int64 = 10000
+            
+            lock.readLock.lock()
+            try {
+                for (immMt in imm) {
+                    collectMtSplits(immMt, prefix, maxPerSplit, splits)
+                }
+                collectMtSplits(mt, prefix, maxPerSplit, splits)
+            } finally {
+                lock.readLock.unlock()
+            }
+        }
+        
+        sortByteArrays(splits)
+        
+        var ranges = ArrayList<KeyRange>()
+        var start: Array<Byte> = []
+        for (key in splits) {
+            ranges.add(KeyRange(start, key, true))
+            start = key.clone()
+        }
+        ranges.add(KeyRange(start, [], false))
+        
+        var totalSize: Int64 = 0
+        for (ti in tables) {
+            let tr = KeyRange(parseKey(ti.Left), parseKey(ti.Right), true)
+            for (r in ranges) {
+                if ((r.left.size == 0 || r.right.size == 0)) {
+                    continue
+                }
+                if (overlapsWith(r, tr)) {
+                    r.size += Int64(ti.UncompressedSize)
+                }
+            }
+        }
+        
+        for (r in ranges) {
+            totalSize += r.size
+        }
+        
+        if (totalSize == 0) {
+            return ranges
+        }
+        
+        let avg = totalSize / numRanges
+        
+        var out = ArrayList<KeyRange>()
+        var i: Int64 = 0
+        while (i < ranges.size) {
+            let r = ranges[i]
+            let cur = KeyRange(r.left, r.right, r.right.size > 0)
+            cur.size = r.size
+            i++
+            while (i < ranges.size) {
+                let next = ranges[i]
+                if (cur.size + next.size > avg) {
+                    break
+                }
+                cur.right = next.right
+                cur.hasRight = next.right.size > 0
+                cur.size += next.size
+                i++
+            }
+            out.add(cur)
+        }
+        
+        out
+    }
+    
+    private func sortByteArrays(arr: ArrayList<Array<Byte>>): Unit {
+        for (i in 0..arr.size) {
+            for (j in i + 1..arr.size) {
+                if (compareKeys(arr[i], arr[j]) > 0) {
+                    let tmp = arr[i]
+                    arr[i] = arr[j]
+                    arr[j] = tmp
+                }
+            }
+        }
+    }
+    
+    private func overlapsWith(r1: KeyRange, r2: KeyRange): Bool {
+        if (r1.right.size == 0 || r2.left.size == 0) {
+            return true
+        }
+        if (r2.right.size == 0 || r1.left.size == 0) {
+            return true
+        }
+        compareKeys(r1.left, r2.right) < 0 && compareKeys(r2.left, r1.right) < 0
+    }
+    
+    private func collectMtSplits(mt: MemTable, prefix: Array<Byte>, maxPerSplit: Int64, splits: ArrayList<Array<Byte>>): Unit {
+        if (mt.isEmpty()) {
+            return
+        }
+        var count: Int64 = 0
+        let iter = mt.iterator()
+        while (iter.hasNext()) {
+            if (let Some((keyWithTs, _)) <- iter.next()) {
+                if (count % maxPerSplit == 0) {
+                    let userKey = parseKey(keyWithTs)
+                    if (hasPrefix(userKey, prefix)) {
+                        splits.add(userKey)
+                    }
+                }
+                count++
+            }
+        }
     }
 }

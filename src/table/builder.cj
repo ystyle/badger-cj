@@ -2,6 +2,7 @@ package badgercj.table
 
 import std.collection.*
 import badgercj.encoding.*
+import badgercj.utils.compareKeys
 
 /**
  * TableBuilder - 构建 SSTable 文件
@@ -263,16 +264,6 @@ public class TableBuilder {
     
     public func getMaxVersion(): UInt64 {
         return maxVersion
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        for (i in 0..minLen) {
-            if (a[i] != b[i]) {
-                return Int64(a[i]) - Int64(b[i])
-            }
-        }
-        return Int64(a.size) - Int64(b.size)
     }
     
     private func buildBloomFilter(): Array<Byte> {

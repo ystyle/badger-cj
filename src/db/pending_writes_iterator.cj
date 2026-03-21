@@ -3,6 +3,7 @@ package badgercj.db
 import std.collection.ArrayList
 import badgercj.table.ValueStruct
 import badgercj.table.Meta
+import badgercj.utils.compareKeys
 
 /**
  * PendingWritesIterator - 事务未提交写入的迭代器
@@ -130,15 +131,5 @@ public class PendingWritesIterator <: SimpleIterator {
             currentValue = []
             valid_ = false
         }
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        for (i in 0..minLen) {
-            if (a[i] != b[i]) {
-                return Int64(a[i]) - Int64(b[i])
-            }
-        }
-        return Int64(a.size) - Int64(b.size)
     }
 }

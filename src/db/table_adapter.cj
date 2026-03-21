@@ -63,6 +63,22 @@ public class TableAdapter <: TableInterface {
         table.keyCount
     }
     
+    public func uncompressedSize(): Int64 {
+        table.uncompressedSize()
+    }
+    
+    public func offsetsLength(): Int64 {
+        table.offsetsLength()
+    }
+    
+    public func getOffsetKey(idx: Int64): Array<Byte> {
+        table.getOffsetKey(idx)
+    }
+    
+    public func keySplits(n: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>> {
+        table.keySplits(n, prefix)
+    }
+    
     public func getTable(): Table {
         table
     }

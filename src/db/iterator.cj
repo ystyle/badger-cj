@@ -3,6 +3,7 @@ package badgercj.db
 import std.collection.ArrayList
 import badgercj.table.Meta
 import badgercj.table.ValueStruct
+import badgercj.utils.{hasPrefix, hashKey}
 
 /**
  * Iterator - 事务级一致性迭代器
@@ -217,26 +218,5 @@ public class Iterator {
         } catch (e: Exception) {
             return None
         }
-    }
-    
-    private func hasPrefix(key: Array<Byte>, prefix: Array<Byte>): Bool {
-        if (key.size < prefix.size) {
-            return false
-        }
-        for (i in 0..prefix.size) {
-            if (key[i] != prefix[i]) {
-                return false
-            }
-        }
-        return true
-    }
-    
-    @OverflowWrapping
-    private func hashKey(key: Array<Byte>): UInt64 {
-        var hash: UInt64 = 5381
-        for (b in key) {
-            hash = ((hash << 5) + hash) + UInt64(b)
-        }
-        return hash
     }
 }

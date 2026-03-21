@@ -2,6 +2,7 @@ package badgercj.table
 
 import std.collection.*
 import badgercj.encoding.*
+import badgercj.utils.compareKeys
 
 /**
  * BlockBuilder - 构建 SSTable Block

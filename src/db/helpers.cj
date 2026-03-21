@@ -5,6 +5,7 @@ import std.binary.*
 import std.time.*
 import badgercj.table.Meta
 import badgercj.table.ValueStruct
+import badgercj.utils.{compareKeys, keysEqual, hasPrefix, hashKey}
 
 /**
  * 辅助函数 - Iterator 使用的工具函数
@@ -115,20 +116,6 @@ public func safeCopy(dst: Array<Byte>, src: Array<Byte>): Array<Byte> {
     let result = Array<Byte>(src.size, repeat: 0)
     src.copyTo(result)
     return result
-}
-
-/**
- * compareKeys - 比较两个 key（带时间戳）
- */
-@Frozen
-public func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-    let minLen = if (a.size < b.size) { a.size } else { b.size }
-    for (i in 0..minLen) {
-        if (a[i] != b[i]) {
-            return Int64(a[i]) - Int64(b[i])
-        }
-    }
-    return Int64(a.size) - Int64(b.size)
 }
 
 /**

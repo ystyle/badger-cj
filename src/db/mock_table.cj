@@ -2,6 +2,7 @@ package badgercj.db
 
 import badgercj.table.*
 import std.collection.*
+import badgercj.utils.{keysEqual, hasPrefix}
 
 public class MockTable <: TableInterface {
     public let id: UInt64
@@ -42,20 +43,6 @@ public class MockTable <: TableInterface {
         return None
     }
     
-    private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
-        if (a.size != b.size) {
-            return false
-        }
-        var i: Int64 = 0
-        while (i < a.size) {
-            if (a[i] != b[i]) {
-                return false
-            }
-            i++
-        }
-        return true
-    }
-    
     public func smallest(): Array<Byte> { smallestKey }
     public func biggest(): Array<Byte> { biggestKey }
     public func size(): Int64 { 
@@ -82,5 +69,41 @@ public class MockTable <: TableInterface {
     
     public func keyCount(): UInt32 {
         UInt32(entries.size)
+    }
+    
+    public func uncompressedSize(): Int64 {
+        size()
+    }
+    
+    public func offsetsLength(): Int64 {
+        entries.size
+    }
+    
+    public func getOffsetKey(idx: Int64): Array<Byte> {
+        if (idx < 0 || idx >= entries.size) {
+            return []
+        }
+        entries[idx][0]
+    }
+    
+    public func keySplits(n: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>> {
+        let result = ArrayList<Array<Byte>>()
+        if (n <= 0) {
+            return result
+        }
+        
+        let jump = entries.size / n
+        var actualJump = if (jump == 0) { 1 } else { jump }
+        
+        var i: Int64 = 0
+        while (i < entries.size) {
+            let key = entries[i][0]
+            if (hasPrefix(key, prefix)) {
+                result.add(key)
+            }
+            i += actualJump
+        }
+        
+        result
     }
 }

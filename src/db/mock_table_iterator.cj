@@ -2,6 +2,7 @@ package badgercj.db
 
 import std.collection.*
 import badgercj.table.*
+import badgercj.utils.compareKeys
 
 /**
  * MockTableIterator - MockTable 迭代器包装器
@@ -76,15 +77,5 @@ public class MockTableIterator <: SimpleIterator {
             currentValue = []
             valid_ = false
         }
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        for (i in 0..minLen) {
-            if (a[i] != b[i]) {
-                return Int64(a[i]) - Int64(b[i])
-            }
-        }
-        return Int64(a.size) - Int64(b.size)
     }
 }

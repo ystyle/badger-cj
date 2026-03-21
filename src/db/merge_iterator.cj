@@ -1,26 +1,32 @@
 package badgercj.db
 
 import std.collection.*
+import badgercj.utils.{compareKeys, keysEqual}
 
 /**
  * MergeIterator - 合并多个迭代器
  * 
- * 按key顺序合并多个迭代器的数据
+ * 按key顺序合并多个迭代器的数据，跳过重复的key
  * 
- * 参考：github.com/dgraph-io/badger/v4/iterator.go
+ * 参考：github.com/dgraph-io/badger/v4/table/merge_iterator.go
  */
 public class MergeIterator {
     private let iters: ArrayList<SimpleIterator>
     private let reverse: Bool
     private var current: SimpleIterator
+    private var curKey: Array<Byte>
     
     public init(iters: ArrayList<SimpleIterator>, reverse!: Bool = false) {
         this.iters = iters
         this.reverse = reverse
         this.current = SimpleIterator()
+        this.curKey = []
         
         if (iters.size > 0) {
-            findBest()
+            for (iter in iters) {
+                iter.rewind()
+            }
+            fix()
         }
     }
     
@@ -32,8 +38,16 @@ public class MergeIterator {
         if (!current.valid()) {
             return
         }
-        current.next()
-        findBest()
+        
+        while (current.valid()) {
+            let key = current.key()
+            if (!keysEqual(key, curKey)) {
+                break
+            }
+            current.next()
+            fix()
+        }
+        setCurrent()
     }
     
     public func key(): Array<Byte> {
@@ -45,20 +59,24 @@ public class MergeIterator {
     }
     
     public func rewind(): Unit {
+        curKey = []
         for (iter in iters) {
             iter.rewind()
         }
-        findBest()
+        fix()
+        setCurrent()
     }
     
     public func seek(key: Array<Byte>): Unit {
+        curKey = []
         for (iter in iters) {
             iter.seek(key)
         }
-        findBest()
+        fix()
+        setCurrent()
     }
     
-    private func findBest(): Unit {
+    private func fix(): Unit {
         var bestIter: SimpleIterator = SimpleIterator()
         var bestKey: Array<Byte> = []
         
@@ -79,11 +97,15 @@ public class MergeIterator {
                     if (cmp > 0) {
                         bestKey = iterKey
                         bestIter = iter
+                    } else if (cmp == 0) {
+                        iter.next()
                     }
                 } else {
                     if (cmp < 0) {
                         bestKey = iterKey
                         bestIter = iter
+                    } else if (cmp == 0) {
+                        iter.next()
                     }
                 }
             }
@@ -92,14 +114,12 @@ public class MergeIterator {
         current = bestIter
     }
     
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        for (i in 0..minLen) {
-            if (a[i] != b[i]) {
-                return Int64(a[i]) - Int64(b[i])
-            }
+    private func setCurrent(): Unit {
+        if (current.valid()) {
+            curKey = current.key().clone()
+        } else {
+            curKey = []
         }
-        return Int64(a.size) - Int64(b.size)
     }
 }
 

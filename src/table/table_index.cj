@@ -1,6 +1,7 @@
 package badgercj.table
 
 import std.collection.*
+import badgercj.utils.{compareKeys, u32FromLE, u64FromLE}
 
 /**
  * TableIndex - SSTable 索引
@@ -78,85 +79,60 @@ public class TableIndex {
     public static func decode(data: Array<Byte>): TableIndex {
         var offset: Int64 = 0
         
-        let smallestLen = readUInt32(data, offset)
+        let smallestLen = u32FromLE(data, offset)
         offset += 4
-        let tableSmallest = readBytes(data, offset, Int64(smallestLen))
+        let tableSmallest = data[offset..(offset + Int64(smallestLen))]
         offset += Int64(smallestLen)
         
-        let biggestLen = readUInt32(data, offset)
+        let biggestLen = u32FromLE(data, offset)
         offset += 4
-        let tableBiggest = readBytes(data, offset, Int64(biggestLen))
+        let tableBiggest = data[offset..(offset + Int64(biggestLen))]
         offset += Int64(biggestLen)
         
-        let blockCount = readUInt32(data, offset)
+        let blockCount = u32FromLE(data, offset)
         offset += 4
         
         let offsets = ArrayList<BlockOffset>()
         for (_ in 0..Int64(blockCount)) {
-            let keyLen = readUInt32(data, offset)
+            let keyLen = u32FromLE(data, offset)
             offset += 4
             
-            let key = readBytes(data, offset, Int64(keyLen))
+            let key = data[offset..(offset + Int64(keyLen))]
             offset += Int64(keyLen)
             
-            let blockOffset = readUInt32(data, offset)
+            let blockOffset = u32FromLE(data, offset)
             offset += 4
             
-            let blockLen = readUInt32(data, offset)
+            let blockLen = u32FromLE(data, offset)
             offset += 4
             
             offsets.add(BlockOffset(key, blockOffset, blockLen))
         }
         
-        let bloomFilterLen = readUInt32(data, offset)
+        let bloomFilterLen = u32FromLE(data, offset)
         offset += 4
         
-        let bloomFilter = readBytes(data, offset, Int64(bloomFilterLen))
+        let bloomFilter = data[offset..(offset + Int64(bloomFilterLen))]
         offset += Int64(bloomFilterLen)
         
-        let maxVersion = readUInt64(data, offset)
+        let maxVersion = u64FromLE(data, offset)
         offset += 8
         
-        let keyCount = readUInt32(data, offset)
+        let keyCount = u32FromLE(data, offset)
         offset += 4
         
-        let uncompressedSize = readUInt32(data, offset)
+        let uncompressedSize = u32FromLE(data, offset)
         offset += 4
         
-        let onDiskSize = readUInt32(data, offset)
+        let onDiskSize = u32FromLE(data, offset)
         offset += 4
         
-        let staleDataSize = readUInt32(data, offset)
+        let staleDataSize = u32FromLE(data, offset)
         
         return TableIndex(offsets, bloomFilter, maxVersion, keyCount, uncompressedSize, onDiskSize, staleDataSize,
             tableSmallest: tableSmallest, tableBiggest: tableBiggest)
     }
     
-    private static func readUInt32(data: Array<Byte>, offset: Int64): UInt32 {
-        return UInt32(data[offset]) |
-               (UInt32(data[offset + 1]) << 8) |
-               (UInt32(data[offset + 2]) << 16) |
-               (UInt32(data[offset + 3]) << 24)
-    }
-    
-    private static func readUInt64(data: Array<Byte>, offset: Int64): UInt64 {
-        return UInt64(data[offset]) |
-               (UInt64(data[offset + 1]) << 8) |
-               (UInt64(data[offset + 2]) << 16) |
-               (UInt64(data[offset + 3]) << 24) |
-               (UInt64(data[offset + 4]) << 32) |
-               (UInt64(data[offset + 5]) << 40) |
-               (UInt64(data[offset + 6]) << 48) |
-               (UInt64(data[offset + 7]) << 56)
-    }
-    
-    private static func readBytes(data: Array<Byte>, offset: Int64, len: Int64): Array<Byte> {
-        return data[offset..(offset + len)]
-    }
-    
-    /**
-     * 查找包含指定 key 的 Block
-     */
     public func seekBlock(key: Array<Byte>): Option<UInt32> {
         var idx: Int64 = 0
         for (i in 0..offsets.size) {
@@ -171,25 +147,5 @@ public class TableIndex {
         }
         
         return Some(UInt32(idx))
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        
-        for (i in 0..minLen) {
-            if (a[i] < b[i]) {
-                return -1
-            } else if (a[i] > b[i]) {
-                return 1
-            }
-        }
-        
-        if (a.size < b.size) {
-            return -1
-        } else if (a.size > b.size) {
-            return 1
-        }
-        
-        return 0
     }
 }

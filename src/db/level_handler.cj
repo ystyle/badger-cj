@@ -3,6 +3,7 @@ package badgercj.db
 import badgercj.table.*
 import std.collection.*
 import std.sync.*
+import badgercj.utils.compareKeys
 
 public class LevelHandler {
     private let level: Int
@@ -89,21 +90,6 @@ public class LevelHandler {
         return -1
     }
     
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        var i: Int64 = 0
-        while (i < minLen) {
-            if (a[i] < b[i]) {
-                return -1
-            }
-            if (a[i] > b[i]) {
-                return 1
-            }
-            i++
-        }
-        return Int64(a.size - b.size)
-    }
-    
     public func numTables(): Int64 {
         synchronized(lock) {
             return tables.size
@@ -158,6 +144,7 @@ public class LevelHandler {
                     right: table.biggest(),
                     keyCount: table.keyCount(),
                     onDiskSize: UInt32(table.size()),
+                    uncompressedSize: UInt32(table.uncompressedSize()),
                     maxVersion: table.getMaxVersion()
                 )
                 result.add(info)

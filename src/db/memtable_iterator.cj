@@ -6,6 +6,7 @@ import badgercj.skiplist.Node
 import badgercj.skiplist.AtomicStorage
 import badgercj.skiplist.Skiplist
 import badgercj.arena.Arena
+import badgercj.utils.compareKeys
 
 public class MemTableIterator <: SimpleIterator {
     private let mt: MemTable
@@ -153,25 +154,6 @@ public class MemTableIterator <: SimpleIterator {
         } else {
             valid_ = false
         }
-    }
-    
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        for (i in 0..minLen) {
-            if (a[i] < b[i]) {
-                return -1
-            }
-            if (a[i] > b[i]) {
-                return 1
-            }
-        }
-        if (a.size < b.size) {
-            return -1
-        }
-        if (a.size > b.size) {
-            return 1
-        }
-        return 0
     }
 }
 

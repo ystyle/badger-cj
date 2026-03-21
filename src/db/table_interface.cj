@@ -11,4 +11,8 @@ public interface TableInterface {
     func size(): Int64
     func getMaxVersion(): UInt64
     func keyCount(): UInt32
+    func uncompressedSize(): Int64
+    func offsetsLength(): Int64
+    func getOffsetKey(idx: Int64): Array<Byte>
+    func keySplits(n: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>>
 }

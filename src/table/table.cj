@@ -3,6 +3,7 @@ package badgercj.table
 import std.collection.*
 import std.fs.*
 import std.io.*
+import badgercj.utils.{compareKeys, keysEqual, hasPrefix}
 
 /**
  * Table - SSTable 读取器
@@ -126,25 +127,46 @@ public class Table {
         return left - 1
     }
     
-    private func compareKeys(a: Array<Byte>, b: Array<Byte>): Int64 {
-        let minLen = if (a.size < b.size) { a.size } else { b.size }
-        for (i in 0..minLen) {
-            if (a[i] != b[i]) {
-                return Int64(a[i]) - Int64(b[i])
-            }
-        }
-        return Int64(a.size) - Int64(b.size)
+    public func onDiskSize(): Int64 {
+        Int64(data.size)
     }
     
-    private func keysEqual(a: Array<Byte>, b: Array<Byte>): Bool {
-        if (a.size != b.size) {
-            return false
+    public func uncompressedSize(): Int64 {
+        Int64(data.size)
+    }
+    
+    public func offsetsLength(): Int64 {
+        index.offsets.size
+    }
+    
+    public func getOffsetKey(idx: Int64): Array<Byte> {
+        if (idx < 0 || idx >= index.offsets.size) {
+            return []
         }
-        for (i in 0..a.size) {
-            if (a[i] != b[i]) {
-                return false
+        index.offsets[idx].key
+    }
+    
+    public func keySplits(n: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>> {
+        let result = ArrayList<Array<Byte>>()
+        if (n <= 0) {
+            return result
+        }
+        
+        let oLen = index.offsets.size
+        var jump = oLen / n
+        if (jump == 0) {
+            jump = 1
+        }
+        
+        var i: Int64 = 0
+        while (i < oLen) {
+            let key = getOffsetKey(i)
+            if (hasPrefix(key, prefix)) {
+                result.add(key)
             }
+            i += jump
         }
-        return true
+        
+        result
     }
 }
