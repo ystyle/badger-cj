@@ -16,7 +16,7 @@
 
 ```toml
 [dependencies]
-  badgercj = { path = "path/to/badger-cj" }
+  "badgercj" = "1.2.0" # 注意使用最新的版本
 ```
 
 ## 快速开始
