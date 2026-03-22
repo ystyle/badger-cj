@@ -3,6 +3,8 @@ package badgercj.table
 import std.collection.*
 import badgercj.encoding.*
 import badgercj.utils.compareKeys
+import snappy.encode
+import snappy.maxEncodedLen
 
 /**
  * TableBuilder - 构建 SSTable 文件
@@ -26,6 +28,7 @@ import badgercj.utils.compareKeys
 protected class TableBuilder {
     private let blockSize: Int64
     private let bloomFalsePositive: Float64
+    private let compression: CompressionType
     private var currentBlock: BlockBuilder
     private var buf: ArrayList<Byte>
     private var blockOffsets: ArrayList<BlockOffset>
@@ -33,13 +36,15 @@ protected class TableBuilder {
     private var keyCount: UInt32
     private var maxVersion: UInt64
     private var uncompressedSize: UInt32
+    private var compressedSize: UInt32
     private var finished: Bool
     private var tableSmallest: Array<Byte>
     private var tableBiggest: Array<Byte>
     
-    public init(blockSize!: Int64 = 4 * 1024, bloomFalsePositive!: Float64 = 0.01) {
+    public init(blockSize!: Int64 = 4 * 1024, bloomFalsePositive!: Float64 = 0.01, compression!: CompressionType = CompressionType.None) {
         this.blockSize = blockSize
         this.bloomFalsePositive = bloomFalsePositive
+        this.compression = compression
         this.currentBlock = BlockBuilder(blockSize: blockSize)
         this.buf = ArrayList<Byte>()
         this.blockOffsets = ArrayList<BlockOffset>()
@@ -47,6 +52,7 @@ protected class TableBuilder {
         this.keyCount = 0
         this.maxVersion = 0
         this.uncompressedSize = 0
+        this.compressedSize = 0
         this.finished = false
         this.tableSmallest = []
         this.tableBiggest = []
@@ -98,14 +104,42 @@ protected class TableBuilder {
         let blockData = currentBlock.finish()
         let offset = UInt32(buf.size)
         
-        let blockOffset = BlockOffset(currentBlock.getBaseKey(), offset, UInt32(blockData.size))
+        // 压缩 Block
+        let (finalData, compressionType) = compressBlock(blockData)
+        
+        let blockOffset = BlockOffset(currentBlock.getBaseKey(), offset, UInt32(finalData.size), compression: compressionType)
         blockOffsets.add(blockOffset)
         
-        for (b in blockData) {
+        for (b in finalData) {
             buf.add(b)
         }
         
+        compressedSize += UInt32(finalData.size)
         currentBlock.reset()
+    }
+    
+    /**
+     * 压缩 Block 数据
+     */
+    private func compressBlock(data: Array<Byte>): (Array<Byte>, CompressionType) {
+        if (compression == CompressionType.None) {
+            return (data, CompressionType.None)
+        }
+        
+        let maxLen = maxEncodedLen(data.size)
+        if (maxLen < 0) {
+            return (data, CompressionType.None)
+        }
+        
+        let dst = Array<Byte>(maxLen, repeat: 0)
+        let compressed = encode(dst, data)
+        
+        // 如果压缩后更大或没明显压缩，使用原始数据
+        if (compressed.size >= data.size) {
+            return (data, CompressionType.None)
+        }
+        
+        return (compressed, CompressionType.Snappy)
     }
     
     /**
@@ -208,6 +242,8 @@ protected class TableBuilder {
             indexBuf.add(UInt8((bo.len >> 8) & 0xFF))
             indexBuf.add(UInt8((bo.len >> 16) & 0xFF))
             indexBuf.add(UInt8((bo.len >> 24) & 0xFF))
+            
+            indexBuf.add(UInt8(CompressionTypeValue(bo.compression)))
         }
         
         let bloomFilterData = buildBloomFilter()
@@ -244,6 +280,11 @@ protected class TableBuilder {
         indexBuf.add(UInt8((onDiskSize >> 8) & 0xFF))
         indexBuf.add(UInt8((onDiskSize >> 16) & 0xFF))
         indexBuf.add(UInt8((onDiskSize >> 24) & 0xFF))
+        
+        indexBuf.add(UInt8(compressedSize & 0xFF))
+        indexBuf.add(UInt8((compressedSize >> 8) & 0xFF))
+        indexBuf.add(UInt8((compressedSize >> 16) & 0xFF))
+        indexBuf.add(UInt8((compressedSize >> 24) & 0xFF))
         
         let staleDataSize: UInt32 = 0
         indexBuf.add(UInt8(staleDataSize & 0xFF))
@@ -294,10 +335,12 @@ public struct BlockOffset {
     public let key: Array<Byte>
     public let offset: UInt32
     public let len: UInt32
+    public let compression: CompressionType
     
-    public init(key: Array<Byte>, offset: UInt32, len: UInt32) {
+    public init(key: Array<Byte>, offset: UInt32, len: UInt32, compression!: CompressionType = CompressionType.None) {
         this.key = key
         this.offset = offset
         this.len = len
+        this.compression = compression
     }
 }

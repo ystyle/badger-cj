@@ -43,6 +43,7 @@ output-type = "executable"
 output-type = "executable"
 
 [dependencies]
+"snappy" = "1.0.0"
 
 # Linux 平台特定配置 - 链接 liburing
 [target.x86_64-unknown-linux-gnu]

@@ -4,6 +4,7 @@ import std.collection.*
 import std.fs.*
 import std.io.*
 import badgercj.utils.{compareKeys, keysEqual, hasPrefix}
+import snappy.decode
 
 /**
  * Table - SSTable 读取器
@@ -99,7 +100,18 @@ protected class Table {
     
     private func readBlock(idx: Int64): Array<Byte> {
         let bo = index.offsets[idx]
-        return data[Int64(bo.offset)..Int64(bo.offset + bo.len)]
+        let blockData = data[Int64(bo.offset)..Int64(bo.offset + bo.len)]
+        
+        // 解压 Block
+        if (bo.compression == CompressionType.Snappy) {
+            return decompressBlock(blockData)
+        }
+        return blockData
+    }
+    
+    private func decompressBlock(compressed: Array<Byte>): Array<Byte> {
+        let dst = Array<Byte>(compressed.size * 4, repeat: 0)  // 预估解压后大小
+        decode(dst, compressed)
     }
     
     public func findBlock(key: Array<Byte>): Int64 {

@@ -176,7 +176,7 @@ public class Badger <: VLogGCDB {
         let tableDataList = ArrayList<(UInt64, Array<Byte>)>()
         
         for (t in tables) {
-            let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive)
+            let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
             let iter = t.iterator()
             while (iter.hasNext()) {
                 if (let Some(e) <- iter.next()) {
@@ -215,7 +215,7 @@ public class Badger <: VLogGCDB {
     }
     
     private func flushMemTableToDisk(mt: MemTable): ManifestChangeSet {
-        let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive)
+        let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
         let iter = mt.iterator()
         while (iter.hasNext()) {
             if (let Some(e) <- iter.next()) {
@@ -390,7 +390,7 @@ public class Badger <: VLogGCDB {
     }
     
     private func flushToLevel(mt: MemTable): Unit {
-        let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive)
+        let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
         let iter = mt.iterator()
         while (iter.hasNext()) {
             if (let Some((key, vs)) <- iter.next()) {

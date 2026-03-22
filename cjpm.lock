@@ -1,3 +1,4 @@
 version = 0
 
 [requires]
+  snappy = {version = "1.0.0"}

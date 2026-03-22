@@ -1,5 +1,7 @@
 package badgercj.db
 
+import badgercj.table.CompressionType
+
 public class Config {
     public let Dir: String
     public let MemTableSize: UInt64
@@ -11,6 +13,7 @@ public class Config {
     public let BloomFalsePositive: Float64
     public let UseIoUring: Bool
     public let InMemory: Bool
+    public let Compression: CompressionType
     
     public init(
         dir!: String = "",
@@ -22,7 +25,8 @@ public class Config {
         detectConflicts!: Bool = true,
         bloomFalsePositive!: Float64 = 0.01,
         useIoUring!: Bool = true,
-        inMemory!: Bool = false
+        inMemory!: Bool = false,
+        compression!: CompressionType = CompressionType.None
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -32,6 +36,7 @@ public class Config {
         this.BloomFalsePositive = bloomFalsePositive
         this.UseIoUring = useIoUring
         this.InMemory = inMemory
+        this.Compression = compression
         
         // InMemory 模式：ValueThreshold 设为最大值，所有数据进 LSM
         if (inMemory) {
@@ -54,7 +59,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -69,7 +75,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -84,7 +91,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -99,7 +107,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -114,7 +123,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -129,7 +139,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -144,7 +155,8 @@ public class Config {
             detectConflicts: detect,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -159,7 +171,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: fp,
             useIoUring: this.UseIoUring,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -174,7 +187,8 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: use,
-            inMemory: this.InMemory
+            inMemory: this.InMemory,
+            compression: this.Compression
         )
     }
     
@@ -189,7 +203,24 @@ public class Config {
             detectConflicts: this.DetectConflicts,
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
-            inMemory: inMemory
+            inMemory: inMemory,
+            compression: this.Compression
+        )
+    }
+    
+    public func withCompression(compression: CompressionType): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory,
+            compression: compression
         )
     }
     

@@ -3,6 +3,28 @@ package badgercj.table
 import std.collection.*
 
 /**
+ * 压缩类型
+ */
+public enum CompressionType {
+    | None
+    | Snappy
+    
+    public operator func ==(other: CompressionType): Bool {
+        match (this) {
+            case None => match (other) { case None => true; case _ => false }
+            case Snappy => match (other) { case Snappy => true; case _ => false }
+        }
+    }
+}
+
+public func CompressionTypeValue(t: CompressionType): Int64 {
+    match (t) {
+        case CompressionType.None => 0
+        case CompressionType.Snappy => 1
+    }
+}
+
+/**
  * Value 元数据标志位
  */
 public class Meta {

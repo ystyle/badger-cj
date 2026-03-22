@@ -106,7 +106,10 @@ protected class TableIndex {
             let blockLen = u32FromLE(data, offset)
             offset += 4
             
-            offsets.add(BlockOffset(key, blockOffset, blockLen))
+            let compression = if (data[offset] == 1) { CompressionType.Snappy } else { CompressionType.None }
+            offset += 1
+            
+            offsets.add(BlockOffset(key, blockOffset, blockLen, compression: compression))
         }
         
         let bloomFilterLen = u32FromLE(data, offset)
