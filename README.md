@@ -83,6 +83,7 @@ db.close()
 | `withDisableWAL(bool)` | 禁用 WAL |
 | `withDetectConflicts(bool)` | 冲突检测 |
 | `withInMemory(bool)` | 纯内存模式 |
+| `withCompression(type)` | 压缩类型（None/Snappy） |
 
 ### InMemory 模式
 
@@ -463,12 +464,12 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | **Stream API** | 大规模并发数据处理 |
 | **Backup/Restore** | 全量/增量备份，支持 TTL 和 UserMeta |
 | **InMemory 模式** | 纯内存模式，适合测试和临时缓存 |
+| **Compression** | Snappy 压缩，减少存储空间 |
 
 ### ⏳ 待完善
 
 | 功能 | 说明 |
 |------|------|
-| Compression | SSTable 压缩（需要 Snappy/Zstd 库） |
 | Encryption | 加密存储 |
 
 ## 参考
