@@ -15,4 +15,5 @@ public interface TableInterface {
     func offsetsLength(): Int64
     func getOffsetKey(idx: Int64): Array<Byte>
     func keySplits(n: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>>
+    func newIterator(): TableIter
 }

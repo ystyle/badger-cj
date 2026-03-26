@@ -2,7 +2,7 @@ package badgercj.db
 
 import badgercj.table.*
 import std.collection.*
-import badgercj.utils.{keysEqual, hasPrefix}
+import badgercj.utils.{keysEqual, hasPrefix, compareKeys}
 
 public class MockTable <: TableInterface {
     public let id: UInt64
@@ -106,5 +106,101 @@ public class MockTable <: TableInterface {
         }
         
         result
+    }
+    
+    public func newIterator(): TableIter {
+        MockTableIter(this)
+    }
+}
+
+class MockTableIter <: TableIter {
+    private let entries: ArrayList<(Array<Byte>, ValueStruct)>
+    private var currentIndex: Int64
+    private var currentKey: Array<Byte>
+    private var currentValue: ?ValueStruct
+    private var valid_: Bool
+    
+    public init(table: MockTable) {
+        this.entries = ArrayList<(Array<Byte>, ValueStruct)>()
+        
+        let tableEntries = table.getEntries()
+        for (entry in tableEntries) {
+            this.entries.add(entry)
+        }
+        
+        this.currentIndex = -1
+        this.currentKey = []
+        this.currentValue = None
+        this.valid_ = false
+    }
+    
+    public func seekFirst(): Unit {
+        currentIndex = 0
+        updateCurrent()
+    }
+    
+    public func seekLast(): Unit {
+        if (entries.size == 0) {
+            valid_ = false
+            return
+        }
+        currentIndex = entries.size - 1
+        updateCurrent()
+    }
+    
+    public func seek(key: Array<Byte>): Unit {
+        currentIndex = 0
+        for (i in 0..entries.size) {
+            if (compareKeys(entries[i][0], key) >= 0) {
+                currentIndex = i
+                break
+            }
+        }
+        if (entries.size > 0 && currentIndex == 0 && compareKeys(entries[0][0], key) < 0) {
+            currentIndex = entries.size
+        }
+        updateCurrent()
+    }
+    
+    public func next(): Unit {
+        currentIndex++
+        updateCurrent()
+    }
+    
+    public func prev(): Unit {
+        currentIndex--
+        updateCurrent()
+    }
+    
+    public func isValid(): Bool {
+        return valid_
+    }
+    
+    public func key(): Array<Byte> {
+        return currentKey
+    }
+    
+    public func value(): Array<Byte> {
+        if (let Some(vs) <- currentValue) {
+            return vs.value
+        }
+        return []
+    }
+    
+    public func valueStruct(): ?ValueStruct {
+        return currentValue
+    }
+    
+    private func updateCurrent(): Unit {
+        if (currentIndex >= 0 && currentIndex < entries.size) {
+            let entry = entries[currentIndex]
+            currentKey = entry[0]
+            currentValue = Some(entry[1])
+            valid_ = true
+        } else {
+            currentKey = []
+            currentValue = None
+            valid_ = false
+        }
     }
 }
