@@ -187,6 +187,60 @@ class PersistenceTest {
     }
     
     @TestCase
+    func testIteratorAfterReopen() {
+        let dir = "/tmp/badger_iter_reopen"
+        cleanupDir(dir)
+        
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        
+        // 写入数据
+        let db1 = Badger.open(opt)
+        db1.update({ txn =>
+            txn.set("key1".toArray(), "value1".toArray())
+            txn.set("key2".toArray(), "value2".toArray())
+            txn.set("key3".toArray(), "value3".toArray())
+        })
+        
+        // 关闭前用 iterator 验证
+        let txn1 = db1.newTransaction(update: false)
+        let iter1 = txn1.newIterator()
+        iter1.rewind()
+        var countBeforeClose = 0
+        while (iter1.valid()) {
+            countBeforeClose++
+            iter1.next()
+        }
+        iter1.close()
+        
+        @Assert(countBeforeClose, 3)
+        db1.close()
+        
+        // 重新打开
+        let db2 = Badger.open(opt)
+        
+        // 用 get 验证数据存在
+        @Assert(db2.get("key1".toArray()).isSome(), true)
+        @Assert(db2.get("key2".toArray()).isSome(), true)
+        @Assert(db2.get("key3".toArray()).isSome(), true)
+        
+        // 用 iterator 验证
+        let txn2 = db2.newTransaction(update: false)
+        let iter2 = txn2.newIterator()
+        iter2.rewind()
+        var countAfterReopen = 0
+        while (iter2.valid()) {
+            countAfterReopen++
+            iter2.next()
+        }
+        iter2.close()
+        
+        @Assert(countAfterReopen, 3)
+        
+        db2.close()
+        cleanupDir(dir)
+    }
+    
+    @TestCase
     func testDeletePersistenceAcrossRestarts() {
         let dir = "/tmp/badger_lifecycle_delete"
         cleanupDir(dir)
