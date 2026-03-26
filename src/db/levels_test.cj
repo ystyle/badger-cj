@@ -135,7 +135,6 @@ class LevelsTest {
         manifest.levels[0].add(TableInfo(1))
         
         let lc = LevelsController(manifest: manifest, dir: dir)
-        lc.loadTables()
         
         let handler = lc.getLevelHandler(0)
         @Assert(handler.numTables() == 1)

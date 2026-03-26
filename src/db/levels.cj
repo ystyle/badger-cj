@@ -28,6 +28,11 @@ protected class LevelsController {
         for (i in 0..7) {
             levels.add(LevelHandler(i))
         }
+        
+        // 加载现有 SST 文件
+        if (!inMemory && !dir.isEmpty()) {
+            loadTables()
+        }
     }
     
     public func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct> {
@@ -83,13 +88,17 @@ protected class LevelsController {
     public func loadTables(): Unit {
         for (level in 0..7) {
             let tables = manifest.levels[level]
+            println("[DEBUG] Level ${level} has ${tables.size} tables")
             for (tableInfo in tables) {
                 let path = sstablePath(dir, tableInfo.id)
+                println("[DEBUG] Loading SST: ${path}")
                 if (exists(Path(path))) {
                     let data = File.readFrom(Path(path))
                     let table = Table(tableInfo.id, data)
                     let adapter = TableAdapter(table)
                     levels[level].addTable(adapter)
+                } else {
+                    println("[DEBUG] SST not found: ${path}")
                 }
             }
         }
