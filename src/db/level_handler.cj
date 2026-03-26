@@ -112,13 +112,12 @@ protected class LevelHandler {
         }
     }
     
-    // reverse: 是否反向迭代（当前实现未使用，保留用于未来扩展）
-    public func appendIterators(iters: ArrayList<SimpleIterator>, _: Bool): Unit {
+    public func appendIterators(iters: ArrayList<SimpleIterator>, opt: IteratorOptions): Unit {
         synchronized(lock) {
             for (table in tables) {
                 if (let Some(adapter) <- (table as TableAdapter)) {
                     let tableIter = adapter.newIterator()
-                    iters.add(TableInterfaceIterator(tableIter))
+                    iters.add(TableIterWrapper(tableIter, reverse: opt.reverse))
                 }
             }
         }

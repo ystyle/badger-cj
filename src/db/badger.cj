@@ -5,6 +5,7 @@ import std.sync.*
 import std.collection.*
 import std.time.*
 import std.io.*
+import std.convert.Parsable
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
@@ -87,9 +88,31 @@ public class Badger <: VLogGCDB {
             lc.loadTables()
         }
         
+        // 回收已有的 WAL 文件（.mem 文件）
+        var immTables = ArrayList<MemTable>()
+        var maxVersion: UInt64 = 0
+        
+        if (!opt.InMemory && !opt.DisableWAL) {
+            let memFiles = listMemFiles(opt.Dir)
+            for (memFid in memFiles) {
+                let memPath = "${opt.Dir}/${memFid}.mem"
+                if (exists(Path(memPath))) {
+                    let wal = WAL.open(memPath)
+                    let replayMt = MemTable(opt, memFid, false)
+                    wal.replay(replayMt)
+                    let mtVersion = replayMt.getMaxVersion()
+                    if (mtVersion > maxVersion) {
+                        maxVersion = mtVersion
+                    }
+                    if (!replayMt.isEmpty()) {
+                        immTables.add(replayMt)
+                    }
+                }
+            }
+        }
+        
         let fid = Int64(manifest.nextFileID)
-        let walExists = !opt.InMemory
-        let mt = MemTable(opt, fid, walExists)
+        let mt = MemTable(opt, fid, !opt.InMemory)
         
         // VLog（InMemory 模式不需要）
         var vlog: VLogManager
@@ -99,11 +122,20 @@ public class Badger <: VLogGCDB {
             vlog = VLogManager(Path(opt.Dir))
         }
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
+        
+        // 添加 replay 的 imm tables
+        for (immMt in immTables) {
+            db.imm.add(immMt)
+        }
+        
         if (!opt.InMemory) {
             vlog.setDB(db, discardChecker: { key, vs => discardEntry(key, vs) })
         }
         
         var recoveredVersion = mt.getMaxVersion()
+        if (maxVersion > recoveredVersion) {
+            recoveredVersion = maxVersion
+        }
         let lcVersion = lc.getMaxVersion()
         if (lcVersion > recoveredVersion) {
             recoveredVersion = lcVersion
@@ -519,7 +551,15 @@ public class Badger <: VLogGCDB {
             let compaction = Compaction(this)
             var gcCounter = 0
             while (running.load()) {
-                sleep(Duration.millisecond * 100)
+                // 使用较短的超时检查，以便更快响应关闭信号
+                var i = 0
+                while (i < 10 && running.load()) {
+                    sleep(Duration.millisecond * 10)
+                    i++
+                }
+                if (!running.load()) {
+                    break
+                }
                 compaction.runCompaction()
                 
                 gcCounter++
@@ -853,5 +893,56 @@ public class Badger <: VLogGCDB {
     protected func doneRestore(): Unit {
         let nextTs = oracle.nextTs()
         oracle.doneUntil(nextTs - 1)
+    }
+}
+
+// 列出目录中所有 .mem 文件的 ID（按升序排序）
+private func listMemFiles(dir: String): ArrayList<Int64> {
+    let result = ArrayList<Int64>()
+    let path = Path(dir)
+    
+    if (!exists(path)) {
+        return result
+    }
+    
+    try {
+        let entries = Directory.readFrom(path)
+        for (entry in entries) {
+            let name = entry.name
+            if (name.endsWith(".mem")) {
+                let idStr = name[0..(name.size - 4)]
+                match (Int64.tryParse(idStr)) {
+                    case Some(id) => result.add(id)
+                    case None => ()
+                }
+            }
+        }
+    } catch (e: Exception) {
+        // 忽略读取目录失败
+    }
+    
+    // 按升序排序
+    sortIds(result)
+    result
+}
+
+private func sortIds(ids: ArrayList<Int64>): Unit {
+    let arr = ids.toArray()
+    var i = 0
+    while (i < arr.size - 1) {
+        var j = i + 1
+        while (j < arr.size) {
+            if (arr[i] > arr[j]) {
+                let tmp = arr[i]
+                arr[i] = arr[j]
+                arr[j] = tmp
+            }
+            j += 1
+        }
+        i += 1
+    }
+    ids.clear()
+    for (id in arr) {
+        ids.add(id)
     }
 }

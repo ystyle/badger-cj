@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-03-21  
-**当前阶段：** ✅ P1 Backup/Restore 完成
+**最后更新：** 2026-03-26  
+**当前阶段：** ✅ 迭代器架构重构完成
 
 ---
 
@@ -9,13 +9,27 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 270/270 通过 ✅ |
+| **测试** | 293/293 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 
 ---
 
 ## 已完成阶段
+
+### 迭代器架构重构 ✅ (2026-03-26)
+
+| 任务 | 说明 |
+|------|------|
+| TableIterWrapper | 新增支持反向迭代的包装器，传递 reverse 参数 |
+| 删除旧 TableIteratorWrapper | 移除不支持 reverse 的旧包装器 |
+| LevelHandler.appendIterators | 传递完整 IteratorOptions 对象 |
+| compaction.cj 简化 | 直接使用 TableInterface.newIterator() |
+
+**关键修复：**
+- `TableIterWrapper` 添加 `reverse` 参数，支持反向迭代
+- `LevelHandler.appendIterators` 参数类型从 `Bool` 改为 `IteratorOptions`
+- 删除冗余的 `TableInterfaceIterator` 引用，简化 compaction 代码
 
 ### P1: Backup/Restore ✅ (2026-03-21)
 
@@ -248,6 +262,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-03-26 | v7.14 | 迭代器架构重构：TableIterWrapper 支持 reverse、删除旧 TableIteratorWrapper、LevelHandler 参数修复、293 测试通过 |
 | 2026-03-21 | v7.13 | P1 Backup/Restore 完成：全量/增量备份、TTL/UserMeta 支持、setRaw() 添加 expiresAt 参数、270 测试通过 |
 | 2026-03-21 | v7.12 | P1 代码重构：提取 utils/key_utils.cj 和 utils/byte_utils.cj，删除 15+ 处重复代码 |
 | 2026-03-21 | v7.11 | P1 Stream API 完成：StreamKV/Stream/KeyRange/ranges()、MergeIterator 去重修复、265 测试通过 |

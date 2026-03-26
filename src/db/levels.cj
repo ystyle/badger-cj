@@ -76,7 +76,7 @@ protected class LevelsController {
     
     public func appendIterators(iters: ArrayList<SimpleIterator>, opt: IteratorOptions): Unit {
         for (handler in levels) {
-            handler.appendIterators(iters, opt.reverse)
+            handler.appendIterators(iters, opt)
         }
     }
     

@@ -305,27 +305,11 @@ protected class Compaction {
     }
     
     private func collectEntriesFromTable(table: TableInterface, entries: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
-        let adapterOpt = table as TableAdapter
-        if (let Some(adapter) <- adapterOpt) {
-            let t = adapter.getTable()
-            let iter = t.newIterator()
-            iter.seekFirst()
-            while (iter.isValid()) {
-                let key = iter.key()
-                if (let Some(vs) <- iter.valueStruct()) {
-                    entries.add((key, vs))
-                }
-                iter.next()
-            }
-            return
-        }
-        
-        let iter = TableInterfaceIterator(table)
-        iter.rewind()
-        while (iter.valid()) {
+        let iter = table.newIterator()
+        iter.seekFirst()
+        while (iter.isValid()) {
             let key = iter.key()
-            let vsOpt = table.get(key, UInt64.Max)
-            if (let Some(vs) <- vsOpt) {
+            if (let Some(vs) <- iter.valueStruct()) {
                 entries.add((key, vs))
             }
             iter.next()
