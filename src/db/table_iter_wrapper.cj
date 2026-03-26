@@ -15,7 +15,12 @@ public class TableIterWrapper <: SimpleIterator {
     
     public override func valid(): Bool { iter.isValid() }
     public override func key(): Array<Byte> { iter.key() }
-    public override func value(): Array<Byte> { iter.value() }
+    public override func value(): Array<Byte> {
+        if (let Some(vs) <- iter.valueStruct()) {
+            return vs.encode()
+        }
+        return []
+    }
     
     public override func next(): Unit {
         if (reverse) { iter.prev() } else { iter.next() }

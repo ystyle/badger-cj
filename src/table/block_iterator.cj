@@ -239,6 +239,6 @@ protected class BlockIterator {
     }
     
     public func valueStruct(): ?ValueStruct {
-        return currentValue
+        currentValue
     }
 }
