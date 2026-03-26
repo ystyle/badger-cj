@@ -3,55 +3,80 @@ package badgercj.db
 import std.collection.*
 import badgercj.table.*
 
+/**
+ * TableInterfaceIterator - 包装迭代器为 SimpleIterator
+ */
 public class TableInterfaceIterator <: SimpleIterator {
+    private let tableIter: TableIter
     private let table: TableInterface
-    private var currentKey: Array<Byte>
-    private var currentValue: Array<Byte>
-    private var valid_: Bool
+    private var useIter: Bool
     
     public init(table: TableInterface) {
         super()
         this.table = table
-        this.currentKey = table.smallest()
-        this.currentValue = []
-        this.valid_ = true
-        
-        updateValue(currentKey)
+        this.tableIter = EmptyTableIter()
+        this.useIter = false
+    }
+    
+    public init(tableIter: TableIter) {
+        super()
+        this.tableIter = tableIter
+        this.table = TableAdapter(Table(0, []))
+        this.useIter = true
     }
     
     public override func valid(): Bool {
-        return valid_
+        if (useIter) {
+            return tableIter.isValid()
+        }
+        let vs = table.get(table.smallest(), 0)
+        vs.isSome()
     }
     
     public override func key(): Array<Byte> {
-        return currentKey
+        if (useIter) {
+            return tableIter.key()
+        }
+        return table.smallest()
     }
     
     public override func value(): Array<Byte> {
-        return currentValue
+        if (useIter) {
+            return tableIter.value()
+        }
+        if (let Some(vs) <- table.get(table.smallest(), 0)) {
+            return vs.value
+        }
+        return []
     }
     
     public override func next(): Unit {
-        valid_ = false
+        if (useIter) {
+            tableIter.next()
+        }
     }
     
     public override func rewind(): Unit {
-        currentKey = table.smallest()
-        updateValue(currentKey)
+        if (useIter) {
+            tableIter.seekFirst()
+        }
     }
     
     public override func seek(key: Array<Byte>): Unit {
-        currentKey = key
-        updateValue(key)
-    }
-    
-    private func updateValue(key: Array<Byte>): Unit {
-        let vs = table.get(key, 0)
-        if (let Some(v) <- vs) {
-            currentValue = v.value
-            valid_ = true
-        } else {
-            valid_ = false
+        if (useIter) {
+            tableIter.seek(key)
         }
     }
+}
+
+class EmptyTableIter <: TableIter {
+    public func seekFirst(): Unit {}
+    public func seekLast(): Unit {}
+    public func seek(key: Array<Byte>): Unit {}
+    public func next(): Unit {}
+    public func prev(): Unit {}
+    public func isValid(): Bool { false }
+    public func key(): Array<Byte> { [] }
+    public func value(): Array<Byte> { [] }
+    public func valueStruct(): ?ValueStruct { None }
 }

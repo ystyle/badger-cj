@@ -85,7 +85,7 @@ protected class Table {
         }
     }
     
-    public func newIterator(): TableIterator {
+    public func newIterator(): TableIter {
         return TableIterator(this)
     }
     

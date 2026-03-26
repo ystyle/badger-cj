@@ -5,7 +5,7 @@ import std.collection.*
 /**
  * TableIterator - Table 迭代器
  */
-protected class TableIterator {
+protected class TableIterator <: TableIter {
     private let table: Table
     private var blockIdx: Int64
     private var blockIter: BlockIterator
@@ -14,14 +14,22 @@ protected class TableIterator {
         this.table = table
         this.blockIdx = 0
         this.blockIter = BlockIterator([], [])
-        seekToFirst()
+        seekFirst()
     }
     
-    public func seekToFirst(): Unit {
+    public func seekFirst(): Unit {
         blockIdx = 0
         if (table.numBlocks() > 0) {
             blockIter = table.blockIterator(0)
             blockIter.seekToFirst()
+        }
+    }
+    
+    public func seekLast(): Unit {
+        blockIdx = table.numBlocks() - 1
+        if (blockIdx >= 0) {
+            blockIter = table.blockIterator(blockIdx)
+            blockIter.seekToLast()
         }
     }
     
@@ -40,6 +48,17 @@ protected class TableIterator {
             if (blockIdx < table.numBlocks()) {
                 blockIter = table.blockIterator(blockIdx)
                 blockIter.seekToFirst()
+            }
+        }
+    }
+    
+    public func prev(): Unit {
+        blockIter.prev()
+        if (!blockIter.isValid()) {
+            blockIdx--
+            if (blockIdx >= 0) {
+                blockIter = table.blockIterator(blockIdx)
+                blockIter.seekToLast()
             }
         }
     }

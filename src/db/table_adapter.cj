@@ -82,4 +82,8 @@ public class TableAdapter <: TableInterface {
     protected func getTable(): Table {
         table
     }
+    
+    public func newIterator(): TableIter {
+        table.newIterator()
+    }
 }

@@ -102,7 +102,7 @@ class TableIntegrationTest {
         let iter = table.newIterator()
         
         var count: Int64 = 0
-        iter.seekToFirst()
+        iter.seekFirst()
         while (iter.isValid()) {
             count++
             iter.next()

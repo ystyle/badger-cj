@@ -309,7 +309,7 @@ protected class Compaction {
         if (let Some(adapter) <- adapterOpt) {
             let t = adapter.getTable()
             let iter = t.newIterator()
-            iter.seekToFirst()
+            iter.seekFirst()
             while (iter.isValid()) {
                 let key = iter.key()
                 if (let Some(vs) <- iter.valueStruct()) {

@@ -9,7 +9,7 @@ import badgercj.table.*
  * 将 table.TableIterator 包装成统一接口
  */
 public class TableIteratorWrapper <: SimpleIterator {
-    private let tableIter: TableIterator
+    private let tableIter: TableIter
     private var currentKey: Array<Byte>
     private var currentValue: Array<Byte>
     private var valid_: Bool
@@ -21,7 +21,7 @@ public class TableIteratorWrapper <: SimpleIterator {
         this.currentValue = []
         this.valid_ = false
         
-        tableIter.seekToFirst()
+        tableIter.seekFirst()
         updateCurrent()
     }
     
@@ -43,7 +43,7 @@ public class TableIteratorWrapper <: SimpleIterator {
     }
     
     public override func rewind(): Unit {
-        tableIter.seekToFirst()
+        tableIter.seekFirst()
         updateCurrent()
     }
     

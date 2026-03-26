@@ -116,7 +116,10 @@ protected class LevelHandler {
     public func appendIterators(iters: ArrayList<SimpleIterator>, _: Bool): Unit {
         synchronized(lock) {
             for (table in tables) {
-                iters.add(TableInterfaceIterator(table))
+                if (let Some(adapter) <- (table as TableAdapter)) {
+                    let tableIter = adapter.newIterator()
+                    iters.add(TableInterfaceIterator(tableIter))
+                }
             }
         }
     }

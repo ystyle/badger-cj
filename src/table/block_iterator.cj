@@ -101,6 +101,24 @@ protected class BlockIterator {
         }
     }
     
+    public func prev(): Unit {
+        currentIdx--
+        if (currentIdx >= 0) {
+            parseEntry()
+        } else {
+            valid = false
+        }
+    }
+    
+    public func seekToLast(): Unit {
+        currentIdx = Int64(numEntries) - 1
+        if (currentIdx >= 0) {
+            parseEntry()
+        } else {
+            valid = false
+        }
+    }
+    
     private func seekTo(idx: Int64): Unit {
         currentIdx = idx
         parseEntry()
