@@ -893,6 +893,11 @@ public class Badger <: VLogGCDB {
     protected func doneRestore(): Unit {
         let nextTs = oracle.nextTs()
         oracle.doneUntil(nextTs - 1)
+        
+        // 确保 Restore 的数据持久化到 WAL
+        if (!opt.InMemory && !opt.DisableWAL) {
+            mt.flushWAL()
+        }
     }
 }
 

@@ -223,4 +223,55 @@ class BackupTest {
             } catch (_) {}
         }
     }
+    
+    @TestCase
+    func testRestoreWithWALRecovery(): Unit {
+        let testDir = "/tmp/badger_backup_wal_${DateTime.now().hashCode()}"
+        let backupDir = "/tmp/badger_backup_wal_file_${DateTime.now().hashCode()}"
+        BackupTest.cleanupTestDir(testDir)
+        BackupTest.cleanupTestDir(backupDir)
+        Directory.create(backupDir)
+        
+        // 使用 WAL（不设置 disableWAL）
+        let config = Config(dir: testDir, memTableSize: 64 * 1024u64)
+        let db = Badger.open(config)
+        
+        db.update { txn =>
+            txn.set("wal_key1".toArray(), "wal_value1".toArray())
+            txn.set("wal_key2".toArray(), "wal_value2".toArray())
+        }
+        
+        let backupPath = "${backupDir}/backup_wal.data"
+        let file = File(backupPath, OpenMode.Write)
+        let _ = db.Backup(file)
+        
+        db.close()
+        BackupTest.cleanupTestDir(testDir)
+        
+        // Restore 到新数据库
+        let db2 = Badger.open(config)
+        
+        let restoreFile = File(backupPath, OpenMode.Read)
+        db2.Restore(restoreFile)
+        
+        // 验证数据存在
+        let v1 = db2.view { txn => txn.get("wal_key1".toArray()) }
+        let v2 = db2.view { txn => txn.get("wal_key2".toArray()) }
+        @Assert(v1.isSome())
+        @Assert(v2.isSome())
+        
+        // 不调用 close()，模拟崩溃
+        // 直接重新打开，验证 WAL 恢复
+        let db3 = Badger.open(config)
+        
+        let v3 = db3.view { txn => txn.get("wal_key1".toArray()) }
+        let v4 = db3.view { txn => txn.get("wal_key2".toArray()) }
+        
+        @Assert(v3.isSome())
+        @Assert(v4.isSome())
+        
+        db3.close()
+        BackupTest.cleanupTestDir(testDir)
+        BackupTest.cleanupTestDir(backupDir)
+    }
 }
