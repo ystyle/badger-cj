@@ -84,6 +84,64 @@ db.close()
 | `withDetectConflicts(bool)` | 冲突检测 |
 | `withInMemory(bool)` | 纯内存模式 |
 | `withCompression(type)` | 压缩类型（None/Snappy） |
+| `withAutoCloseOnExit(bool)` | 进程退出时自动关闭（默认 false） |
+
+### 进程退出时自动关闭
+
+对于服务器应用，`close()` 可能没有合适的调用位置。`Config.AutoCloseOnExit` 可以在进程退出时自动关闭数据库。
+
+```cangjie
+// 启用自动关闭
+let opt = Config(dir: "./data")
+    .withAutoCloseOnExit(true)
+let db = Badger.open(opt)
+
+// 服务器运行...
+server.listen()  // 阻塞，没有地方调用 db.close()
+
+// 进程退出时自动调用 db.close()
+```
+
+**注意事项：**
+- 默认关闭，需要手动启用
+- `close()` 是幂等的，多次调用安全
+- 不影响 `kill -9` 等强制终止（数据依赖 WAL 恢复）
+
+**手动使用 atExit：**
+
+如果不启用 `AutoCloseOnExit`，可以手动注册：
+
+```cangjie
+import std.env.atExit
+
+let db = Badger.open(Config(dir: "./data"))
+
+// 手动注册退出回调
+atExit() {
+    db.close()
+}
+
+// 或者使用 Holder 模式管理多个资源
+class DbHolder {
+    private var db: ?Badger = None
+    private var closed = false
+    
+    public func set(d: Badger): Unit { db = Some(d) }
+    
+    public func close(): Unit {
+        if (closed) { return }
+        closed = true
+        match (db) {
+            case Some(d) => d.close()
+            case _ => ()
+        }
+    }
+}
+
+let holder = DbHolder()
+holder.set(db)
+atExit() { holder.close() }
+```
 
 ### InMemory 模式
 
@@ -413,6 +471,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `disableWAL` | false | 禁用 WAL（性能测试用） |
 | `detectConflicts` | true | 启用 SSI 冲突检测 |
 | `inMemory` | false | 纯内存模式（不持久化） |
+| `autoCloseOnExit` | false | 进程退出时自动关闭 |
 
 ## 性能
 
