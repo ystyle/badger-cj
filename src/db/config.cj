@@ -14,6 +14,7 @@ public class Config {
     public let UseIoUring: Bool
     public let InMemory: Bool
     public let Compression: CompressionType
+    public let AutoCloseOnExit: Bool
     
     public init(
         dir!: String = "",
@@ -26,7 +27,8 @@ public class Config {
         bloomFalsePositive!: Float64 = 0.01,
         useIoUring!: Bool = true,
         inMemory!: Bool = false,
-        compression!: CompressionType = CompressionType.None
+        compression!: CompressionType = CompressionType.None,
+        autoCloseOnExit!: Bool = false
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -37,6 +39,7 @@ public class Config {
         this.UseIoUring = useIoUring
         this.InMemory = inMemory
         this.Compression = compression
+        this.AutoCloseOnExit = autoCloseOnExit
         
         // InMemory 模式：ValueThreshold 设为最大值，所有数据进 LSM
         if (inMemory) {
@@ -60,7 +63,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -76,7 +80,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -92,7 +97,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -108,7 +114,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -124,7 +131,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -140,7 +148,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -156,7 +165,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -172,7 +182,8 @@ public class Config {
             bloomFalsePositive: fp,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -188,7 +199,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: use,
             inMemory: this.InMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -204,7 +216,8 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: inMemory,
-            compression: this.Compression
+            compression: this.Compression,
+            autoCloseOnExit: this.AutoCloseOnExit
         )
     }
     
@@ -220,7 +233,25 @@ public class Config {
             bloomFalsePositive: this.BloomFalsePositive,
             useIoUring: this.UseIoUring,
             inMemory: this.InMemory,
-            compression: compression
+            compression: compression,
+            autoCloseOnExit: this.AutoCloseOnExit
+        )
+    }
+    
+    public func withAutoCloseOnExit(autoClose: Bool): Config {
+        Config(
+            dir: this.Dir,
+            memTableSize: this.MemTableSize,
+            valueThreshold: this.ValueThreshold,
+            maxLevels: this.MaxLevels,
+            numLevelZeroTables: this.NumLevelZeroTables,
+            disableWAL: this.DisableWAL,
+            detectConflicts: this.DetectConflicts,
+            bloomFalsePositive: this.BloomFalsePositive,
+            useIoUring: this.UseIoUring,
+            inMemory: this.InMemory,
+            compression: this.Compression,
+            autoCloseOnExit: autoClose
         )
     }
     

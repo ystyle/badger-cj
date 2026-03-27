@@ -6,6 +6,7 @@ import std.collection.*
 import std.time.*
 import std.io.*
 import std.convert.Parsable
+import std.env.atExit
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
@@ -151,11 +152,23 @@ public class Badger <: VLogGCDB {
         let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
         db.startCompactor()
+        
+        // 注册进程退出时自动关闭
+        if (opt.AutoCloseOnExit) {
+            atExit() {
+                db.close()
+            }
+        }
+        
         return db
     }
     
     public func close(): Unit {
-        running.store(false)
+        // 幂等检查：如果已经关闭则直接返回
+        if (!running.compareAndSwap(true, false)) {
+            return
+        }
+        
         writeCh.close()
         if (let Some(p) <- pipeline) {
             p.close()

@@ -328,4 +328,52 @@ class CrashRecoveryTest {
         
         cleanupDir(dir)
     }
+    
+    @TestCase
+    func testCloseIsIdempotent() {
+        let dir = "/tmp/badger_close_multi_test"
+        cleanupDir(dir)
+        
+        let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
+        let db = Badger.open(opt)
+        
+        db.update({ txn =>
+            txn.set("multi_close_key".toArray(), "multi_close_value".toArray())
+        })
+        
+        // 多次调用 close() 应该是安全的
+        db.close()
+        db.close()
+        db.close()
+        
+        let db2 = Badger.open(opt)
+        @Assert(db2.get("multi_close_key".toArray()).isSome(), true)
+        db2.close()
+        
+        cleanupDir(dir)
+    }
+    
+    @TestCase
+    func testAutoCloseOnExitDefaultDisabled() {
+        let opt = Config(dir: "/tmp/test", memTableSize: 64 * 1024u64)
+        @Assert(opt.AutoCloseOnExit, false)
+    }
+    
+    @TestCase
+    func testAutoCloseOnExitCanBeEnabled() {
+        let opt = Config(dir: "/tmp/test", memTableSize: 64 * 1024u64, autoCloseOnExit: true)
+        @Assert(opt.AutoCloseOnExit, true)
+    }
+    
+    @TestCase
+    func testWithAutoCloseOnExit() {
+        let opt1 = Config(dir: "/tmp/test", memTableSize: 64 * 1024u64)
+        @Assert(opt1.AutoCloseOnExit, false)
+        
+        let opt2 = opt1.withAutoCloseOnExit(true)
+        @Assert(opt2.AutoCloseOnExit, true)
+        
+        let opt3 = opt2.withAutoCloseOnExit(false)
+        @Assert(opt3.AutoCloseOnExit, false)
+    }
 }
