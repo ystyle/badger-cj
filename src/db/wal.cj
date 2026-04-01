@@ -111,9 +111,41 @@ public class WAL {
     protected func replay(mt: MemTable): Unit {
         let entries = readAll()
         
+        var pendingTxnEntries = ArrayList<(Array<Byte>, ValueStruct)>()
+        var lastTxnTs: UInt64 = 0
+        
         for (entry in entries) {
             let vs = ValueStruct.decode(entry.value)
-            mt.put(entry.key, vs)
+            
+            if (vs.isFinTxn()) {
+                let txnTs = parseTs(entry.key)
+                if (txnTs == lastTxnTs) {
+                    for ((key, value) in pendingTxnEntries) {
+                        let cleanVs = value.clearTxnMarks()
+                        mt.put(key, cleanVs)
+                    }
+                }
+                pendingTxnEntries.clear()
+                lastTxnTs = 0
+            } else if (vs.isTxnEntry()) {
+                let txnTs = parseTs(entry.key)
+                if (lastTxnTs == 0) {
+                    lastTxnTs = txnTs
+                }
+                if (txnTs == lastTxnTs) {
+                    pendingTxnEntries.add((entry.key, vs))
+                } else {
+                    pendingTxnEntries.clear()
+                    pendingTxnEntries.add((entry.key, vs))
+                    lastTxnTs = txnTs
+                }
+            } else {
+                if (lastTxnTs != 0) {
+                    pendingTxnEntries.clear()
+                    lastTxnTs = 0
+                }
+                mt.put(entry.key, vs)
+            }
         }
     }
     
