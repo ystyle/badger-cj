@@ -472,6 +472,31 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `detectConflicts` | true | 启用 SSI 冲突检测 |
 | `inMemory` | false | 纯内存模式（不持久化） |
 | `autoCloseOnExit` | false | 进程退出时自动关闭 |
+| `syncWrites` | false | 每次写入后 fsync，确保严格持久性 |
+
+## 事务 ACID 特性
+
+### 原子性 (Atomicity)
+
+- 所有事务条目使用 `bitTxn` 标记
+- 事务结束写入 `bitFinTxn` 标记
+- 崩溃恢复时，未完成事务自动丢弃
+
+### 一致性 (Consistency)
+
+- MVCC 多版本并发控制
+- SSI 冲突检测
+
+### 隔离性 (Isolation)
+
+- Snapshot Isolation 快照隔离
+- 事务内读取一致性视图
+
+### 持久性 (Durability)
+
+- WAL 先写机制
+- `syncWrites=true` 时每次写入后 fsync
+- 进程崩溃后数据可从 WAL 恢复
 
 ## 性能
 

@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-03-26  
-**当前阶段：** ✅ 迭代器架构重构完成
+**最后更新：** 2026-04-01  
+**当前阶段：** ✅ 事务原子性修复完成
 
 ---
 
@@ -9,13 +9,38 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 293/293 通过 ✅ |
+| **测试** | 313/313 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 
 ---
 
 ## 已完成阶段
+
+### 事务原子性修复 ✅ (2026-04-01)
+
+| 任务 | 说明 |
+|------|------|
+| bitTxn/bitFinTxn 标记 | 事务条目标记 0x40，结束标记 0x80 |
+| TxnKey 常量 | "!badger!txn" 用于事务结束条目 |
+| ValueStruct 方法 | isTxnEntry/isFinTxn/withTxnMark/clearTxnMarks |
+| 事务提交流程 | 所有条目添加 bitTxn，最后追加 bitFinTxn |
+| WAL replay | 事务边界处理，未完成事务自动丢弃 |
+| SyncWrites 配置 | 每次写入后 fsync，严格持久性 |
+| 迭代器修复 | 跳过 bitFinTxn 条目 |
+
+**测试验收：**
+- `testTransactionMarkerWritten` - 验证事务标记写入
+- `testIncompleteTransactionDiscarded` - 未完成事务丢弃
+- `testCompleteTransactionRecovered` - 完整事务恢复
+- `testSyncWritesDurability` - SyncWrites 持久性
+- `testMultipleTransactionsRecovery` - 多事务恢复
+
+**ACID 特性：**
+- 原子性：bitTxn/bitFinTxn 标记 + WAL replay 边界处理
+- 一致性：MVCC + SSI 冲突检测
+- 隔离性：Snapshot Isolation
+- 持久性：WAL + SyncWrites 选项
 
 ### 迭代器架构重构 ✅ (2026-03-26)
 
