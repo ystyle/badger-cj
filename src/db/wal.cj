@@ -75,6 +75,17 @@ public class WAL {
         }
     }
     
+    public func sync(): Unit {
+        lock.lock()
+        try {
+            if (let Some(f) <- file) {
+                f.flush()
+            }
+        } finally {
+            lock.unlock()
+        }
+    }
+    
     public func readAll(): ArrayList<LogEntry> {
         lock.lock()
         

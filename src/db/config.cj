@@ -15,6 +15,7 @@ public struct Config {
     public var InMemory: Bool
     public var Compression: CompressionType
     public var AutoCloseOnExit: Bool
+    public var SyncWrites: Bool
     
     public init(
         dir!: String = "",
@@ -28,7 +29,8 @@ public struct Config {
         useIoUring!: Bool = true,
         inMemory!: Bool = false,
         compression!: CompressionType = CompressionType.None,
-        autoCloseOnExit!: Bool = false
+        autoCloseOnExit!: Bool = false,
+        syncWrites!: Bool = false
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -40,6 +42,7 @@ public struct Config {
         this.InMemory = inMemory
         this.Compression = compression
         this.AutoCloseOnExit = autoCloseOnExit
+        this.SyncWrites = syncWrites
         
         // InMemory 模式：ValueThreshold 设为最大值，所有数据进 LSM
         if (inMemory) {
@@ -125,6 +128,12 @@ public struct Config {
     public func withAutoCloseOnExit(autoClose: Bool): Config {
         var conf = this
         conf.AutoCloseOnExit = autoClose
+        conf
+    }
+    
+    public func withSyncWrites(sync: Bool): Config {
+        var conf = this
+        conf.SyncWrites = sync
         conf
     }
     

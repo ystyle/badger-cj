@@ -58,6 +58,9 @@ protected class MemTable {
         if (!opt.DisableWAL && !replaying.load()) {
             if (let Some(w) <- wal) {
                 w.write(key, vs)
+                if (opt.SyncWrites) {
+                    w.sync()
+                }
             }
         }
         
