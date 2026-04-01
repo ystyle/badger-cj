@@ -168,13 +168,20 @@ public class Badger <: VLogGCDB {
             return
         }
         
+        // 1. 先关闭写入通道
         writeCh.close()
-        if (let Some(p) <- pipeline) {
-            p.close()
-        }
+        
+        // 2. 等待 flushLoop 处理完 writeCh 中的请求
         if (let Some(fut) <- flushFut) {
             fut.get()
         }
+        
+        // 3. 关闭 pipeline（处理完队列中的请求）
+        if (let Some(p) <- pipeline) {
+            p.close()
+        }
+        
+        // 4. 等待 compactor 结束
         if (let Some(fut) <- compactorFut) {
             fut.get()
         }

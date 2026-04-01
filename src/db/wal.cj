@@ -107,10 +107,15 @@ public class WAL {
             }
             
             var offset: Int64 = 0
-            while (offset < fileLength) {
-                let (entry, entrySize) = LogEntry.decode(data, offset)
-                entries.add(entry)
-                offset += entrySize
+            while (offset + 9 <= fileLength) {  // 最小 entry 大小是 9 字节
+                try {
+                    let (entry, entrySize) = LogEntry.decode(data, offset)
+                    entries.add(entry)
+                    offset += entrySize
+                } catch (e: Exception) {
+                    // 损坏的条目，跳过并停止解析
+                    break
+                }
             }
             
             return entries
