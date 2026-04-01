@@ -66,6 +66,29 @@ public class ValueStruct {
         return (meta & Meta.bitValuePointer) != 0
     }
     
+    public func isTxnEntry(): Bool {
+        return (meta & Meta.bitTxn) != 0
+    }
+    
+    public func isFinTxn(): Bool {
+        return (meta & Meta.bitFinTxn) != 0
+    }
+    
+    public func withTxnMark(): ValueStruct {
+        return ValueStruct(value, meta: meta | Meta.bitTxn, version: version, 
+                          expiresAt: expiresAt, userMeta: userMeta)
+    }
+    
+    public func withFinTxnMark(): ValueStruct {
+        return ValueStruct(value, meta: meta | Meta.bitFinTxn, version: version, 
+                          expiresAt: expiresAt, userMeta: userMeta)
+    }
+    
+    public func clearTxnMarks(): ValueStruct {
+        return ValueStruct(value, meta: meta & (0xFF ^ (Meta.bitTxn | Meta.bitFinTxn)), version: version, 
+                          expiresAt: expiresAt, userMeta: userMeta)
+    }
+    
     public func estimateSize(): Int64 {
         return Int64(value.size) + 10 + 8
     }
