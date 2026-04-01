@@ -3,6 +3,8 @@ package badgercj.db
 import std.collection.*
 import std.sync.*
 import std.overflow.*
+import badgercj.table.Meta
+import badgercj.table.ValueStruct
 import badgercj.utils.{hashKey, keysEqual}
 
 let TxnMetaValue: Byte = 0x00
@@ -148,9 +150,14 @@ public class Transaction {
         
         let req = db.reqPool.get(commitTs)
         for (entry in writes) {
+            let txnMeta = entry.entryMeta | Meta.bitTxn
             req.addEntry(entry.key, entry.value, isDelete: entry.isDelete(), 
-                         meta: entry.entryMeta, userMeta: entry.userMeta, expiresAt: entry.expiresAt)
+                         meta: txnMeta, userMeta: entry.userMeta, expiresAt: entry.expiresAt)
         }
+        
+        let txnKeyWithTs = keyWithTs(db.getTxnKey(), commitTs)
+        let finTsBytes = commitTs.toString().toArray()
+        req.addEntry(txnKeyWithTs, finTsBytes, meta: Meta.bitFinTxn)
         
         db.writeCh.add(req)
         req.wait()

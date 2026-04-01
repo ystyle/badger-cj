@@ -14,8 +14,6 @@ import badgercj.io_uring.*
 import badgercj.utils.{compareKeys, hasPrefix}
 import std.collection.concurrent.*
 
-private let MetaTxn: Byte = 0x02
-private let MetaFinTxn: Byte = 0x04
 private let TxnKey: Array<Byte> = [0x21, 0x62, 0x61, 0x64, 0x67, 0x65, 0x72, 0x21, 0x74, 0x78, 0x6e]
 
 public class Badger <: VLogGCDB {
@@ -395,6 +393,7 @@ public class Badger <: VLogGCDB {
     }
     
     protected func getVersion(): UInt64 { version.load() }
+    internal func getTxnKey(): Array<Byte> { TxnKey }
     
     protected func flushWAL(): Unit {
         mt.flushWAL()
@@ -853,7 +852,7 @@ public class Badger <: VLogGCDB {
                 
                 let val = item.valueCopy()
                 
-                let meta: Byte = item.meta & (!(MetaTxn | MetaFinTxn | Meta.bitValuePointer))
+                let meta: Byte = item.meta & (!(Meta.bitTxn | Meta.bitFinTxn | Meta.bitValuePointer))
                 
                 list.add(StreamKV(
                     key: item.keyCopy(),
