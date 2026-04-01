@@ -138,19 +138,20 @@ public class WAL {
                 }
                 pendingTxnEntries.clear()
                 lastTxnTs = 0
-            } else if (vs.isTxnEntry()) {
-                let txnTs = parseTs(entry.key)
-                if (lastTxnTs == 0) {
-                    lastTxnTs = txnTs
-                }
-                if (txnTs == lastTxnTs) {
-                    pendingTxnEntries.add((entry.key, vs))
-                } else {
-                    pendingTxnEntries.clear()
-                    pendingTxnEntries.add((entry.key, vs))
-                    lastTxnTs = txnTs
-                }
+} else if (vs.isTxnEntry()) {
+            let txnTs = parseTs(entry.key)
+            if (lastTxnTs == 0) {
+                lastTxnTs = txnTs
+                pendingTxnEntries.add((entry.key, vs))
+            } else if (txnTs == lastTxnTs) {
+                pendingTxnEntries.add((entry.key, vs))
             } else {
+                // 新事务开始，丢弃未完成的旧事务
+                pendingTxnEntries.clear()
+                lastTxnTs = txnTs
+                pendingTxnEntries.add((entry.key, vs))
+            }
+        } else {
                 if (lastTxnTs != 0) {
                     pendingTxnEntries.clear()
                     lastTxnTs = 0
