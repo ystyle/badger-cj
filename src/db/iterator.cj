@@ -149,6 +149,14 @@ public class Iterator {
             // 尝试从 value 解析 ValueStruct 以获取 meta
             let vsOpt = tryDecodeValueStruct(value)
             
+            // 跳过事务结束标记（bitFinTxn）
+            if (let Some(vs) <- vsOpt) {
+                if (vs.isFinTxn()) {
+                    iitr.next()
+                    continue
+                }
+            }
+            
             // 检查删除或过期
             if (let Some(vs) <- vsOpt) {
                 if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
