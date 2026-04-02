@@ -309,7 +309,7 @@ db.view({ txn =>
 
 ```cangjie
 db.view({ txn =>
-    let iter = txn.newIterator(IteratorOptions())
+    let iter = txn.newIterator(opt: IteratorOptions())
     iter.rewind()
     while (iter.valid()) {
         let item = iter.item()
@@ -331,7 +331,7 @@ for (item in db.scan(prefix)) {
 // 方式 2：使用 IteratorOptions.prefix
 db.view({ txn =>
     let opt = IteratorOptions(prefix: "user:".toArray())
-    let iter = txn.newIterator(opt)
+    let iter = txn.newIterator(opt: opt)
     iter.rewind()
     while (iter.valid()) {
         let item = iter.item()
@@ -358,7 +358,7 @@ db.view({ txn =>
 ```cangjie
 db.view({ txn =>
     let opt = IteratorOptions(reverse: true)
-    let iter = txn.newIterator(opt)
+    let iter = txn.newIterator(opt: opt)
     iter.rewind()
     while (iter.valid()) {
         let item = iter.item()
@@ -380,7 +380,7 @@ if (let Some(item) <- snapshot.get("key".toArray())) {
 }
 
 // 快照迭代器
-let iter = snapshot.newIterator(IteratorOptions())
+let iter = snapshot.newIterator(opt: IteratorOptions())
 // ... 使用迭代器
 
 // 释放快照
