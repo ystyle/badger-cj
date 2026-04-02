@@ -271,7 +271,13 @@ public class Badger <: VLogGCDB {
         while (iter.hasNext()) {
             if (let Some(e) <- iter.next()) {
                 let (key, vs) = e
-                builder.add(key, vs)
+                // 跳过事务结束标记（bitFinTxn）
+                if (vs.isFinTxn()) {
+                    continue
+                }
+                // 清除 bitTxn 标记（已提交的事务条目）
+                let cleanVs = vs.clearTxnMarks()
+                builder.add(key, cleanVs)
             }
         }
         let data = builder.finish()
