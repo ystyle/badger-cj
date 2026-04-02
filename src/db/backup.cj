@@ -13,9 +13,6 @@ private let FlushThreshold: Int64 = 100 << 20
 private let MaxBatchCount: Int64 = 1000
 private let MaxBatchSize: Int64 = 16 << 20
 
-private let MetaTxn: Byte = 0x02
-private let MetaFinTxn: Byte = 0x04
-
 protected class BackupWriter {
     private let writer: ByteBuffer
     private var maxVersion: UInt64
