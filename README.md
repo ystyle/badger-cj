@@ -322,7 +322,13 @@ db.view({ txn =>
 ### 前缀扫描
 
 ```cangjie
-// 方式 1：使用 IteratorOptions.prefix
+// 方式 1：使用 for-in（推荐，代码简洁）
+let prefix = "user:".toArray()
+for (item in db.scan(prefix)) {
+    println("${String.fromUtf8(item.key)} = ${String.fromUtf8(item.value)}")
+}
+
+// 方式 2：使用 IteratorOptions.prefix
 db.view({ txn =>
     let opt = IteratorOptions(prefix: "user:".toArray())
     let iter = txn.newIterator(opt)
@@ -334,7 +340,7 @@ db.view({ txn =>
     }
 })
 
-// 方式 2：使用 validForPrefix（更灵活）
+// 方式 3：使用 validForPrefix（更灵活）
 db.view({ txn =>
     let iter = txn.newIterator()
     let prefix = "user:".toArray()
@@ -528,6 +534,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | **事务** | Begin/Commit/Rollback/Update/View |
 | **SSI 隔离** | 可串行化快照隔离 + 冲突检测 |
 | **迭代器** | 前向/反向/Seek/前缀过滤/validForPrefix |
+| **PrefixIterable** | 支持 for-in 循环的前缀迭代器 |
 | **快照** | 一致性快照读 |
 | **MVCC** | 多版本并发控制 |
 | **WAL** | Write-Ahead Log + 崩溃恢复 |
@@ -566,3 +573,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 - [基准测试](docs/benchmark-report.md) - 性能测试报告
 - [进度跟踪](docs/progress-tracking.md) - 项目进度和实现细节
 - [设计文档](docs/plans/) - 各阶段设计文档
+
+## 相关项目
+- [bstrom-cj](https://atomgit.com/ystyle/badger-storm): orm操作层使用声明式查询构建器查询数据
+- [sunku-cj](https://atomgit.com/ystyle/sunku-cj): redis指令格式的操作层

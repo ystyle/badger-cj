@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-04-01  
-**当前阶段：** ✅ 事务原子性修复完成
+**最后更新：** 2026-04-02  
+**当前阶段：** ✅ PrefixIterable 功能完成
 
 ---
 
@@ -9,13 +9,35 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 313/313 通过 ✅ |
+| **测试** | 319/319 通过 ✅ |
 | **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 
 ---
 
 ## 已完成阶段
+
+### PrefixIterable 功能 ✅ (2026-04-02)
+
+| 任务 | 说明 |
+|------|------|
+| PrefixIterable 类 | 实现 `StdIterable<Item>` 接口，支持 for-in |
+| PrefixIterator 类 | 实现 `StdIterator<Item>` 接口，`next()` 返回 `Option<Item>` |
+| Badger.scan() 方法 | 返回 `PrefixIterable`，支持前缀范围迭代 |
+| Item 属性修复 | `key`/`value`/`version` 是属性，不是方法 |
+
+**关键发现：**
+- 仓颉 `StdIterable<T>` 需要 `iterator()` 返回 `StdIterator<T>`
+- 仓颉 `StdIterator<T>` 的 `next()` 返回 `Option<T>`，不需要 `mut` 修饰符
+- Item 类的 `key`, `value`, `version` 是 `public let` 属性，访问用 `.key` 而不是 `.key()`
+
+**使用示例：**
+```cangjie
+let iterable = db.scan(Array<Byte>(prefix, repeat: 0))
+for (item in iterable) {
+    println("key: ${item.key}, value: ${item.value}")
+}
+```
 
 ### 事务原子性修复 ✅ (2026-04-01)
 
@@ -287,6 +309,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-04-02 | v7.15 | PrefixIterable 完成：StdIterable/StdIterator 接口、scan() 支持 for-in、Item 属性访问修复、319 测试通过 |
 | 2026-03-26 | v7.14 | 迭代器架构重构：TableIterWrapper 支持 reverse、删除旧 TableIteratorWrapper、LevelHandler 参数修复、293 测试通过 |
 | 2026-03-21 | v7.13 | P1 Backup/Restore 完成：全量/增量备份、TTL/UserMeta 支持、setRaw() 添加 expiresAt 参数、270 测试通过 |
 | 2026-03-21 | v7.12 | P1 代码重构：提取 utils/key_utils.cj 和 utils/byte_utils.cj，删除 15+ 处重复代码 |

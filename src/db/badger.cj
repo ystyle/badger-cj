@@ -698,6 +698,20 @@ public class Badger <: VLogGCDB {
         lc.getLevelInfo()
     }
     
+    /**
+     * scan - 创建支持 for-in 的迭代器
+     * 
+     * 用法：
+     * ```cangjie
+     * for (item in db.scan("user_".toArray())) {
+     *     println(item.key())
+     * }
+     * ```
+     */
+    public func scan(prefix: Array<Byte>, reverse!: Bool = false, allVersions!: Bool = false): PrefixIterable {
+        PrefixIterable(this, prefix, reverse: reverse, allVersions: allVersions)
+    }
+    
     protected func ranges(prefix: Array<Byte>, numRanges: Int64): ArrayList<KeyRange> {
         var splits = ArrayList<Array<Byte>>()
         let tables = this.tables()
