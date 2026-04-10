@@ -28,7 +28,7 @@ class OracleTest {
         let readTs = oracle.readTs()
         var txn = TxnState(readTs)
         
-        let commitTs = oracle.newCommitTs(txn)
+        let commitTs = oracle.newCommitTsOrThrow(txn)
         @Assert(commitTs >= readTs, true)
         
         oracle.doneCommit(commitTs)
@@ -44,7 +44,7 @@ class OracleTest {
         txn1.conflictKeys.add(100)
         txn1.conflictKeys.add(200)
         
-        let commitTs1 = oracle.newCommitTs(txn1)
+        let commitTs1 = oracle.newCommitTsOrThrow(txn1)
         oracle.doneCommit(commitTs1)
         
         sleep(Duration.millisecond * 50)
@@ -54,7 +54,7 @@ class OracleTest {
         txn2.conflictKeys.add(300)
         txn2.conflictKeys.add(400)
         
-        let commitTs2 = oracle.newCommitTs(txn2)
+        let commitTs2 = oracle.newCommitTsOrThrow(txn2)
         oracle.doneCommit(commitTs2)
         
         @Assert(commitTs2 > commitTs1, true)
@@ -72,7 +72,7 @@ class OracleTest {
         txn1.conflictKeys.add(200)
         txn1.reads.add(50)
         
-        let commitTs1 = oracle.newCommitTs(txn1)
+        let commitTs1 = oracle.newCommitTsOrThrow(txn1)
         oracle.doneCommit(commitTs1)
         
         sleep(Duration.millisecond * 50)
@@ -82,14 +82,8 @@ class OracleTest {
         txn2.conflictKeys.add(150)
         txn2.reads.add(100)
         
-        var conflictDetected = false
-        try {
-            oracle.newCommitTs(txn2)
-        } catch (e: TxnConflict) {
-            conflictDetected = true
-        }
-        
-        @Assert(conflictDetected, true)
+        let commitTs2Opt = oracle.newCommitTs(txn2)
+        @Assert(commitTs2Opt.isNone(), true)
         
         oracle.stop()
     }
@@ -103,7 +97,7 @@ class OracleTest {
             let txn = TxnState(readTs)
             txn.conflictKeys.add(UInt64(i))
             
-            let commitTs = oracle.newCommitTs(txn)
+            let commitTs = oracle.newCommitTsOrThrow(txn)
             oracle.doneCommit(commitTs)
         }
         
@@ -120,7 +114,7 @@ class OracleTest {
         let txn = TxnState(readTs)
         txn.conflictKeys.add(UInt64(1))
         
-        let commitTs = oracle.newCommitTs(txn)
+        let commitTs = oracle.newCommitTsOrThrow(txn)
         oracle.doneCommit(commitTs)
         
         sleep(Duration.millisecond * 50)
@@ -140,7 +134,7 @@ class OracleTest {
             let txn = TxnState(readTs)
             txn.conflictKeys.add(UInt64(i * 10))
             
-            let commitTs = oracle.newCommitTs(txn)
+            let commitTs = oracle.newCommitTsOrThrow(txn)
             oracle.doneCommit(commitTs)
             commits.add(commitTs)
         }
@@ -159,7 +153,7 @@ class OracleTest {
         var txn = TxnState(0)
         txn.commitTs = 100
         
-        let commitTs = oracle.newCommitTs(txn)
+        let commitTs = oracle.newCommitTsOrThrow(txn)
         @Assert(commitTs, 100)
         
         oracle.stop()
@@ -174,7 +168,7 @@ class OracleTest {
         txn1.conflictKeys.add(100)
         txn1.reads.add(100)
         
-        let commitTs1 = oracle.newCommitTs(txn1)
+        let commitTs1 = oracle.newCommitTsOrThrow(txn1)
         oracle.doneCommit(commitTs1)
         
         sleep(Duration.millisecond * 50)
@@ -184,15 +178,11 @@ class OracleTest {
         txn2.conflictKeys.add(100)
         txn2.reads.add(100)
         
-        var noError = true
-        try {
-            let commitTs2 = oracle.newCommitTs(txn2)
+        let commitTs2Opt = oracle.newCommitTs(txn2)
+        @Assert(commitTs2Opt.isSome(), true)
+        if (let Some(commitTs2) <- commitTs2Opt) {
             oracle.doneCommit(commitTs2)
-        } catch (e: TxnConflict) {
-            noError = false
         }
-        
-        @Assert(noError, true)
         
         oracle.stop()
     }

@@ -132,21 +132,27 @@ public class Transaction {
         writes.add(TxnEntry(key, [], TxnMetaDelete))
     }
     
-    public func commit(): Unit {
+    public func commit(): TxnStatus {
         if (committed || discarded) {
-            throw Exception("Transaction already committed or discarded")
+            return TxnStatus.Error("Transaction already committed or discarded")
         }
         
         if (writes.isEmpty()) {
             discard()
-            return
+            return TxnStatus.Ok
         }
         
         let txnState = TxnState(readTs)
         txnState.reads = reads
         txnState.conflictKeys = conflictKeys
         
-        commitTs = oracle.newCommitTs(txnState)
+        let tsOpt = oracle.newCommitTs(txnState)
+        if (tsOpt.isNone()) {
+            discard()
+            return TxnStatus.Conflict
+        }
+        let commitTs = tsOpt.getOrThrow()
+        this.commitTs = commitTs
         
         let req = db.reqPool.get(commitTs)
         for (entry in writes) {
@@ -165,6 +171,16 @@ public class Transaction {
         oracle.doneCommit(commitTs)
         db.reqPool.put(req)
         committed = true
+        return TxnStatus.Ok
+    }
+    
+    public func commitOrThrow(): Unit {
+        match (commit()) {
+            case TxnStatus.Ok => 
+                let _ = 0
+            case TxnStatus.Conflict => throw TxnConflict()
+            case TxnStatus.Error(msg) => throw Exception(msg)
+        }
     }
     
     public func rollback(): Unit {

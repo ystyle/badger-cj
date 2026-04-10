@@ -428,15 +428,31 @@ public class Badger <: VLogGCDB {
         }
     }
     
-    public func update<T>(fn: (Transaction) -> T): T {
+    public func update<T>(fn: (Transaction) -> T): TxnResult<T> {
         let txn = newTransaction(update: true)
+        var userResult: Option<T> = None
         try {
-            let result = fn(txn)
-            txn.commit()
-            result
+            userResult = Some(fn(txn))
         } catch (e: Exception) {
             txn.rollback()
-            throw e
+            return TxnResult.Error(e.message)
+        }
+        
+        match (txn.commit()) {
+            case TxnStatus.Ok => 
+                TxnResult.Success(userResult.getOrThrow())
+            case TxnStatus.Conflict => 
+                TxnResult.Conflict
+            case TxnStatus.Error(msg) => 
+                TxnResult.Error(msg)
+        }
+    }
+    
+    public func updateOrThrow<T>(fn: (Transaction) -> T): T {
+        match (update(fn)) {
+            case TxnResult.Success(v) => v
+            case TxnResult.Conflict => throw TxnConflict()
+            case TxnResult.Error(msg) => throw Exception(msg)
         }
     }
     

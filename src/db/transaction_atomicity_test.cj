@@ -123,7 +123,7 @@ class TransactionAtomicityTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64, syncWrites: true)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("sync_key".toArray(), "sync_value".toArray())
         })
         

@@ -19,7 +19,7 @@ class CompressionTest {
         for (i in 0..100) {
             let key = "key${i}".toArray()
             let value = Array<Byte>(1000, repeat: 0x41)
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 txn.set(key, value)
             })
         }
@@ -44,7 +44,7 @@ class CompressionTest {
             .withCompression(CompressionType.Snappy)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), Array<Byte>(100, repeat: 0x43))
             txn.set("key2".toArray(), Array<Byte>(100, repeat: 0x43))
         })

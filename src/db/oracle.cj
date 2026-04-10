@@ -104,28 +104,28 @@ protected class Oracle {
         lock.unlock()
     }
     
-    public func newCommitTs(txn: TxnState): UInt64 {
+    public func newCommitTs(txn: TxnState): Option<UInt64> {
         if (isManaged) {
             lock.lock()
             if (hasConflict(txn)) {
                 lock.unlock()
-                throw TxnConflict()
+                return None
             }
             lock.unlock()
-            return txn.commitTs
+            return Some(txn.commitTs)
         }
         
         if (!detectConflicts || txn.reads.isEmpty()) {
             let ts = nextTxnTs.fetchAdd(1)
             txnMark.begin(ts)
-            return ts
+            return Some(ts)
         }
         
         lock.lock()
         
         if (hasConflict(txn)) {
             lock.unlock()
-            throw TxnConflict()
+            return None
         }
         
         doneReadInternal(txn)
@@ -139,7 +139,14 @@ protected class Oracle {
         
         lock.unlock()
         txnMark.begin(ts)
-        return ts
+        return Some(ts)
+    }
+    
+    public func newCommitTsOrThrow(txn: TxnState): UInt64 {
+        match (newCommitTs(txn)) {
+            case Some(ts) => ts
+            case None => throw TxnConflict()
+        }
     }
     
     public func doneRead(txn: TxnState): Unit {

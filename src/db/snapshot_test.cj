@@ -14,7 +14,7 @@ class SnapshotTest {
         cleanupSnapshotDir(dir)
         let db = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64))
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
         })
@@ -27,7 +27,7 @@ class SnapshotTest {
             @Assert(v.value, "value1".toArray())
         }
         
-        db.update({ txn => txn.set("key3".toArray(), "value3".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key3".toArray(), "value3".toArray()) })
         
         let val3 = snap.get("key3".toArray())
         @Assert(val3.isNone())
@@ -43,7 +43,7 @@ class SnapshotTest {
         cleanupSnapshotDir(dir)
         let db = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64))
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
         })
@@ -62,7 +62,7 @@ class SnapshotTest {
         
         @Assert(keys.size, 2)
         
-        db.update({ txn => txn.set("key3".toArray(), "value3".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key3".toArray(), "value3".toArray()) })
         
         let keys2 = ArrayList<String>()
         iter.rewind()

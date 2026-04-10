@@ -147,7 +147,7 @@ class P1ValidForPrefixTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("prefix_a/key1".toArray(), "value1".toArray())
             txn.set("prefix_a/key2".toArray(), "value2".toArray())
             txn.set("other/key3".toArray(), "value3".toArray())
@@ -186,7 +186,7 @@ class P1ValidForPrefixTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("abc".toArray(), "value".toArray())
         })
         

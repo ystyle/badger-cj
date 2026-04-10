@@ -14,7 +14,7 @@ class InMemoryTest {
         let opt = Config(inMemory: true, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key".toArray(), "value".toArray())
         })
         
@@ -33,7 +33,7 @@ class InMemoryTest {
         let opt = Config(inMemory: true, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("k1".toArray(), "v1".toArray())
             txn.set("k2".toArray(), "v2".toArray())
         })
@@ -51,11 +51,11 @@ class InMemoryTest {
         let opt = Config(inMemory: true, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key".toArray(), "value".toArray())
         })
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.delete("key".toArray())
         })
         
@@ -69,7 +69,7 @@ class InMemoryTest {
         let opt = Config(inMemory: true, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("a".toArray(), "1".toArray())
             txn.set("b".toArray(), "2".toArray())
             txn.set("c".toArray(), "3".toArray())
@@ -96,7 +96,7 @@ class InMemoryTest {
         let opt = Config(inMemory: true, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("user:1".toArray(), "alice".toArray())
             txn.set("user:2".toArray(), "bob".toArray())
             txn.set("item:1".toArray(), "apple".toArray())
@@ -128,7 +128,7 @@ class InMemoryTest {
         for (i in 0..50) {
             let key = "key${i}".toArray()
             let value = Array<Byte>(100, repeat: 0x61)
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 txn.set(key, value)
             })
         }
@@ -151,14 +151,14 @@ class InMemoryTest {
         let opt = Config(inMemory: true, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key".toArray(), "value1".toArray())
         })
         
         let snapshot = db.newSnapshot()
         
         // 快照后修改
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key".toArray(), "value2".toArray())
         })
         

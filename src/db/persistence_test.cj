@@ -91,7 +91,7 @@ class PersistenceTest {
         
         for (cycle in 0..5) {
             let db = Badger.open(opt)
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 for (i in 0..10) {
                     txn.set("cycle${cycle}_key${i}".toArray(), "value${cycle}_${i}".toArray())
                 }
@@ -126,7 +126,7 @@ class PersistenceTest {
         let futures = ArrayList<Future<Unit>>()
         for (t in 0..4) {
             let fut = spawn {
-                db.update({ txn =>
+                db.updateOrThrow({ txn =>
                     for (i in 0..25) {
                         txn.set("thread${t}_key${i}".toArray(), "value${t}_${i}".toArray())
                     }

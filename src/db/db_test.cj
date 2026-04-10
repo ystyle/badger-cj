@@ -13,7 +13,7 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test1", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         let result = db.get("key1".toArray())
         
         if (let Some(vs) <- result) {
@@ -45,8 +45,8 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test3", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
-        db.update({ txn => txn.delete("key1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "value1".toArray()) })
+        db.updateOrThrow({ txn => txn.delete("key1".toArray()) })
         
         let result = db.get("key1".toArray())
         if (let Some(_) <- result) {
@@ -62,7 +62,7 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test4", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key1".toArray(), "value2".toArray())
         })
@@ -83,7 +83,7 @@ class DBTest {
         let opt = Config(dir: "/tmp/badger_db_test5", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             for (i in 0..10) {
                 txn.set("key${i}".toArray(), "value${i}".toArray())
             }

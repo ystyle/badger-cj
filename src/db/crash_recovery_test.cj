@@ -61,7 +61,7 @@ class CrashRecoveryTest {
             while (!stopWriting.load()) {
                 try {
                     let c = writeCount.load()
-                    db.update({ txn =>
+                    db.updateOrThrow({ txn =>
                         txn.set("key${c}".toArray(), "value${c}".toArray())
                     })
                     writeCount.fetchAdd(1)
@@ -101,7 +101,7 @@ class CrashRecoveryTest {
         let db = Badger.open(opt)
         
         for (batch in 0..5) {
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 for (i in 0..50) {
                     txn.set("batch${batch}_key${i}".toArray(), Array<Byte>(100, repeat: 0x41))
                 }
@@ -140,7 +140,7 @@ class CrashRecoveryTest {
         let db = Badger.open(opt)
         
         for (i in 0..500) {
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 txn.set("key${i}".toArray(), "value${i}".toArray())
             })
         }
@@ -192,7 +192,7 @@ class CrashRecoveryTest {
         let writerFut = spawn {
             while (writing.load()) {
                 try {
-                    db.update({ txn =>
+                    db.updateOrThrow({ txn =>
                         txn.set("concurrent_key".toArray(), "concurrent_value".toArray())
                     })
                 } catch (e: Exception) {
@@ -224,7 +224,7 @@ class CrashRecoveryTest {
         let db = Badger.open(opt)
         
         for (i in 0..200) {
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 txn.set("force_key${i}".toArray(), Array<Byte>(200, repeat: 0x42))
             })
         }
@@ -316,7 +316,7 @@ class CrashRecoveryTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("idempotent_key".toArray(), "idempotent_value".toArray())
         })
         
@@ -337,7 +337,7 @@ class CrashRecoveryTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("multi_close_key".toArray(), "multi_close_value".toArray())
         })
         

@@ -12,7 +12,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test1", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
             txn.set("key3".toArray(), "value3".toArray())
@@ -54,7 +54,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test2", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
             txn.set("key3".toArray(), "value3".toArray())
@@ -90,7 +90,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test4", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
             txn.set("key3".toArray(), "value3".toArray())
@@ -118,7 +118,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test6", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "original1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "original1".toArray()) })
         
         // 创建 update 事务
         let txn = db.newTransaction(update: true)
@@ -177,7 +177,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test9", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
             txn.set("key3".toArray(), "value3".toArray())
@@ -216,7 +216,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test11", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "version1".toArray())
             txn.set("key1".toArray(), "version2".toArray())
             txn.set("key1".toArray(), "version3".toArray())
@@ -250,7 +250,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test12", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("prefix1/key1".toArray(), "value1".toArray())
             txn.set("prefix1/key2".toArray(), "value2".toArray())
             txn.set("prefix2/other".toArray(), "value3".toArray())
@@ -283,7 +283,7 @@ class IteratorTest {
         let opt = Config(dir: "/tmp/badger_iter_test14", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
             txn.set("key3".toArray(), "value3".toArray())

@@ -23,7 +23,7 @@ class PrefixIterableTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("user_alice".toArray(), "1".toArray())
             txn.set("user_bob".toArray(), "2".toArray())
             txn.set("user_charlie".toArray(), "3".toArray())
@@ -50,7 +50,7 @@ class PrefixIterableTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("prefix1_a".toArray(), "1".toArray())
             txn.set("prefix1_b".toArray(), "2".toArray())
             txn.set("prefix2_c".toArray(), "3".toArray())
@@ -82,7 +82,7 @@ class PrefixIterableTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("foo".toArray(), "bar".toArray())
         })
         
@@ -105,7 +105,7 @@ class PrefixIterableTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("k1".toArray(), "v1".toArray())
             txn.set("k2".toArray(), "v2".toArray())
         })
@@ -133,7 +133,7 @@ class PrefixIterableTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             for (i in 0..100) {
                 txn.set("item_${i}".toArray(), "value_${i}".toArray())
             }
@@ -158,7 +158,7 @@ class PrefixIterableTest {
         let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("test_hello".toArray(), "world".toArray())
         })
         

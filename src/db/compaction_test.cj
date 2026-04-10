@@ -16,7 +16,7 @@ class CompactionTest {
         )
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             for (i in 0..30) {
                 txn.set("key${i}".toArray(), "value${i}".toArray())
             }
@@ -39,7 +39,7 @@ class CompactionTest {
         )
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             for (i in 0..20) {
                 txn.set("key${i}".toArray(), "value${i}".toArray())
             }
@@ -65,7 +65,7 @@ class CompactionTest {
         let opt = Config(dir: "/tmp/badger_compaction_test3", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.delete("key1".toArray())
         })
@@ -90,7 +90,7 @@ class CompactionTest {
         )
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key2".toArray(), "value2".toArray())
             txn.delete("key1".toArray())
@@ -119,7 +119,7 @@ class CompactionTest {
         )
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             txn.set("key1".toArray(), "value1".toArray())
             txn.set("key1".toArray(), "value2".toArray())
             txn.set("key1".toArray(), "value3".toArray())
@@ -155,7 +155,7 @@ class CompactionTest {
         let db = Badger.open(opt)
         
         for (batch in 0..3) {
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 for (i in 0..20) {
                     txn.set("batch${batch}_key${i}".toArray(), "value${batch}_${i}".toArray())
                 }
@@ -189,7 +189,7 @@ class CompactionTest {
         let db = Badger.open(opt)
         
         for (round in 0..5) {
-            db.update({ txn =>
+            db.updateOrThrow({ txn =>
                 for (i in 0..30) {
                     txn.set("round${round}_key${i}".toArray(), "value${round}_${i}".toArray())
                 }
@@ -223,7 +223,7 @@ class CompactionTest {
         let db = Badger.open(opt)
         
         for (i in 0..10) {
-            db.update({ txn => txn.set("key".toArray(), "value${i}".toArray()) })
+            db.updateOrThrow({ txn => txn.set("key".toArray(), "value${i}".toArray()) })
         }
         
         db.flushMemTable()
@@ -248,7 +248,7 @@ class CompactionTest {
         )
         let db = Badger.open(opt)
         
-        db.update({ txn =>
+        db.updateOrThrow({ txn =>
             for (i in 0..500) {
                 txn.set("key${i}".toArray(), "value${i}".toArray())
             }

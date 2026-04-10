@@ -40,7 +40,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test2", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "original".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "original".toArray()) })
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "modified".toArray())
@@ -70,7 +70,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test3", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "original".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "original".toArray()) })
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "modified".toArray())
@@ -92,7 +92,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test4", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         
         let txn = db.newTransaction()
         txn.delete("key1".toArray())
@@ -114,16 +114,11 @@ class TransactionTest {
         
         let txn = db.newTransaction()
         txn.set("key1".toArray(), "value1".toArray())
-        txn.commit()
+        let status1 = txn.commit()
+        @Assert(status1.isOk(), true)
         
-        var exceptionThrown = false
-        try {
-            txn.commit()
-        } catch (e: Exception) {
-            exceptionThrown = true
-        }
-        
-        @Assert(exceptionThrown, true)
+        let status2 = txn.commit()
+        @Assert(status2.isError(), true)
         
         db.close()
         cleanupDir("/tmp/badger_txn_test5")
@@ -163,7 +158,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test8", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         
         let txn = db.newTransaction(update: false)
         let result = txn.get("key1".toArray())
@@ -193,7 +188,7 @@ class TransactionTest {
         let opt = Config(dir: "/tmp/badger_txn_test9", memTableSize: 1024 * 1024u64)
         let db = Badger.open(opt)
         
-        db.update({ txn => txn.set("key1".toArray(), "value1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("key1".toArray(), "value1".toArray()) })
         
         let result = db.view<Array<Byte>>({ txn =>
             txn.get("key1".toArray()).getOrThrow()
