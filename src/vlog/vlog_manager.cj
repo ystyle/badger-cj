@@ -55,7 +55,7 @@ protected class VLogManager {
         this.discardChecker = None
         this.discardStats = DiscardStats(dir)
         
-        let newFile = VLogFile.create(Path("./0.vlog"), 0)
+        let newFile = VLogFile.create(dir.join("0.vlog"), 0)
         this.currentFile = newFile
         this.files[0] = newFile
     }
@@ -231,38 +231,72 @@ protected class VLogManager {
 
 /**
  * VLogFile - 单个 VLog 文件
+ *
+ * 支持两种模式：
+ * - inMemory: 使用 ArrayList<Byte> 内存缓冲
+ * - file: 写入磁盘文件（持久化模式）
  */
 public class VLogFile {
     public let fid: UInt32
     private let path: Path
+    private var file: ?File
     private let buf: ArrayList<Byte>
+    private let inMemory: Bool
     
-    private init(fid: UInt32, path: Path, buf: ArrayList<Byte>) {
+    private init(fid: UInt32, path: Path, file: ?File, buf: ArrayList<Byte>, inMemory: Bool) {
         this.fid = fid
         this.path = path
+        this.file = file
         this.buf = buf
+        this.inMemory = inMemory
     }
     
     public static func memory(fid: UInt32): VLogFile {
-        return VLogFile(fid, Path(""), ArrayList<Byte>())
+        let noFile: ?File = None
+        VLogFile(fid, Path(""), noFile, ArrayList<Byte>(), true)
     }
     
     public static func create(path: Path, fid: UInt32): VLogFile {
-        return VLogFile(fid, path, ArrayList<Byte>())
+        let parent = path.parent
+        if (parent.toString() != "" && !exists(parent)) {
+            Directory.create(parent, recursive: true)
+        }
+        let f = File(path, ReadWrite)
+        f.seek(SeekPosition.End(0))
+        VLogFile(fid, path, Some(f), ArrayList<Byte>(), false)
     }
     
     public func write(entry: LogEntry): UInt32 {
         let encoded = entry.encode()
-        let startOffset = UInt32(buf.size)
+        
+        if (!inMemory) {
+            if (let Some(f) <- file) {
+                f.seek(SeekPosition.End(0))
+                f.write(encoded)
+            }
+            return UInt32(encoded.size)
+        }
         
         for (b in encoded) {
             buf.add(b)
         }
-        
         return UInt32(encoded.size)
     }
     
     public func read(offset: UInt32, len: UInt32): LogEntry {
+        if (!inMemory) {
+            if (let Some(f) <- file) {
+                f.seek(SeekPosition.Begin(Int64(offset)))
+                let data = Array<Byte>(Int64(len), repeat: 0)
+                let bytesRead = f.read(data)
+                if (bytesRead != Int64(len)) {
+                    throw Exception("VLogFile.read: expected ${len} bytes, got ${bytesRead}")
+                }
+                let (entry, _) = LogEntry.decode(data, 0)
+                return entry
+            }
+        }
+        
         let start = Int64(offset)
         let end = start + Int64(len)
         let data = buf.toArray()[start..end]
@@ -271,20 +305,57 @@ public class VLogFile {
     }
     
     public func size(): UInt32 {
+        if (!inMemory) {
+            if (let Some(f) <- file) {
+                return UInt32(f.length)
+            }
+        }
         return UInt32(buf.size)
     }
     
     public func close(): Unit {
+        if (!inMemory) {
+            if (let Some(f) <- file) {
+                f.close()
+                file = None
+            }
+        }
     }
     
     public func sync(): Unit {
+        if (!inMemory) {
+            if (let Some(f) <- file) {
+                f.flush()
+            }
+        }
     }
     
     public func iterate(callback: (LogEntry, UInt32) -> Bool): Unit {
-        var offset: UInt32 = 0
-        let data = buf.toArray()
-        let totalSize = Int64(data.size)
+        let data: Array<Byte>
+        let totalSize: Int64
         
+        if (!inMemory) {
+            if (let Some(f) <- file) {
+                f.seek(SeekPosition.Begin(0))
+                let fileLen = f.length
+                if (fileLen == 0) {
+                    return
+                }
+                data = Array<Byte>(fileLen, repeat: 0)
+                let bytesRead = f.read(data)
+                if (bytesRead != fileLen) {
+                    throw Exception("VLogFile.iterate: read incomplete")
+                }
+                totalSize = fileLen
+            } else {
+                return
+            }
+        } else {
+            data = buf.toArray()
+            totalSize = Int64(data.size)
+        }
+        
+        var offset: UInt32 = 0
         while (Int64(offset) < totalSize) {
             let (entry, bytesRead) = LogEntry.decode(data, Int64(offset))
             if (!callback(entry, offset)) {
