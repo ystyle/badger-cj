@@ -3,6 +3,8 @@ package badgercj.vlog
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.fs.*
+import std.collection.*
+import badgercj.table.*
 
 @Test
 class LogEntryTest {
@@ -198,6 +200,98 @@ class VLogManagerTest {
         @Assert(ratio, 0.0)
         
         vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogFileOnDisk() {
+        let dir = Path("./test_vlog_file_on_disk")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        let vlog = VLogManager(dir)
+        
+        let entry = LogEntry("persist-key".toArray(), "persist-value".toArray())
+        let vp = vlog.write(entry)
+        
+        let vlogPath = dir.join("0.vlog")
+        @Assert(exists(vlogPath), true)
+        
+        let fileInfo = FileInfo(vlogPath)
+        @Assert(fileInfo.size > 0, true)
+        
+        let readEntry = vlog.read(vp)
+        @Assert(readEntry.key.toArray(), "persist-key".toArray())
+        @Assert(readEntry.value.toArray(), "persist-value".toArray())
+        
+        vlog.close()
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogCloseReopenRead() {
+        let dir = Path("./test_vlog_close_reopen")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        var savedVp: ValuePointer = ValuePointer(0, 0, 0)
+        
+        var vlog = VLogManager(dir)
+        let entry = LogEntry("reopen-key".toArray(), "reopen-value".toArray())
+        savedVp = vlog.write(entry)
+        vlog.close()
+        
+        let vlogPath = dir.join("0.vlog")
+        @Assert(exists(vlogPath), true)
+        let fileInfo = FileInfo(vlogPath)
+        @Assert(fileInfo.size > 0, true)
+        
+        vlog = VLogManager(dir)
+        let readEntry = vlog.read(savedVp)
+        @Assert(readEntry.key.toArray(), "reopen-key".toArray())
+        @Assert(readEntry.value.toArray(), "reopen-value".toArray())
+        vlog.close()
+        
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+    }
+    
+    @TestCase
+    func testVLogCloseReopenReadMultipleEntries() {
+        let dir = Path("./test_vlog_multi_reopen")
+        if (exists(dir)) {
+            remove(dir, recursive: true)
+        }
+        Directory.create(dir.toString())
+        
+        var savedVps = ArrayList<ValuePointer>()
+        
+        var vlog = VLogManager(dir)
+        for (i in 0..10) {
+            let entry = LogEntry("k${i}".toArray(), "v${i}".toArray())
+            let vp = vlog.write(entry)
+            savedVps.add(vp)
+        }
+        vlog.close()
+        
+        vlog = VLogManager(dir)
+        for (i in 0..savedVps.size) {
+            let vp = savedVps[i]
+            let readEntry = vlog.read(vp)
+            @Assert(readEntry.key.toArray(), "k${i}".toArray())
+            @Assert(readEntry.value.toArray(), "v${i}".toArray())
+        }
+        vlog.close()
+        
         if (exists(dir)) {
             remove(dir, recursive: true)
         }

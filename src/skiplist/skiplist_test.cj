@@ -137,4 +137,41 @@ class SkiplistTest {
             }
         }
     }
+    
+    @TestCase
+    func testLargeKey() {
+        let testArena = Arena(1024 * 1024)
+        let testAtomicStorage = AtomicStorage(4096)
+        let testList = Skiplist(testArena, testAtomicStorage)
+        
+        let keySize: Int64 = 70000
+        let largeKey = Array<Byte>(keySize, {i => UInt8(i % 251)})
+        largeKey[keySize - 1] = 0xAB
+        largeKey[keySize - 2] = 0xCD
+        largeKey[keySize - 3] = 0xEF
+        testList.add(largeKey, 0xDEADBEEFu64)
+        
+        let node = testList.get(largeKey)
+        if (node.isSome()) {
+            if (let Some(n) <- node) {
+                @Assert(n.getValue(), 0xDEADBEEFu64)
+                let storedKey = n.getKey()
+                @Assert(storedKey.size, keySize)
+                @Assert(storedKey[keySize - 1], 0xABu8)
+                @Assert(storedKey[keySize - 2], 0xCDu8)
+                @Assert(storedKey[keySize - 3], 0xEFu8)
+            }
+        } else {
+            @Fail("Large key not found")
+        }
+        
+        let searchKey = Array<Byte>(keySize, {i => UInt8(i % 251)})
+        let geNode = testList.findGe(searchKey)
+        if (let Some(n) <- geNode) {
+            let geKey = n.getKey()
+            @Assert(geKey.size, keySize)
+        } else {
+            @Fail("findGe failed for large key")
+        }
+    }
 }
