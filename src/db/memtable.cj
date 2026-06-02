@@ -87,7 +87,7 @@ protected class MemTable {
         if (let Some(n) <- node) {
             let value = n.getValue()
             let offset = UInt32(value >> 32)
-            let size = UInt16(value & 0xFFFFu64)
+            let size = UInt32(value & 0xFFFFu64)
             let encoded = arena.getBytes(offset, size)
             return ValueStruct.decode(encoded)
         }
@@ -105,7 +105,7 @@ protected class MemTable {
                 if (ts <= readTs) {
                     let value = n.getValue()
                     let offset = UInt32(value >> 32)
-                    let size = UInt16(value & 0xFFFFu64)
+                    let size = UInt32(value & 0xFFFFu64)
                     let encoded = arena.getBytes(offset, size)
                     return ValueStruct.decode(encoded)
                 }
@@ -207,7 +207,7 @@ public class SkipIterator {
             let key = node.getKey()
             let value = node.getValue()
             let offset = UInt32(value >> 32)
-            let size = UInt16(value & 0xFFFFu64)
+            let size = UInt32(value & 0xFFFFu64)
             let encoded = table.getArena().getBytes(offset, size)
             let vs = ValueStruct.decode(encoded)
             

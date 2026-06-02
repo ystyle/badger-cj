@@ -29,7 +29,7 @@ class ArenaTest {
         let data: Array<Byte> = [1u8, 2u8, 3u8, 4u8]
         let offset = arena.putBytes(data)
         
-        let retrieved = arena.getBytes(offset, UInt16(4))
+        let retrieved = arena.getBytes(offset, UInt32(4))
         @Assert(retrieved.size, 4)
         @Assert(retrieved[0], 1u8)
         @Assert(retrieved[1], 2u8)

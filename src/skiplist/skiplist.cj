@@ -58,7 +58,7 @@ protected class Skiplist {
     
     private func compareKeyAt(nodeOffset: UInt32, key: Array<Byte>): Int64 {
         let keyOffset = arena.getU32(nodeOffset + 8)
-        let keySize = Int64(arena.getU16(nodeOffset + 12))
+        let keySize = Int64(arena.getU32(nodeOffset + 12))
         let keyLen = key.size
         let minLen = if (keySize < keyLen) { keySize } else { keyLen }
         let buf = arena.getBuf()
@@ -83,7 +83,7 @@ protected class Skiplist {
     }
     
     private func getNextOffsetAt(nodeOffset: UInt32, level: Int64): UInt32 {
-        let atomicIdx = arena.getI64(nodeOffset + 16)
+        let atomicIdx = arena.getI64(nodeOffset + 18)
         return atomicStorage.getNextOffset(atomicIdx, level)
     }
     
@@ -197,8 +197,8 @@ protected class Skiplist {
         
         newNode.setValue(value)
         arena.putU32(keyOffset, nodeOffset + 8)
-        arena.putU16(UInt16(key.size), nodeOffset + 12)
-        arena.putU16(UInt16(h), nodeOffset + 14)
+        arena.putU32(UInt32(key.size), nodeOffset + 12)
+        arena.putU16(UInt16(h), nodeOffset + 16)
         
         for (i in 0..h) {
             newNode.setNextOffset(i, nextOffsets[i])

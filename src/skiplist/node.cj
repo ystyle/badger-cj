@@ -4,11 +4,15 @@
  * Node 存储在 Arena 中，使用偏移量而非指针
  * 
  * 内存布局（在 Arena 中）：
- * - reserved (UInt64): 保留字段
- * - keyOffset (UInt32): Key 在 Arena 中的偏移量
- * - keySize (UInt16): Key 长度
- * - height (UInt16): 节点高度
- * - atomicIdx (Int64): 在 AtomicStorage 中的索引
+ * - reserved (Int64): 保留字段         [offset + 0, 8 bytes]
+ * - keyOffset (UInt32): Key 偏移量    [offset + 8, 4 bytes]
+ * - keySize (UInt32): Key 长度        [offset + 12, 4 bytes]
+ * - height (UInt16): 节点高度          [offset + 16, 2 bytes]
+ * - atomicIdx (Int64): AtomicStorage 索引 [offset + 18, 8 bytes]
+ * - nextOffsets: 后续指针数组           [offset + 26, MAX_HEIGHT*4 bytes]
+ *
+ * 注意：keySize 必须用 UInt32（Go 版使用 uint32），
+ *       否则 key >= 65536 bytes 时会被静默截断
  */
 package badgercj.skiplist
 
@@ -48,11 +52,11 @@ protected class Node {
     }
     
     public func getAtomicIdx(): Int64 {
-        return arena.getI64(offset + 16)
+        return arena.getI64(offset + 18)
     }
     
     public func setAtomicIdx(idx: Int64): Unit {
-        arena.putI64(idx, offset + 16)
+        arena.putI64(idx, offset + 18)
     }
     
     public func getKey(): Array<Byte> {
@@ -94,12 +98,12 @@ protected class Node {
         return arena.getU32(offset + 8)
     }
     
-    public func getKeySize(): UInt16 {
-        return arena.getU16(offset + 12)
+    public func getKeySize(): UInt32 {
+        return arena.getU32(offset + 12)
     }
     
     public func getHeight(): UInt16 {
-        return arena.getU16(offset + 14)
+        return arena.getU16(offset + 16)
     }
     
     public func getValue(): UInt64 {

@@ -16,7 +16,7 @@ import std.sync.*
 public const MAX_HEIGHT: Int64 = 20          // Skiplist 最大高度
 public const OFFSET_SIZE: Int64 = 4          // 偏移量大小（UInt32）
 public const NODE_ALIGN: Int64 = 8           // 节点对齐大小
-public const MAX_NODE_SIZE: Int64 = 104      // 最大节点大小
+public const MAX_NODE_SIZE: Int64 = 106      // 最大节点大小 (8+4+4+2+8 + 20*4 = 106)
 
 /**
  * Arena 内存池
@@ -99,7 +99,7 @@ protected class Arena {
         return offset
     }
     
-    public func getBytes(offset: UInt32, size: UInt16): Array<Byte> {
+    public func getBytes(offset: UInt32, size: UInt32): Array<Byte> {
         let s = Int64(size)
         let o = Int64(offset)
         let result = Array<Byte>(s, repeat: 0)
