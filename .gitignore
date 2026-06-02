@@ -2,9 +2,11 @@
 .cache
 .vscode
 target
+cov_*
 
 # file
 log.txt
+*.gcda
 *.cj.macrocall
 # 设计参考文档（实际实现应在独立项目）
 docs/plans/2026-03-10-storm-cj-design.md
