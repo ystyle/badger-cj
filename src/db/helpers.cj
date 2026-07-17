@@ -23,12 +23,19 @@ private let badgerPrefix: ArrayList<Byte> = ArrayList<Byte>([98, 97, 100, 103, 1
 protected func keyWithTs(key: Array<Byte>, ts: UInt64): Array<Byte> {
     let keyLen = key.size
     let result = Array<Byte>(keyLen + 8, repeat: 0)
-    key.copyTo(result)
+    for (i in 0..keyLen) {
+        result[i] = key[i]
+    }
     
     let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ ts
-    let tsBuffer = Array<Byte>(8, repeat: 0)
-    invTs.writeBigEndian(tsBuffer)
-    tsBuffer.copyTo(result, 0, Int64(keyLen), 8)
+    result[keyLen] = UInt8((invTs >> 56) & 0xFF)
+    result[keyLen + 1] = UInt8((invTs >> 48) & 0xFF)
+    result[keyLen + 2] = UInt8((invTs >> 40) & 0xFF)
+    result[keyLen + 3] = UInt8((invTs >> 32) & 0xFF)
+    result[keyLen + 4] = UInt8((invTs >> 24) & 0xFF)
+    result[keyLen + 5] = UInt8((invTs >> 16) & 0xFF)
+    result[keyLen + 6] = UInt8((invTs >> 8) & 0xFF)
+    result[keyLen + 7] = UInt8(invTs & 0xFF)
     
     return result
 }

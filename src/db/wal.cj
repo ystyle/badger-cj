@@ -11,12 +11,14 @@ import badgercj.table.*
 public class WAL {
     private let pathStr: String
     private var file: ?File
+    private var buf: ?BufferedOutputStream<File>
     private var writeOffset: UInt32
     private let lock: Mutex
     
     private init(path: String) {
         this.pathStr = path
         this.file = None
+        this.buf = None
         this.writeOffset = 0
         this.lock = Mutex()
     }
@@ -30,8 +32,9 @@ public class WAL {
             Directory.create(dir, recursive: true)
         }
         
-        let f = File(Path(path), ReadWrite)
-        wal.file = f
+        let f = File(p, ReadWrite)
+        wal.file = Some(f)
+        wal.buf = Some(BufferedOutputStream<File>(f, 65536))
         wal.writeOffset = UInt32(f.length)
         
         return wal
@@ -41,23 +44,20 @@ public class WAL {
         let wal = WAL(path)
         
         let f = File(Path(path), Read)
-        wal.file = f
+        wal.file = Some(f)
         wal.writeOffset = UInt32(f.length)
         
         return wal
     }
     
-    public func write(key: Array<Byte>, value: ValueStruct): Unit {
-        if (file.isNone()) {
-            return
-        }
-        let entry = LogEntry(key, value.encode())
+    public func write(key: Array<Byte>, valueEncoded: Array<Byte>): Unit {
+        let entry = LogEntry(key, valueEncoded)
         let encoded = entry.encode()
         
         lock.lock()
         try {
-            let f = file ?? throw Exception("WAL file not open")
-            f.write(encoded)
+            let b = buf ?? throw Exception("WAL not open for write")
+            b.write(encoded)
             writeOffset += UInt32(encoded.size)
         } finally {
             lock.unlock()
@@ -67,8 +67,8 @@ public class WAL {
     public func flush(): Unit {
         lock.lock()
         try {
-            if (let Some(f) <- file) {
-                f.flush()
+            if (let Some(b) <- buf) {
+                b.flush()
             }
         } finally {
             lock.unlock()
@@ -76,20 +76,17 @@ public class WAL {
     }
     
     public func sync(): Unit {
-        lock.lock()
-        try {
-            if (let Some(f) <- file) {
-                f.flush()
-            }
-        } finally {
-            lock.unlock()
-        }
+        flush()
     }
     
     public func readAll(): ArrayList<LogEntry> {
         lock.lock()
         
         try {
+            if (let Some(b) <- buf) {
+                b.flush()
+            }
+            
             let entries = ArrayList<LogEntry>()
             let f = file ?? throw Exception("WAL file not open")
             let fileLength = f.length
@@ -107,13 +104,12 @@ public class WAL {
             }
             
             var offset: Int64 = 0
-            while (offset + 9 <= fileLength) {  // 最小 entry 大小是 9 字节
+            while (offset + 9 <= fileLength) {
                 try {
                     let (entry, entrySize) = LogEntry.decode(data, offset)
                     entries.add(entry)
                     offset += entrySize
                 } catch (e: Exception) {
-                    // 损坏的条目，跳过并停止解析
                     break
                 }
             }
@@ -169,11 +165,14 @@ public class WAL {
         lock.lock()
         
         try {
+            if (let Some(b) <- buf) {
+                b.flush()
+            }
             if (let Some(f) <- file) {
-                f.flush()
                 f.close()
                 file = None
             }
+            buf = None
         } finally {
             lock.unlock()
         }
@@ -183,10 +182,14 @@ public class WAL {
         lock.lock()
         
         try {
+            if (let Some(b) <- buf) {
+                b.flush()
+            }
             if (let Some(f) <- file) {
                 f.close()
                 file = None
             }
+            buf = None
             
             if (exists(Path(pathStr))) {
                 remove(Path(pathStr))

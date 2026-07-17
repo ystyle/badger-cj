@@ -28,7 +28,7 @@ public class Badger <: VLogGCDB {
     private var nextFileID: AtomicUInt64
     protected let oracle: Oracle
     private let vlog: VLogManager
-    protected let writeCh: NotifyingWriteChannel<WriteRequest>
+    protected let writeCh: CloseableBlockingQueue<WriteRequest>
     private var running: AtomicBool
     private var flushFut: ?Future<Unit>
     private var compactorFut: ?Future<Unit>
@@ -54,7 +54,7 @@ public class Badger <: VLogGCDB {
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
         this.oracle = Oracle(detectConflicts: opt.DetectConflicts)
         this.vlog = vlog
-        this.writeCh = NotifyingWriteChannel<WriteRequest>(10000)
+        this.writeCh = CloseableBlockingQueue<WriteRequest>(10000)
         this.running = AtomicBool(false)
         this.flushFut = None
         this.compactorFut = None

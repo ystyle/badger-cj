@@ -271,7 +271,6 @@ public class VLogFile {
         
         if (!inMemory) {
             if (let Some(f) <- file) {
-                f.seek(SeekPosition.End(0))
                 f.write(encoded)
             }
             return UInt32(encoded.size)

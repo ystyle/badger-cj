@@ -1,65 +1,81 @@
 package badgercj.db
 
 import std.sync.*
-import std.collection.*
+import std.collection.concurrent.*
 
-protected class NotifyingWriteChannel<T> {
-    private let queue = ArrayList<T>()
-    private let mutex = Mutex()
+/**
+ * CloseableBlockingQueue — Go 有缓冲 channel 的仓颉实现
+ *
+ * 行为与 Go 的 `make(chan T, capacity)` 一致：
+ * - add(item): 满时阻塞，close 后抛异常 (send on closed channel)
+ * - remove():  空时阻塞，close 后返回 None
+ * - tryRemove(): 非阻塞取，无数据时返回 None
+ * - close(): 关闭 channel，唤醒所有等待的消费者
+ *
+ * 内部使用 LinkedBlockingQueue 做 O(1) 存储，Mutex + Condition 实现 close 唤醒。
+ */
+protected class CloseableBlockingQueue<T> {
+    private let queue: LinkedBlockingQueue<T>
+    private let lock = Mutex()
     private let cond: Condition
-    private let capacity: Int64
-    private var closed = AtomicBool(false)
-    
+    private let closed = AtomicBool(false)
+
     public init(capacity: Int64) {
-        this.capacity = capacity
-        synchronized(mutex) {
-            this.cond = mutex.condition()
+        this.queue = LinkedBlockingQueue<T>(capacity)
+        synchronized(lock) {
+            this.cond = lock.condition()
         }
     }
-    
+
     public func add(item: T): Unit {
-        synchronized(mutex) {
-            queue.add(item)
+        if (closed.load()) {
+            throw Exception("send on closed channel")
+        }
+        queue.add(item)
+        synchronized(lock) {
             cond.notify()
         }
     }
-    
+
     public func remove(): ?T {
-        synchronized(mutex) {
-            while (queue.isEmpty() && !closed.load()) {
-                cond.wait()
+        var result: ?T = None
+        while (true) {
+            if (let Some(item) <- queue.tryRemove()) {
+                result = Some(item)
+                break
             }
-            if (queue.isEmpty()) {
-                return None
+            if (closed.load()) {
+                break
             }
-            let item = queue.remove(at: 0)
-            return Some(item)
+            synchronized(lock) {
+                while (queue.size == 0 && !closed.load()) {
+                    cond.wait()
+                }
+            }
+            if (closed.load() && queue.size == 0) {
+                break
+            }
         }
+        result
     }
-    
+
     public func tryRemove(): ?T {
-        synchronized(mutex) {
-            if (queue.isEmpty()) {
-                return None
-            }
-            let item = queue.remove(at: 0)
-            return Some(item)
-        }
+        queue.tryRemove()
     }
-    
+
     public func size(): Int64 {
-        synchronized(mutex) {
-            queue.size
-        }
+        queue.size
     }
-    
+
     public func close(): Unit {
-        synchronized(mutex) {
-            closed.store(true)
+        if (closed.swap(true)) {
+            return
+        }
+        synchronized(lock) {
             cond.notifyAll()
         }
     }
-    
+
     public func isClosed(): Bool {
         closed.load()
     }

@@ -77,7 +77,7 @@ class TransactionAtomicityTest {
             meta: Meta.bitTxn,
             version: 100
         )
-        wal.write(keyWithTs("incomplete_key".toArray(), 100), incompleteVs)
+        wal.write(keyWithTs("incomplete_key".toArray(), 100), incompleteVs.encode())
         wal.close()
         
         let db2 = Badger.open(opt)

@@ -20,16 +20,16 @@ class WALTest {
         let wal = WAL.open(walPath)
         
         let key1 = "key1".toArray()
-        let value1 = ValueStruct("value1".toArray())
-        wal.write(key1, value1)
+        let value1Encoded = ValueStruct("value1".toArray()).encode()
+        wal.write(key1, value1Encoded)
         
         let key2 = "key2".toArray()
-        let value2 = ValueStruct("value2".toArray(), meta: 0x01)
-        wal.write(key2, value2)
+        let value2Encoded = ValueStruct("value2".toArray(), meta: 0x01).encode()
+        wal.write(key2, value2Encoded)
         
         let key3 = "key3".toArray()
-        let value3 = ValueStruct("value3".toArray(), userMeta: 0x02, version: 100)
-        wal.write(key3, value3)
+        let value3Encoded = ValueStruct("value3".toArray(), userMeta: 0x02, version: 100).encode()
+        wal.write(key3, value3Encoded)
         
         let entries = wal.readAll()
         @Assert(entries.size, 3)
@@ -73,13 +73,13 @@ class WALTest {
         let wal1 = WAL.open(walPath)
         
         let key1 = "key1".toArray()
-        let value1 = ValueStruct("value1".toArray())
-        wal1.write(key1, value1)
-        
+        let value1Enc = ValueStruct("value1".toArray()).encode()
+        wal1.write(key1, value1Enc)
+
         let key2 = "key2".toArray()
-        let value2 = ValueStruct("value2".toArray(), meta: 0x01)
-        wal1.write(key2, value2)
-        
+        let value2Enc = ValueStruct("value2".toArray(), meta: 0x01).encode()
+        wal1.write(key2, value2Enc)
+
         wal1.close()
         
         let opt = Config(dir: testDir.toString(), memTableSize: 1024 * 1024u64)
@@ -125,8 +125,8 @@ class WALTest {
         @Assert(exists(Path(walPath)), true)
         
         let key1 = "key1".toArray()
-        let value1 = ValueStruct("value1".toArray())
-        wal.write(key1, value1)
+        let value1Encoded = ValueStruct("value1".toArray()).encode()
+        wal.write(key1, value1Encoded)
         
         wal.delete()
         

@@ -63,8 +63,8 @@ public class Stream {
     public func orchestrate(): Unit {
         let readTs = db.oracle.readTs()
         
-        let rangeChan = NotifyingWriteChannel<KeyRange>(100)
-        let kvChan = NotifyingWriteChannel<ArrayList<StreamKV>>(100)
+        let rangeChan = CloseableBlockingQueue<KeyRange>(100)
+        let kvChan = CloseableBlockingQueue<ArrayList<StreamKV>>(100)
         let counter = AtomicInt64(0)
         
         produceRanges(rangeChan)
@@ -83,7 +83,7 @@ public class Stream {
         streamKVs(kvChan)
     }
     
-    private func produceRanges(rangeChan: NotifyingWriteChannel<KeyRange>): Unit {
+    private func produceRanges(rangeChan: CloseableBlockingQueue<KeyRange>): Unit {
         let ranges = db.ranges(prefix, numSpawn)
         
         if (ranges.isEmpty()) {
@@ -104,9 +104,9 @@ public class Stream {
     // readTs: 读取时间戳（当前使用 txn 内部时间戳，保留用于未来扩展）
     // threadId: 线程 ID（当前实现未使用，保留用于调试日志）
     private func produceKVs(
-        rangeChan: NotifyingWriteChannel<KeyRange>,
+        rangeChan: CloseableBlockingQueue<KeyRange>,
         _: UInt64,
-        kvChan: NotifyingWriteChannel<ArrayList<StreamKV>>,
+        kvChan: CloseableBlockingQueue<ArrayList<StreamKV>>,
         _: Int64
     ): Unit {
         let txn = db.newTransaction(update: false)
@@ -138,7 +138,7 @@ public class Stream {
     private func iterateRange(
         range: KeyRange,
         iter: Iterator,
-        kvChan: NotifyingWriteChannel<ArrayList<StreamKV>>
+        kvChan: CloseableBlockingQueue<ArrayList<StreamKV>>
     ): Unit {
         iter.seek(range.left)
         
@@ -217,7 +217,7 @@ public class Stream {
         list
     }
     
-    private func streamKVs(kvChan: NotifyingWriteChannel<ArrayList<StreamKV>>): Unit {
+    private func streamKVs(kvChan: CloseableBlockingQueue<ArrayList<StreamKV>>): Unit {
         while (true) {
             match (kvChan.remove()) {
                 case Some(batch) =>

@@ -6,13 +6,13 @@ import std.collection.concurrent.*
 import std.time.*
 
 public class WritePipeline {
-    private let queue: NotifyingWriteChannel<ArrayList<WriteRequest>>
+    private let queue: CloseableBlockingQueue<ArrayList<WriteRequest>>
     private let running: AtomicBool
     private var fut: ?Future<Unit>
     private let handler: (ArrayList<WriteRequest>) -> Unit
     
     public init(handler: (ArrayList<WriteRequest>) -> Unit, queueSize!: Int64 = 1000) {
-        this.queue = NotifyingWriteChannel<ArrayList<WriteRequest>>(queueSize)
+        this.queue = CloseableBlockingQueue<ArrayList<WriteRequest>>(queueSize)
         this.handler = handler
         this.running = AtomicBool(true)
         this.fut = None

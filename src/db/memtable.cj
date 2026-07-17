@@ -55,9 +55,11 @@ protected class MemTable {
     }
     
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
+        let encoded = vs.encode()
+        
         if (!opt.DisableWAL && !replaying.load()) {
             if (let Some(w) <- wal) {
-                w.write(key, vs)
+                w.write(key, encoded)
                 if (opt.SyncWrites) {
                     w.sync()
                 }
@@ -68,7 +70,6 @@ protected class MemTable {
             maxVersion.store(vs.version)
         }
         
-        let encoded = vs.encode()
         if (encoded.size > 65535) {
             throw Exception("ValueStruct encoded size exceeds UInt16 max: ${encoded.size}")
         }
