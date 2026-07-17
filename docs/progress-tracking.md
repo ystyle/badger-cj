@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-04-02  
-**当前阶段：** ✅ PrefixIterable 功能完成
+**最后更新：** 2026-07-17  
+**当前阶段：** ✅ v1.6.2 性能优化（Channel + WAL + keyWithTs）
 
 ---
 
@@ -9,9 +9,10 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 319/319 通过 ✅ |
-| **性能** | 直接写入 ~616K keys/s，事务写入 ~400-441K keys/s |
+| **测试** | 323/323 通过 ✅ |
+| **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
+| **版本** | 1.6.2（CloseableBlockingQueue + WAL Buffer + keyWithTs 优化） |
 
 ---
 
@@ -309,7 +310,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
-| 2026-04-02 | v7.15 | PrefixIterable 完成：StdIterable/StdIterator 接口、scan() 支持 for-in、Item 属性访问修复、319 测试通过 |
+| 2026-07-17 | v1.6.2 | 性能优化：CloseableBlockingQueue (LinkedBlockingQueue+Condition)、WAL BufferedOutputStream、keyWithTs 消除临时分配、MemTable 避免重复编码、事务吞吐提升 69-106%、Skiplist Get 提升 50%、323 测试通过 |
 | 2026-03-26 | v7.14 | 迭代器架构重构：TableIterWrapper 支持 reverse、删除旧 TableIteratorWrapper、LevelHandler 参数修复、293 测试通过 |
 | 2026-03-21 | v7.13 | P1 Backup/Restore 完成：全量/增量备份、TTL/UserMeta 支持、setRaw() 添加 expiresAt 参数、270 测试通过 |
 | 2026-03-21 | v7.12 | P1 代码重构：提取 utils/key_utils.cj 和 utils/byte_utils.cj，删除 15+ 处重复代码 |
