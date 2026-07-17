@@ -8,7 +8,7 @@ import std.runtime.*
 import badgercj.db.*
 
 let HotKeyPool: Int64 = 100
-let KeysPerTxn: Int64 = 15
+let KeysPerTxn: Int64 = 20
 let TestDuration: Duration = 5 * Duration.second
 
 main(): Int64 {
