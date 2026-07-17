@@ -7,93 +7,93 @@ import std.sync.*
 import std.runtime.*
 import badgercj.db.*
 
-let KeysPerTxn: Int64 = 1000
-let ConcurrencyLevels: Array<Int64> = [1, 2, 4, 8, 16, 32, 64, 128, 256]
+let HotKeyPool: Int64 = 100
+let KeysPerTxn: Int64 = 15
+let TestDuration: Duration = 5 * Duration.second
 
 main(): Int64 {
-    println("=== 事务并发扩展性测试 ===")
+    println("=== 抢购场景并发压测 ===")
+    println("Hot key pool: ${HotKeyPool}")
     println("Keys per txn: ${KeysPerTxn}")
-    print("Concurrency levels:")
-    for (c in ConcurrencyLevels) {
-        print(" ${c}")
-    }
-    println("")
+    println("Duration: ${TestDuration.toNanoseconds() / 1000000000}s per round")
     println("")
 
-    println("cncr    keys         time     ns/op       throughput      speedup")
-    println("------  -----------  -------  ----------  --------------  -------")
+    let levels: Array<Int64> = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+    println("concurrency  txns      keys     time     keys/s      conflicts  ok")
+    println("-----------  --------  -------  -------  ----------  ---------  ---")
 
-    for (c in ConcurrencyLevels) {
-        let ret = bench(c)
-        if (ret == 0.0) {
-            println("${c}      FAILED")
-        }
-        let _ = ret
+    for (c in levels) {
+        bench(c)
     }
-
     return 0
 }
 
-func bench(concurrency: Int64): Float64 {
+func bench(concurrency: Int64): Unit {
     let dir = "/tmp/badger_scale_${concurrency}"
     cleanupDir(dir)
 
     let db = Badger.open(Config(dir: dir, memTableSize: 512 * 1024 * 1024))
-    let totalKeys = concurrency * KeysPerTxn
-    let futures = ArrayList<Future<Unit>>()
-    let successCount = AtomicInt64(0)
-    let failCount = AtomicInt64(0)
+    let totalTxns = AtomicInt64(0)
+    let totalConflicts = AtomicInt64(0)
+    let ok = AtomicInt64(0)
+    let done = AtomicBool(false)
+
+    for (i in 0..HotKeyPool) {
+        let key = "hot_${i}".toArray()
+        let txn = db.newTransaction(update: true)
+        txn.set(key, "0".toArray())
+        txn.commit()
+    }
 
     let startTime = MonoTime.now()
+    let endTime = startTime + TestDuration
 
-    for (i in 0..concurrency) {
-        let idx = i
+    let futures = ArrayList<Future<Unit>>()
+    for (_ in 0..concurrency) {
         futures.add(spawn {
-            let txn = db.newTransaction(update: true)
-            try {
-                for (j in 0..KeysPerTxn) {
-                    let key = "k${idx}_${j}".toArray()
-                    let value = "v${idx}_${j}".toArray()
-                    txn.set(key, value)
+            while (!done.load()) {
+                let txn = db.newTransaction(update: true)
+                var conflict = false
+                try {
+                    for (j in 0..KeysPerTxn) {
+                        let keyIdx = (totalTxns.load() * KeysPerTxn + j) % HotKeyPool
+                        let key = "hot_${keyIdx}".toArray()
+
+                        let _ = txn.get(key)
+                        txn.set(key, "1".toArray())
+                    }
+                    txn.commit()
+                    let _ = totalTxns.fetchAdd(1)
+                    let _ = ok.fetchAdd(1)
+                } catch (_e: Exception) {
+                    let _ = totalConflicts.fetchAdd(1)
+                    txn.discard()
                 }
-                txn.commit()
-                let _ = successCount.fetchAdd(1)
-            } catch (e: Exception) {
-                let _ = failCount.fetchAdd(1)
-                txn.discard()
             }
         })
     }
 
-    for (fut in futures) {
-        fut.get()
+    while (MonoTime.now() < endTime) {
+        sleep(200 * Duration.millisecond)
+    }
+    done.store(true)
+
+    for (f in futures) {
+        f.get()
     }
 
-    let elapsed = MonoTime.now() - startTime
-    let ns = elapsed.toNanoseconds()
-    let ms = ns / 1000000
-    let nsPerOp = ns / totalKeys
-    let keysPerSec = totalKeys * 1000000000 / ns
+    let ns = (MonoTime.now() - startTime).toNanoseconds()
+    let txns_ = totalTxns.load()
+    let conflicts_ = totalConflicts.load()
+    let ok_ = ok.load()
+    let totalKeys = txns_ * KeysPerTxn
+    let keysPerSec = if (ns > 0) { totalKeys * 1000000000 / ns } else { 0 }
 
-    let ok = successCount.load()
-    let fail = failCount.load()
-
-    println("${concurrency}      ${totalKeys}  ${ms}ms  ${nsPerOp}  ${keysPerSec} keys/s  ${formatSpeedup(concurrency, keysPerSec)}")
+    println("${concurrency}\t\t${txns_}\t${totalKeys}\t${ns / 1000000}ms\t${keysPerSec}\t${conflicts_}\t${ok_}")
 
     db.close()
     cleanupDir(dir)
     gc(heavy: true)
-
-    if (ok != concurrency) {
-        println("      WARN: ok=${ok} fail=${fail}")
-        return 0.0
-    }
-
-    return Float64(keysPerSec)
-}
-
-func formatSpeedup(concurrency: Int64, keysPerSec: Int64): String {
-    "${concurrency}tx"
 }
 
 func cleanupDir(path: String): Unit {
