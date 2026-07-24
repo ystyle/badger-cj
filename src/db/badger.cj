@@ -97,9 +97,7 @@ public class Badger <: VLogGCDB {
             for (memFid in memFiles) {
                 let memPath = "${opt.Dir}/${memFid}.mem"
                 if (exists(Path(memPath))) {
-                    let wal = WAL.open(memPath)
-                    let replayMt = MemTable(opt, memFid, false)
-                    wal.replay(replayMt)
+                    let replayMt = MemTable(opt, memFid, true)
                     let mtVersion = replayMt.getMaxVersion()
                     if (mtVersion > maxVersion) {
                         maxVersion = mtVersion
