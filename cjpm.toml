@@ -3,7 +3,7 @@
   name = "badgercj"
   organization = ""
   description = "一个可嵌入、持久化且速度很快的基于LSM-Tree的键值 (KV) 数据库"
-  version = "1.6.3"
+  version = "1.6.4"
   target-dir = ""
   script-dir = ""
   output-type = "static"
@@ -47,6 +47,7 @@ output-type = "executable"
 
 [dependencies]
 "snappy" = "1.0.0"
+"ystyle::crc" = "1.0.0"
 
 # Linux 平台特定配置 - 链接 liburing
 [target.x86_64-unknown-linux-gnu]

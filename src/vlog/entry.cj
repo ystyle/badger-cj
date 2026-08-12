@@ -2,6 +2,7 @@ package badgercj.vlog
 
 import std.collection.*
 import badgercj.encoding.*
+import ystyle::crc.*
 
 /**
  * LogEntry - Value Log 中的条目

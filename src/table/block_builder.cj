@@ -2,6 +2,7 @@ package badgercj.table
 
 import std.collection.*
 import badgercj.encoding.*
+import ystyle::crc.*
 import badgercj.utils.compareKeys
 
 /**
