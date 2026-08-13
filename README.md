@@ -480,6 +480,34 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `autoCloseOnExit` | false | 进程退出时自动关闭 |
 | `syncWrites` | false | 每次写入后 fsync，确保严格持久性 |
 
+## 内存使用
+
+**每个库的常驻内存 ≈ arena（2 × memTableSize）+ 仓颉 GC 堆开销：**
+
+| 项 | 默认值 | 说明 |
+|------|--------|------|
+| `memTableSize` | 64 MB | 单个 MemTable 上限 |
+| arena | **2 × memTableSize（默认 128 MB/库）** | MemTable 内部分配器（skiplist 节点 + 数据），见 `memtable.cj: arenaSize = MemTableSize * 2` |
+| 仓颉 GC 堆上限 | **256 MB（默认）** | 仓颉运行时默认堆上限，arena 等原生内存之外的 GC 托管对象均在此配额内 |
+
+**仓颉 GC 堆调参（进程级环境变量）：**
+
+```shell
+export cjHeapSize=2GB            # 提高 GC 堆上限（默认 256MB）
+export cjGCThreshold=1GB         # 触发 GC 的堆阈值（配套）
+export cjGCInterval=100ms        # GC 轮询间隔（配套）
+export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
+```
+
+> 具体环境变量名以当前仓颉运行时版本为准（可用 `cjpm build` 后观察 GC 日志确认）。
+
+**嵌入式 / 低内存 / 多库场景建议：**
+
+- 调小 `memTableSize`：`Config().withMemTableSize(16 * 1024 * 1024u64)`（16MB，arena 32MB）或 `4 * 1024 * 1024u64`（4MB，arena 8MB）
+- 同时打开多个库时，总内存 ≈ 每个库各一份 arena，请按库数量折算
+- 降低 `cjHeapSize` 可以让 GC 更早回收，但会提高 GC 频率，需按写入负载权衡
+- 纯缓存场景可用 `inMemory: true` 关闭磁盘持久化，但 arena 占用不变
+
 ## 事务 ACID 特性
 
 ### 原子性 (Atomicity)

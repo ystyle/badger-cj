@@ -3,7 +3,7 @@ package badgercj.db
 import std.collection.ArrayList
 import badgercj.table.Meta
 import badgercj.table.ValueStruct
-import badgercj.utils.{hasPrefix, hashKey}
+import badgercj.utils.{hasPrefix, hashKey, keysEqual}
 
 /**
  * Iterator - 事务级一致性迭代器
@@ -21,6 +21,9 @@ public class Iterator {
     private var item_: Item
     private var lastKey: Array<Byte>
     private var closed: Bool
+    // 反向模式：collectReverseLatest 消费完当前 userKey 版本链后，iitr 已定位到
+    // 下一个 userKey 的首个条目；next() 不能再 advance，否则会跳过该 key。
+    private var skipAdvance: Bool
     
     public init(txn: Transaction, opt: IteratorOptions) {
         this.txn = txn
@@ -28,6 +31,7 @@ public class Iterator {
         this.opt = opt
         this.closed = false
         this.lastKey = []
+        this.skipAdvance = false
         
         // 构造迭代器链
         let iters = ArrayList<SimpleIterator>()
@@ -61,6 +65,7 @@ public class Iterator {
             return
         }
         lastKey = []
+        skipAdvance = false
         iitr.rewind()
         parseItem()
     }
@@ -87,7 +92,12 @@ public class Iterator {
         if (closed) {
             return
         }
-        iitr.next()
+        if (skipAdvance) {
+            // collectReverseLatest 已消费当前 userKey 版本链，iitr 已位于下一 key 首条目
+            skipAdvance = false
+        } else {
+            iitr.next()
+        }
         parseItem()
     }
     
@@ -100,6 +110,7 @@ public class Iterator {
             return
         }
         lastKey = []
+        skipAdvance = false
         
         var seekKey = key
         if (key.isEmpty() && opt.prefix.size > 0) {
@@ -143,6 +154,16 @@ public class Iterator {
             // 前缀过滤：跳过不匹配前缀的 key
             if (opt.prefix.size > 0 && !hasPrefix(userKey, opt.prefix)) {
                 iitr.next()
+                continue
+            }
+            
+            if (opt.reverse && !opt.allVersions) {
+                // 反向模式：key 编码为 [userKey][反转ts]，同 userKey 的版本按「旧→新」到达。
+                // 必须收集整条版本链取最新有效版本，否则会把旧版本当最新返回；
+                // 最新版本为删除/过期时整 key 跳过（见 ReverseVersionTest）。
+                if (collectReverseLatest(userKey)) {
+                    return
+                }
                 continue
             }
             
@@ -212,6 +233,78 @@ public class Iterator {
         
         // 迭代器无效
         item_ = Item([], [])
+    }
+    
+    // 反向模式收集：消费当前 userKey 的全部可见版本（物理连续），
+    // 输出最新有效版本（ts 最大且未删除/未过期）；整链无有效版本则跳过。
+    // 反向顺序旧→新：候选随遍历更新，遇到删除/过期版本清空候选（覆盖旧版本）。
+    private func collectReverseLatest(userKey: Array<Byte>): Bool {
+        var latestKey: Array<Byte> = []
+        var latestValue: Array<Byte> = []
+        var latestTs: UInt64 = 0
+        var latestMeta: Byte = 0
+        var latestUserMeta: Byte = 0
+        var latestExpiresAt: UInt64 = 0
+        var found: Bool = false
+        while (iitr.valid()) {
+            let k = iitr.key()
+            if (!keysEqual(parseKey(k), userKey)) {
+                break   // 已到下一个 userKey
+            }
+            let v = iitr.value()
+            let t = parseTs(k)
+            if (t > readTs && t != 0) {
+                iitr.next()
+                continue
+            }
+            if (let Some(vs) <- tryDecodeValueStruct(v)) {
+                if (vs.isFinTxn()) {
+                    iitr.next()
+                    continue
+                }
+                if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
+                    // 删除/过期版本（更新的版本）：清空候选，旧版本全部无效
+                    found = false
+                } else {
+                    latestKey = safeCopy(latestKey, k)
+                    latestValue = safeCopy(latestValue, vs.value)
+                    latestTs = vs.version
+                    latestMeta = vs.meta
+                    latestUserMeta = vs.userMeta
+                    latestExpiresAt = vs.expiresAt
+                    found = true
+                }
+            } else {
+                // 无法解码 ValueStruct：视为普通值
+                latestKey = safeCopy(latestKey, k)
+                latestValue = safeCopy(latestValue, v)
+                latestTs = t
+                latestMeta = 0
+                latestUserMeta = 0
+                latestExpiresAt = 0
+                found = true
+            }
+            iitr.next()
+        }
+        if (!found) {
+            return false
+        }
+        // 记录读（用于冲突检测）
+        let fp = hashKey(userKey)
+        txn.reads.add(fp)
+        item_ = Item(
+            parseKey(latestKey),
+            latestValue,
+            version: latestTs,
+            meta: latestMeta,
+            userMeta: latestUserMeta,
+            expiresAt: latestExpiresAt
+        )
+        lastKey = safeCopy(lastKey, latestKey)
+        // iitr 已消费完当前 userKey 的全部版本，位于下一 key 首条目（或已无效），
+        // next() 无需再 advance，否则会跳过下一个 key（见 skipAdvance 注释）。
+        skipAdvance = true
+        true
     }
     
     private func tryDecodeValueStruct(value: Array<Byte>): ?ValueStruct {

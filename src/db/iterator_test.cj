@@ -345,6 +345,242 @@ class IteratorTest {
         db.close()
         cleanupIterDir(dir)
     }
+    
+    // ==================== 反向迭代版本链修复（badger key 编码 [userKey][反转ts]）====================
+    // 反向迭代同 userKey 版本按「旧→新」到达，必须收集整条版本链取最新有效版本，
+    // 否则会把旧版本当最新返回；最新版本为删除/过期时整 key 跳过。
+    // 覆盖：多版本覆盖写、删除(tombstone)、重新写入、混合多 key（防止 key 被跳过）、reverse+prefix。
+    
+    @TestCase
+    func testReverseMultiVersion() {
+        // 两个事务覆盖写 key1: v1 → v2，反向迭代必须返回 v2（旧 bug 返回 v1）
+        let dir = "/tmp/badger_iter_rev_mv1"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        let t1 = db.newTransaction(update: true)
+        t1.set("key1".toArray(), "v1".toArray())
+        t1.commit()
+        let t2 = db.newTransaction(update: true)
+        t2.set("key1".toArray(), "v2".toArray())
+        t2.commit()
+        
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true))
+        
+        let keys = ArrayList<String>()
+        let values = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            keys.add(bytesToString(item.key))
+            values.add(bytesToString(item.value))
+            iter.next()
+        }
+        iter.close()
+        
+        @Assert(keys.size, 1)
+        @Assert(keys[0], "key1")
+        @Assert(values[0], "v2")  // 必须是最新版本
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
+    
+    @TestCase
+    func testReverseMultiVersionMixedKeys() {
+        // key2 双版本 + key1/key3 单版本：反向必须返回 key3, key2(最新), key1，
+        // 且任何 key 都不能被跳过（collectReverseLatest 消费链后 next() 的 off-by-one 回归）
+        let dir = "/tmp/badger_iter_rev_mv2"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        let t1 = db.newTransaction(update: true)
+        t1.set("key1".toArray(), "v1a".toArray())
+        t1.set("key2".toArray(), "v2a".toArray())
+        t1.set("key3".toArray(), "v3a".toArray())
+        t1.commit()
+        let t2 = db.newTransaction(update: true)
+        t2.set("key2".toArray(), "v2b".toArray())
+        t2.commit()
+        
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true))
+        
+        let keys = ArrayList<String>()
+        let values = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            keys.add(bytesToString(item.key))
+            values.add(bytesToString(item.value))
+            iter.next()
+        }
+        iter.close()
+        
+        @Assert(keys.size, 3)
+        @Assert(keys[0], "key3")
+        @Assert(values[0], "v3a")
+        @Assert(keys[1], "key2")
+        @Assert(values[1], "v2b")  // key2 必须是最新版本
+        @Assert(keys[2], "key1")
+        @Assert(values[2], "v1a")
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
+    
+    @TestCase
+    func testReverseDeletedKey() {
+        // 写入 key2 后删除：反向迭代必须跳过 key2（tombstone 覆盖旧版本）
+        let dir = "/tmp/badger_iter_rev_del"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        let t1 = db.newTransaction(update: true)
+        t1.set("key1".toArray(), "v1".toArray())
+        t1.set("key2".toArray(), "v2".toArray())
+        t1.set("key3".toArray(), "v3".toArray())
+        t1.commit()
+        let t2 = db.newTransaction(update: true)
+        t2.delete("key2".toArray())
+        t2.commit()
+        
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true))
+        
+        let keys = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            keys.add(bytesToString(item.key))
+            iter.next()
+        }
+        iter.close()
+        
+        @Assert(keys.size, 2)
+        @Assert(keys[0], "key3")
+        @Assert(keys[1], "key1")  // key2 被删除，必须跳过
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
+    
+    @TestCase
+    func testReverseDeleteThenRewrite() {
+        // 写入 → 删除 → 重新写入：反向必须返回重新写入的最新值（删除被新版本覆盖）
+        let dir = "/tmp/badger_iter_rev_del2"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        let t1 = db.newTransaction(update: true)
+        t1.set("key1".toArray(), "v1".toArray())
+        t1.commit()
+        let t2 = db.newTransaction(update: true)
+        t2.delete("key1".toArray())
+        t2.commit()
+        let t3 = db.newTransaction(update: true)
+        t3.set("key1".toArray(), "v3".toArray())
+        t3.commit()
+        
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true))
+        
+        var count: Int64 = 0
+        var value = ""
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            count++
+            value = bytesToString(item.value)
+            iter.next()
+        }
+        iter.close()
+        
+        @Assert(count, 1)
+        @Assert(value, "v3")  // 删除后的重新写入必须可见
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
+    
+    @TestCase
+    func testReversePrefix() {
+        // 反向 + prefix 组合：只返回前缀内 key，且按反向顺序
+        let dir = "/tmp/badger_iter_rev_prefix"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        let t1 = db.newTransaction(update: true)
+        t1.set("a/k1".toArray(), "v1".toArray())
+        t1.set("a/k2".toArray(), "v2".toArray())
+        t1.set("b/x".toArray(), "vx".toArray())
+        t1.commit()
+        let t2 = db.newTransaction(update: true)
+        t2.set("a/k1".toArray(), "v1b".toArray())
+        t2.commit()
+        
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true, prefix: "a/".toArray()))
+        
+        let keys = ArrayList<String>()
+        let values = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            keys.add(bytesToString(item.key))
+            values.add(bytesToString(item.value))
+            iter.next()
+        }
+        iter.close()
+        
+        @Assert(keys.size, 2)
+        @Assert(keys[0], "a/k2")
+        @Assert(values[0], "v2")
+        @Assert(keys[1], "a/k1")
+        @Assert(values[1], "v1b")  // 前缀内多版本也要取最新
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
+    
+    @TestCase
+    func testReverseAllVersionsUnchanged() {
+        // allVersions 模式反向保持原行为（调试用，不修复）：应返回所有版本
+        let dir = "/tmp/badger_iter_rev_allver"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        let t1 = db.newTransaction(update: true)
+        t1.set("key1".toArray(), "v1".toArray())
+        t1.commit()
+        let t2 = db.newTransaction(update: true)
+        t2.set("key1".toArray(), "v2".toArray())
+        t2.commit()
+        
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true, allVersions: true))
+        
+        let values = ArrayList<String>()
+        iter.rewind()
+        while (iter.valid()) {
+            let item = iter.item()
+            values.add(bytesToString(item.value))
+            iter.next()
+        }
+        iter.close()
+        
+        @Assert(values.size, 2)  // 所有版本都可见（含旧版本）
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
 }
 
 func cleanupIterDir(path: String) {

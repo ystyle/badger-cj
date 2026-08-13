@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-07-17  
-**当前阶段：** ✅ v1.6.2 性能优化（Channel + WAL + keyWithTs）
+**最后更新：** 2026-08-14  
+**当前阶段：** ✅ v1.6.6 反向迭代版本链修复（reverse 多版本/删除 bug）
 
 ---
 
@@ -9,14 +9,38 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 323/323 通过 ✅ |
+| **测试** | 324/324 通过 ✅ |
 | **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
-| **版本** | 1.6.2（CloseableBlockingQueue + WAL Buffer + keyWithTs 优化） |
+| **版本** | 1.6.6（反向迭代版本链修复 + 内存文档） |
 
 ---
 
 ## 已完成阶段
+
+### 反向迭代版本链修复 ✅ (2026-08-14)
+
+**Bug 根因：** badger key 编码为 `[userKey][反转ts]`（invTs = MAX ^ ts 大端），同 userKey 多版本时**前向**迭代先遇新版本（正确），**反向**迭代先遇旧版本（错误）。`IteratorOptions(reverse: true)` 对「覆盖写 / 删除（tombstone）」的 key 会返回旧版本；clean 删除数据后 latest()/reverse 查询返回已删旧值（tsdb-cj 验证发现）。
+
+| 任务 | 说明 |
+|------|------|
+| parseItem 反向分支 | 前缀过滤后、delete/dedup 前插入 `opt.reverse && !opt.allVersions` 分支 |
+| collectReverseLatest | 消费当前 userKey 全部可见版本（物理连续），输出最新有效版本（ts 最大且未删除/未过期）；反向旧→新顺序，候选随遍历更新，**遇到删除/过期版本清空候选** |
+| skipAdvance 标志 | collectReverseLatest 消费完链后 iitr 已定位到下一 key 首条目，`next()` 不能再 advance，否则跳过下一个 key（off-by-one） |
+| keysEqual import | `import badgercj.utils.{hasPrefix, hashKey, keysEqual}` |
+| allVersions 不修 | allVersions 调试模式保持原行为（返回所有版本） |
+
+**测试验收（6 个新用例）：**
+- `testReverseMultiVersion` - 覆盖写 key1: v1→v2，反向返回 v2（旧 bug 返回 v1）
+- `testReverseMultiVersionMixedKeys` - 多 key 混合版本，无 key 被跳过（skipAdvance off-by-one 回归）
+- `testReverseDeletedKey` - 删除(tombstone)后反向跳过该 key
+- `testReverseDeleteThenRewrite` - 写→删→重写，反向返回重写的最新值
+- `testReversePrefix` - reverse + prefix 组合，前缀内多版本取最新
+- `testReverseAllVersionsUnchanged` - allVersions 反向保持原行为
+
+**README 内存说明：** arena = 2 × memTableSize（默认 64MB → arena 128MB/库）；仓颉 GC 堆默认上限 256MB（cjHeapSize/cjGCThreshold/cjGCInterval/cjBackupGCInterval 可调）；嵌入式/低内存/多库建议调小 memTableSize。
+
+**发版：** badgercj 1.6.5（已发布，含 snappy 1.0.1 升级但无本修复）→ 中心仓不允许覆盖 → 本修复发布为 **v1.6.6**；tsdb-cj 随后升级 badgercj 依赖到 1.6.6。
 
 ### PrefixIterable 功能 ✅ (2026-04-02)
 
