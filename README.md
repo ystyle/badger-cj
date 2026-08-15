@@ -603,5 +603,10 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 - [设计文档](docs/plans/) - 各阶段设计文档
 
 ## 相关项目
-- [bstrom-cj](https://atomgit.com/ystyle/badger-storm): orm操作层使用声明式查询构建器查询数据
-- [sunku-cj](https://atomgit.com/ystyle/sunku-cj): redis指令格式的操作层
+
+基于 badger-cj 的生态项目：
+
+- [storm-cj](https://atomgit.com/ystyle/badger-storm): JSON 文档数据库
+- [holt-cj](https://atomgit.com/ystyle/holt-cj): 图数据库
+- [tsdb-cj](https://atomgit.com/ystyle/tsdb-cj): 时序数据库
+- [sunku-cj](https://atomgit.com/ystyle/sunku-cj): 类 Redis 指令的缓存操作
