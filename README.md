@@ -106,6 +106,7 @@ server.listen()  // 阻塞，没有地方调用 db.close()
 - 默认关闭，需要手动启用
 - `close()` 是幂等的，多次调用安全
 - 不影响 `kill -9` 等强制终止（数据依赖 WAL 恢复）
+- **Docker/容器环境建议使用同步写**：`atExit` / `AutoCloseOnExit` 只在**正常退出路径**触发（main 返回 / `std.env.exit()`），**不处理 docker 的 SIGTERM**——`docker stop` / `docker compose restart` 发的信号直接终止进程，退出回调不会执行（已实测确认）。容器内靠自动关闭保证持久化不可靠，**建议开启 `Config.withSyncWrites(true)` 每次写入同步落盘**，即使 SIGKILL 也不丢数据；记忆服务等低频写场景代价可接受。
 
 **手动使用 atExit：**
 

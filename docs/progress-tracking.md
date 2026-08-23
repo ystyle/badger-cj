@@ -334,6 +334,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-08-23 | v1.6.7 | 文档：README「进程退出时自动关闭」补 Docker 说明——atExit/AutoCloseOnExit 不处理 docker SIGTERM（docker stop/restart 直接终止进程不跑退出回调，已实测），容器环境建议 `Config.withSyncWrites(true)` 同步落盘保证持久性 |
 | 2026-07-17 | v1.6.2 | 性能优化：CloseableBlockingQueue (LinkedBlockingQueue+Condition)、WAL BufferedOutputStream、keyWithTs 消除临时分配、MemTable 避免重复编码、事务吞吐提升 69-106%、Skiplist Get 提升 50%、323 测试通过 |
 | 2026-03-26 | v7.14 | 迭代器架构重构：TableIterWrapper 支持 reverse、删除旧 TableIteratorWrapper、LevelHandler 参数修复、293 测试通过 |
 | 2026-03-21 | v7.13 | P1 Backup/Restore 完成：全量/增量备份、TTL/UserMeta 支持、setRaw() 添加 expiresAt 参数、270 测试通过 |
