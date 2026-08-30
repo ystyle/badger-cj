@@ -72,15 +72,16 @@ class OracleTest {
         txn1.conflictKeys.add(200)
         txn1.reads.add(50)
         
-        let commitTs1 = oracle.newCommitTsOrThrow(txn1)
-        oracle.doneCommit(commitTs1)
-        
-        sleep(Duration.millisecond * 50)
-        
+        // 真实并发：txn2 在 txn1 提交前创建（readTs 早于 txn1 的提交 ts）
         let readTs2 = oracle.readTs()
         var txn2 = TxnState(readTs2)
         txn2.conflictKeys.add(150)
         txn2.reads.add(100)
+        
+        let commitTs1 = oracle.newCommitTsOrThrow(txn1)
+        oracle.doneCommit(commitTs1)
+        
+        sleep(Duration.millisecond * 50)
         
         let commitTs2Opt = oracle.newCommitTs(txn2)
         @Assert(commitTs2Opt.isNone(), true)

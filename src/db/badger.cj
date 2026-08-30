@@ -372,6 +372,11 @@ public class Badger <: VLogGCDB {
         }
         writeCh.add(req)
         req.wait()
+        if (let Some(msg) <- req.errorOf()) {
+            // 失败必报（评审 P1-2）：batchSet 同样不能"假装成功"
+            reqPool.put(req)
+            throw Exception(msg)
+        }
         reqPool.put(req)
     }
     
@@ -390,6 +395,10 @@ public class Badger <: VLogGCDB {
         let cb = callback
         spawn {
             req.wait()
+            // 失败必报（评审 P1-2）：回调线程检查后上报，失败不静默
+            if (let Some(msg) <- req.errorOf()) {
+                println("[badger] batchSetAsync write failed: ${msg}")
+            }
             reqPool.put(req)
             if (let Some(fn) <- cb) {
                 fn(())
@@ -518,14 +527,52 @@ public class Badger <: VLogGCDB {
             return
         }
         
-        for (req in reqs) {
-            let entries = req.getEntries()
-            
-            lock.writeLock.lock()
-            if (mt.shouldFlush()) { flushMemTableInternal() }
+        // 整批持写锁：保证 mt.put 与 flush（imm 交换）期间读锁互斥，
+        // 避免读线程在 put/flush 中途读到不一致的 memtable 集合
+        lock.writeLock.lock()
+        try {
+            for (req in reqs) {
+                let entries = req.getEntries()
+                for (entry in entries) {
+                    // 条目级检查：单 req 可含大量条目（如批量物化），若只检查一次，
+                    // arena 会在条目循环中耗尽而抛异常（对齐 badger-go ensureRoomForWrite 语义）
+                    if (mt.shouldFlush()) { flushMemTableInternal() }
+                    
+                    let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
+                        Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
+                    } else {
+                        None
+                    }
+                    
+                    let keyWithTs = keyWithTs(entry.key, req.commitTs)
+                    let vs = if (entry.isDelete) {
+                        ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
+                    } else if (let Some(vp) <- vpOpt) {
+                        let combinedMeta = Meta.bitValuePointer | entry.meta
+                        ValueStruct(vp.encode(), meta: combinedMeta, 
+                                    userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
+                    } else {
+                        ValueStruct(entry.value, meta: entry.meta, 
+                                    userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
+                    }
+                    mt.put(keyWithTs, vs)
+                }
+            }
+        } finally {
             lock.writeLock.unlock()
-            
-            for (entry in entries) {
+        }
+        
+        for (req in reqs) {
+            req.done()
+        }
+    }
+    
+    private func writeOneRequest(req: WriteRequest): Unit {
+        lock.writeLock.lock()
+        try {
+            for (entry in req.getEntries()) {
+                if (mt.shouldFlush()) { flushMemTableInternal() }
+                
                 let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                     Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
                 } else {
@@ -545,40 +592,10 @@ public class Badger <: VLogGCDB {
                 }
                 mt.put(keyWithTs, vs)
             }
-        }
-        
-        for (req in reqs) {
+        } finally {
+            lock.writeLock.unlock()
             req.done()
         }
-    }
-    
-    private func writeOneRequest(req: WriteRequest): Unit {
-        lock.writeLock.lock()
-        if (mt.shouldFlush()) { flushMemTableInternal() }
-        lock.writeLock.unlock()
-        
-        for (entry in req.getEntries()) {
-            let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
-                Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
-            } else {
-                None
-            }
-            
-            let keyWithTs = keyWithTs(entry.key, req.commitTs)
-            let vs = if (entry.isDelete) {
-                ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
-            } else if (let Some(vp) <- vpOpt) {
-                let combinedMeta = Meta.bitValuePointer | entry.meta
-                ValueStruct(vp.encode(), meta: combinedMeta, 
-                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
-            } else {
-                ValueStruct(entry.value, meta: entry.meta, 
-                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
-            }
-            mt.put(keyWithTs, vs)
-        }
-        
-        req.done()
     }
     
     private func startCompactor(): Unit {

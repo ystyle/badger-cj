@@ -57,6 +57,17 @@ protected class MemTable {
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
         let encoded = vs.encode()
         
+        // 64KB 上限检查与 arena 预检必须提前到 WAL 写入之前：
+        // 否则失败事务的数据会残留 WAL，崩溃后 replay 把"失败数据"复活并再次抛异常
+        // （评审 P1-1：此前顺序为 encode → WAL 写 → 64KB 检查抛错 → 重启必崩）
+        if (encoded.size > 65535) {
+            throw Exception("ValueStruct encoded size exceeds UInt16 max: ${encoded.size}")
+        }
+        let remaining = Int64(arena.size) - Int64(arena.usedSize())
+        if (Int64(encoded.size) > remaining) {
+            throw Exception("Arena overflow: requested ${encoded.size}, remaining ${remaining}")
+        }
+        
         if (!opt.DisableWAL && !replaying.load()) {
             if (let Some(w) <- wal) {
                 w.write(key, encoded)
@@ -70,9 +81,6 @@ protected class MemTable {
             maxVersion.store(vs.version)
         }
         
-        if (encoded.size > 65535) {
-            throw Exception("ValueStruct encoded size exceeds UInt16 max: ${encoded.size}")
-        }
         let offset = arena.putBytes(encoded)
         let size = UInt16(encoded.size)
         

@@ -134,7 +134,13 @@ public class WAL {
                 if (txnTs == lastTxnTs) {
                     for ((key, value) in pendingTxnEntries) {
                         let cleanVs = value.clearTxnMarks()
-                        mt.put(key, cleanVs)
+                        try {
+                            mt.put(key, cleanVs)
+                        } catch (e: Exception) {
+                            // 该条目超限/无法写入（如旧格式桶记录超 64KB 编码上限的失败事务
+                            // 残留 WAL）：跳过该条目，不阻止启动——其余事务照常恢复。
+                            // 这保证"失败必报"与崩溃恢复不矛盾（评审 P1-1 盲区的缓解）。
+                        }
                     }
                 }
                 pendingTxnEntries.clear()
@@ -156,7 +162,11 @@ public class WAL {
                     pendingTxnEntries.clear()
                     lastTxnTs = 0
                 }
-                mt.put(entry.key, vs)
+                try {
+                    mt.put(entry.key, vs)
+                } catch (e: Exception) {
+                    // 单条坏数据（超限/容器满）跳过，其余继续恢复
+                }
             }
         }
     }

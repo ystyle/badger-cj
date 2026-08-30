@@ -168,6 +168,15 @@ public class Transaction {
         db.writeCh.add(req)
         req.wait()
         
+        // 失败必报（对齐 badger-go req.Err）：pipeline 异常时 req 被标记失败，
+        // 不再"假装成功"（此前 arena 溢出 / value 超 64KB 编码上限都会静默丢数据）
+        if (let Some(msg) <- req.errorOf()) {
+            oracle.doneCommit(commitTs)
+            db.reqPool.put(req)
+            committed = true
+            return TxnStatus.Error(msg)
+        }
+        
         oracle.doneCommit(commitTs)
         db.reqPool.put(req)
         committed = true
