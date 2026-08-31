@@ -6,6 +6,7 @@ package badgercj.io_uring
 
 import std.unittest.*
 import std.unittest.testmacro.*
+import std.collection.*
 import std.fs.*
 
 @Test
@@ -137,6 +138,39 @@ class IoUringFileWriterTest {
     private func cleanupTestDir(path: String) {
         if (exists(Path(path))) {
             remove(Path(path), recursive: true)
+        }
+    }
+
+    // io_uring 不可用（容器 seccomp/受限环境）时批量写自动降级同步——
+    // 修复容器内 close 优雅退出必挂（io_uring_queue_init failed）
+    @TestCase
+    func testWriteFilesBatchDegradesWhenIouringDisabled() {
+        if (!isLinuxPlatform()) {
+            return
+        }
+        let testDir = "/tmp/io_uring_fallback_test"
+        cleanupTestDir(testDir)
+        Directory.create(Path(testDir))
+
+        let reqs = ArrayList<FileWriteRequest>()
+        reqs.add(FileWriteRequest(testDir + "/a.sst", "hello".toArray()))
+        reqs.add(FileWriteRequest(testDir + "/b.sst", "world".toArray()))
+
+        // 置降级标志模拟 io_uring 不可用：useIoUring: true 也必须走同步写成功
+        ioUringDisabledTestSet(true)
+        try {
+            let results = writeFilesBatch(reqs, useIoUring: true)
+            @Assert(results.size == 2)
+            for (r in results) {
+                @Assert(r.success)
+            }
+            @Assert(readFile(testDir + "/a.sst") == "hello")
+            @Assert(readFile(testDir + "/b.sst") == "world")
+            // 标志已置位
+            @Assert(ioUringDisabledTestGet(), true)
+        } finally {
+            ioUringDisabledTestSet(false)
+            cleanupTestDir(testDir)
         }
     }
 }

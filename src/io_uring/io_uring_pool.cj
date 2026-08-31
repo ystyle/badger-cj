@@ -231,11 +231,27 @@ public class IoUringPool {
 
 /**
  * writeFilesBatch - 批量写入文件的便捷函数
+ * 
+ * io_uring 不可用时自动降级同步写（容器 seccomp 拦截/内核禁用/初始化失败）——
+ * 写盘不因 io_uring 挂（修复容器内 close 优雅退出必挂：io_uring_queue_init failed）。
+ * 首次失败置全局降级标志，后续调用直接走同步（避免每次重试初始化）。
  */
+// io_uring 全局降级标志（包内可见；测试辅助读写）
+let ioUringDisabled = AtomicBool(false)
+
+// 测试辅助（包内可见）：io_uring 降级标志读写——模拟容器/受限环境 io_uring 不可用
+func ioUringDisabledTestSet(v: Bool): Unit { ioUringDisabled.store(v) }
+func ioUringDisabledTestGet(): Bool { ioUringDisabled.load() }
+
 @When[os == "Linux"]
 public func writeFilesBatch(requests: ArrayList<FileWriteRequest>, useIoUring!: Bool = true): ArrayList<FileWriteResult> {
-    if (useIoUring) {
-        return IoUringPool.getInstance().writeFiles(requests)
+    if (useIoUring && !ioUringDisabled.load()) {
+        try {
+            return IoUringPool.getInstance().writeFiles(requests)
+        } catch (_) {
+            ioUringDisabled.store(true)
+            return syncWriteFilesFallback(requests)
+        }
     }
     syncWriteFilesFallback(requests)
 }
