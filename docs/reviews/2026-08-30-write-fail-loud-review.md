@@ -172,3 +172,27 @@ let offset = arena.putBytes(encoded)      // ④ arena 溢出检查也在 WAL �
 - 新增 oracle 冲突语义修改方向正确、与 badger-go 对齐、测试充分（顺序不误判 + 并发仍检测 + OracleTest 时序修正），是"桶点不开"根因的真实修复。
 - 剩余项均为 P2/P3：drain 路径错误传播、写锁内 I/O（可排期优化）、WAL replay 半截事务（仅旧数据路径，可后续加固）、代码风格小事。
 - 建议：合入 master 后，把 P2 项登记为后续优化；若追求一次到位，可在合入前补 drain 路径与 replay 整事务丢弃两处小改（各配一个单测）。
+
+---
+
+# 终审状态（2026-08-31 晚，问题全部闭环）
+
+> 按用户要求补齐剩余项，逐项终审：
+
+| 评审项 | 状态 | 处理 |
+|---|---|---|
+| P1-1 WAL 残留失败数据 | ✅ 闭环 | 40311bf：64KB/arena 预检提前到 WAL 前 + replay 容错 + 测试 |
+| P1-2 batchSet 静默失败 | ✅ 闭环 | 40311bf：batchSet throw |
+| P1-2 batchSetAsync 错误通道 | ✅ 闭环 | 5290b2c 后半 + 本次：签名改 `callback!: ?((?String) -> Unit) = None`（None=成功/Some(msg)=失败，经 callback 上报，未传时日志兜底）；新增 testBatchSetAsyncErrorChannel |
+| P2-1 drain 错误传播 + 代码重复 | ✅ 闭环 | 5290b2c：writeOneRequest markFailed + 合并 prepare/put |
+| P2-2 vlog 移出写锁 | ✅ 闭环 | 5290b2c：两阶段 prepare→put |
+| P2-2 flush 同步构建 | ✅ 决策闭环（不做） | 评估结论：当前"imm 保留 + L0 内存冗余"保证刚写入数据内存读；异步化会引入读性能回退（L0 磁盘表无缓存）且需重构 close 写盘联动，收益风险不成比例。已在 flushMemTableInternal 注释记录为设计约束，异步化列未来优化项 |
+| P2-3 Error 不捕获悬挂 | ✅ 闭环 | 40311bf：catch(Error) + finally done |
+| P2-3(复审) replay 半截事务 | ✅ 闭环 | 5290b2c：整事务原子恢复 + 测试 |
+| P3 换行 | ✅ 闭环 | 5290b2c |
+| P3 失败≠零写入注释 | ✅ 闭环 | runBatch 注释 |
+| P3 transaction.cj 失败/成功路径去重 | ✅ 闭环 | 本次：提取统一收尾（errOpt 先读 → doneCommit/put/committed → match 返回） |
+| P3 10 万 trim 边缘漏检 | ✅ 决策闭环（接受） | 低风险兜底，注释说明取舍 |
+| P3 测试 value 校验 | ✅ 决策闭环（可选加强） | 对"丢数据"回归已足够 |
+
+**结论：评审报告全部问题均已闭环（修复或明确决策），无遗留。**

@@ -4,6 +4,8 @@ import std.unittest.*
 import std.unittest.testmacro.*
 import std.fs.*
 import std.collection.*
+import std.sync.*
+import std.time.*
 import badgercj.table.*
 
 // 回归（对齐 badger-go）：
@@ -161,6 +163,63 @@ class LargeBatchTest {
             @Fail("独立事务必须恢复")
         }
 
+        cleanup()
+    }
+
+    @TestCase
+    func testBatchSetAsyncErrorChannel(): Unit {
+        cleanup()
+        // batchSetAsync 错误通道（评审 P1-2 收尾）：callback 收到 ?String——
+        // 成功 None / 失败 Some(msg)，失败不再静默（此前仅 println）。
+        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+
+        let mu = Mutex()
+        let results = ArrayList<Option<String>>()
+        let doneCount = AtomicInt32(0)
+
+        let awaitCallback: (Int32) -> Unit = { expected =>
+            var waited = 0
+            while (doneCount.load() < expected && waited < 400) {
+                sleep(Duration.millisecond * 25)
+                waited += 1
+            }
+            @Assert(doneCount.load(), expected)
+        }
+
+        // 1) 正常条目 → None（成功）
+        let okEntries = ArrayList<Entry>()
+        okEntries.add(Entry("ok".toArray(), "v".toArray()))
+        db.batchSetAsync(okEntries, callback: { err =>
+            synchronized(mu) {
+                results.add(err)
+            }
+            doneCount.fetchAdd(1)
+        })
+        awaitCallback(1)
+        synchronized(mu) {
+            @Assert(results.size, 1)
+            @Assert(results[0].isNone(), true)
+        }
+
+        // 2) 超限条目（70KB value > 64KB 编码上限）→ Some(msg)（失败）
+        let bigEntries = ArrayList<Entry>()
+        bigEntries.add(Entry("big".toArray(), Array<Byte>(70000, repeat: 0u8)))
+        db.batchSetAsync(bigEntries, callback: { err =>
+            synchronized(mu) {
+                results.add(err)
+            }
+            doneCount.fetchAdd(1)
+        })
+        awaitCallback(2)
+        synchronized(mu) {
+            @Assert(results.size, 2)
+            @Assert(results[1].isSome(), true)
+        }
+
+        // 失败后库仍可用
+        let okStatus = db.update({ t => t.set("after".toArray(), "ok".toArray()) })
+        @Assert(okStatus.isSuccess(), true)
+        db.close()
         cleanup()
     }
 }

@@ -451,7 +451,9 @@ public class Badger <: VLogGCDB {
         reqPool.put(req)
     }
     
-    public func batchSetAsync(entries: ArrayList<Entry>, callback: ?(Unit) -> Unit): Unit {
+    // 批量异步写入：callback 收到 ?String——None 表示成功，Some(msg) 表示写入失败原因。
+    // 失败必报（评审 P1-2）：错误经 callback 上报而非静默；未提供 callback 时日志兜底。
+    public func batchSetAsync(entries: ArrayList<Entry>, callback!: ?((?String) -> Unit) = None): Unit {
         if (entries.isEmpty()) {
             return
         }
@@ -466,14 +468,17 @@ public class Badger <: VLogGCDB {
         let cb = callback
         spawn {
             req.wait()
-            // 失败必报（评审 P1-2）：回调线程检查后上报，失败不静默
-            if (let Some(msg) <- req.errorOf()) {
-                println("[badger] batchSetAsync write failed: ${msg}")
+            let errMsg = req.errorOf()
+            if (let Some(msg) <- errMsg) {
+                if (let Some(fn) <- cb) {
+                    fn(Some(msg))
+                } else {
+                    println("[badger] batchSetAsync write failed: ${msg}")
+                }
+            } else if (let Some(fn) <- cb) {
+                fn(None)
             }
             reqPool.put(req)
-            if (let Some(fn) <- cb) {
-                fn(())
-            }
         }
     }
     
@@ -538,6 +543,13 @@ public class Badger <: VLogGCDB {
         imm.add(mt)
         let fid = Int64(nextFileID.fetchAdd(1))
         mt = MemTable(opt, fid, false)
+        // 设计约束（评审 P2-2 评估结论）：flushToLevel 在写锁内同步构建 SSTable 并
+        // addTable 到 L0，同时该表仍保留在 imm——刚写入数据始终可从内存（imm）读到。
+        // 若改为"后台线程构建+写盘+从 imm 移除"：① 刚写入数据的读取将从内存变磁盘
+        // （L0 磁盘表，无 block cache），读性能回退；② close 的 imm 写盘联动需同步
+        // 重构，属架构级改动。收益（写锁时长）与风险（读性能/数据正确性）不成比例，
+        // 且默认 memTableSize(64MB) 下 flush 不频繁、锁内构建毫秒级，影响可控。
+        // 异步化列为未来优化项。
         flushToLevel(imm[imm.size - 1])
     }
     
