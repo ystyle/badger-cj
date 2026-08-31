@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-08-14  
-**当前阶段：** ✅ v1.6.6 反向迭代版本链修复（reverse 多版本/删除 bug）
+**最后更新：** 2026-08-31  
+**当前阶段：** ✅ v1.6.8 优雅关闭钩子 registerShutdownHook（宿主与 badger 共存监听信号）
 
 ---
 
@@ -334,6 +334,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-08-31 | v1.6.8 | 优雅关闭钩子 `registerShutdownHook(cb)`：宿主与 badger 共存监听信号两种模式——模式 A（宿主先注册 handler 返回 false，再调 registerSignalShutdown）与模式 B（钩子注册进 badger，信号时后台线程 close 前按序执行）；实测确认 handler 返回 false 会触发信号默认终止（进程被 SIGTERM 杀死、close 来不及执行），badger 必须返回 true；2 测试（钩子执行/顺序），335 测试通过 |
 | 2026-08-31 | v1.6.7 | write-fail-loud 完善 + 优雅退出：vlog.write 移出全局写锁（prepare→锁内 put 两阶段）、drain 路径错误传播（writeOneRequest markFailed + 合并重复逻辑）、WAL replay 整事务原子恢复（坏条目→整事务丢弃）、`registerSignalShutdown()`（std.runtime SIGINT/SIGTERM → close + exit，`@When[os == "Linux"]` 条件编译，非 Linux no-op）、README Docker 段更新；332 测试通过 |
 | 2026-08-31 | v1.6.7 | 优雅退出端到端验证：`src/examples/graceful_exit`（write/write-nosignal/read 模式，`--static` 编译）与 `scripts/graceful_shutdown_e2e.sh`（写 5000 条不落盘 → SIGTERM → exit(0)+落盘 → 重启 5000/5000 稳定通过；对照组无优雅退出 → 143 → 0/5000 全丢） |
 | 2026-08-23 | v1.6.7 | 文档：README「进程退出时自动关闭」补 Docker 说明——atExit/AutoCloseOnExit 不处理 docker SIGTERM（docker stop/restart 直接终止进程不跑退出回调，已实测），容器环境建议 `Config.withSyncWrites(true)` 同步落盘保证持久性 |
