@@ -106,7 +106,15 @@ server.listen()  // 阻塞，没有地方调用 db.close()
 - 默认关闭，需要手动启用
 - `close()` 是幂等的，多次调用安全
 - 不影响 `kill -9` 等强制终止（数据依赖 WAL 恢复）
-- **Docker/容器环境建议使用同步写**：`atExit` / `AutoCloseOnExit` 只在**正常退出路径**触发（main 返回 / `std.env.exit()`），**不处理 docker 的 SIGTERM**——`docker stop` / `docker compose restart` 发的信号直接终止进程，退出回调不会执行（已实测确认）。容器内靠自动关闭保证持久化不可靠，**建议开启 `Config.withSyncWrites(true)` 每次写入同步落盘**，即使 SIGKILL 也不丢数据；记忆服务等低频写场景代价可接受。
+- **Docker/容器环境建议同时开启优雅退出**：`atExit` / `AutoCloseOnExit` 只在**正常退出路径**触发（main 返回 / `std.env.exit()`），**不处理 docker 的 SIGTERM**——`docker stop` / `docker compose restart` 发的信号直接终止进程，退出回调不会执行（已实测确认）。容器内建议调用 `registerSignalShutdown()`，注册 SIGINT/SIGTERM → 收到信号后先 `close()` 再退出进程，保证退出路径上 memtable 落盘：
+
+```cangjie
+let db = Badger.open(Config(dir: "./data"))
+db.registerSignalShutdown()   // docker stop / Ctrl+C → 优雅关闭后退出（exitAfterClose: false 可只关闭不退出）
+```
+
+> 条件编译：信号 API（std.runtime）官方不支持 Windows，`registerSignalShutdown()` 仅 Linux 编译（非 Linux 为 no-op；macOS 如需支持可放宽）。
+> 兜底建议：低频写场景仍可叠加 `Config.withSyncWrites(true)` 同步落盘，即使 SIGKILL 也不丢数据。
 
 **手动使用 atExit：**
 

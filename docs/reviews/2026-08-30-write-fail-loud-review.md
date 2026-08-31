@@ -117,3 +117,58 @@ let offset = arena.putBytes(encoded)      // ④ arena 溢出检查也在 WAL �
 | 6 | P3 | 文件尾换行、失败路径去重、注释"失败≠零写入"语义说明 |
 
 > 建议完成 P1 两项后先行提交（含单测），P2 项作为后续优化项排期；按项目约定「有单元测试后再提交」。
+
+---
+
+# 复审（2026-08-31，基于提交 `40311bf`）
+
+> 其它会话基于初评审完成实现并提交 `40311bf fix: 写入失败必报 + WAL 重放容错 + oracle 冲突语义对齐 badger-go`。本复审针对该提交相对 `master`(2c34212) 的完整 diff，并复跑全量测试。
+
+## 验证情况
+
+- `cjpm test -j 16 --no-progress` → **329/329 PASSED**（含新增 LargeBatchTest 3 用例、TxnConflictSemanticsTest 2 用例、OracleTest 时序修正）。
+
+## 一、上一轮问题处理情况
+
+| 项 | 处理 | 说明 |
+|---|---|---|
+| P1-1 WAL 残留失败数据 | ✅ **根治 + 兼容** | ① `MemTable.put` 把 64KB/arena 预检提前到 WAL 之前（`encoded.size > 65535` 与 `remaining` 预检均在 `w.write` 前），新写入不再产生残留——预检精确：`putBytes` 走 `allocate` 无对齐开销，剩余空间判断与实际消耗一致；② `WAL.replay` 对坏条目 try/catch 跳过，兼容旧版已残留数据（112KB 桶记录）启动不崩。新增 `testWalReplaySkipsOversizeFailedTxn` 覆盖。 |
+| P1-2 batchSet 静默失败 | ✅（batchSet）/ ⚠️（batchSetAsync 半修复） | `batchSet` wait 后检查 `errorOf` 并 `throw Exception`（先还池再抛，顺序正确）；`batchSetAsync` 仅在回调线程 `println` 上报——错误不经过 callback，无编程错误通道，建议文档化或后续改签名。 |
+| P2-3 Error 不捕获 → wait 悬挂 | ✅ | `runBatch` 改 `try / catch(Exception) / catch(Error) / finally(done)`，`done()` 入 finally，任意异常类型都不悬挂；`catch(Error)` 编译通过，仓颉允许按具体类型捕获。 |
+| P2-1 drain 路径无错误传播 + 代码重复 | ❌ **未处理** | `writeOneRequest` 仍只有 `try/finally`（unlock + done），无 `markFailed`；异常仍会逃逸到 `flushFut` spawn 线程，close 期间已入队请求失败时调用方仍"假装成功"。与 `writeRequests` 内层循环完全重复。 |
+| P2-2 写锁内磁盘 I/O | ❌ **未处理** | `vlog.write`（无缓冲 `File.write` syscall）与 flush 时同步构建 SSTable 仍在全局写锁内；条目级 flush 使大事务触发多轮 flush，读延迟影响面比旧版更大。 |
+| P3 文件尾缺换行 | ❌ 未处理 | `write_pipeline.cj`、`write_request.cj` 尾部仍无换行（`No newline at end of file`）。 |
+
+## 二、新增 oracle 冲突语义修改的评审（重点）
+
+**修改目标**（提交说明）：① `hasConflict` 无 readTs 门槛 → 顺序事务"读旧版重写"必误判 `TxnConflict`（物化幂等重写第二次必炸——"桶点不开"根因）；② 纯写事务不入册 → 真实写-写交错检测不到（此前压测用 95% 容忍掩盖）。
+
+**逐点核验（均通过）**：
+
+1. **hasConflict 加 readTs 门槛**（`committedTxn.ts <= txn.readTs → continue`）：快照语义正确——readTs 之前提交的写已包含在本事务读快照中，不构成冲突；readTs 之后提交的写不在快照中，必须冲突。对齐 badger-go `oracle.go` 的 `hasConflict`（`if t.ts <= readTs { continue }`）。手工推演：顺序重写（T2 readTs=1，T1 commitTs=1 → 1≤1 不冲突 ✅）、并发交错（txnB commitTs=2 > txnA readTs=1 → 冲突 ✅），与 `TxnConflictSemanticsTest` 两用例一致。
+2. **纯写事务也登记 committedTxns**（`detectConflicts && !conflictKeys.isEmpty()`）：写-写交错可检测 ✅；写事务必有 conflictKeys（set/delete 均 addConflictKey），登记覆盖完整。
+3. **所有事务统一 `doneReadInternal(txn)`**：修复了原快速路径（无 reads 纯写事务）readMark 永不 done 的泄漏——readMark 不推进则 `cleanupCommittedTransactions` 永远清理不掉 committedTxns（这正是 10 万兜底 trim 出现的原因，两处逻辑自洽）。`Transaction.discard()` 的二次 `doneRead` 无害：`WaterMark.done` 幂等（HashSet.remove 不存在元素无操作）。
+4. **cleanup 保留窗口**（`txn.ts > maxReadTs`）：活跃事务 readTs=X 未 done ⇒ `doneUntil ≤ X-1` ⇒ 保留集合 ⊇ {ts ≥ X}，冲突检测所需（ts > X）必被保留，**不漏检** ✅。
+5. **10 万兜底 trim**（保留最近 5 万）：仅在 cleanup 失效（无读事务、readMark 不推进）时防无限增长。边缘风险：极长事务（readTs 很旧）在 10 万+ 次提交后才提交，trim 可能丢弃其冲突信息导致漏检——但此场景下无 reads 推进意味着也没有冲突检测需求方，实际影响趋近于零，作为低风险提示记录。
+6. **oracle_test 时序修正**：`txn2` 创建（readTs 分配）移到 `txn1` commit 之前，使 `txn2.readTs < txn1.commitTs` → 冲突检测条件成立，测试语义修正正确。
+7. **managed 分支**：`hasConflict` 门槛同样生效；managed 事务 readTs 由外部传入，行为未变差。
+
+## 三、新发现问题
+
+| # | 级别 | 问题 | 建议 |
+|---|---|---|---|
+| 1 | P2 | **WAL replay 半截事务复活**：replay 恢复事务条目时逐条 try/catch，同事务其它条目照常恢复 → 失败事务的部分数据复活（与 fail-loud 语义矛盾）。注意新版本预检保证不再产生新残留，此路径仅影响旧版遗留数据——属"缓解非根治"。且 catch 无日志，排障困难。 | 整事务原子恢复：任一坏条目 → 丢弃整个 pendingTxnEntries（直到 finTxn 为止不恢复该事务）；catch 中 println/计数。 |
+| 2 | P2 | **drain 路径错误传播缺失**（P2-1 遗留）：`writeOneRequest` 无 `markFailed`，close 期间已入队请求失败仍"假装成功"。 | 与 `writeRequests` 合并或加 catch+markFailed。 |
+| 3 | P2 | **写锁内磁盘 I/O**（P2-2 遗留）：`vlog.write` syscall + 同步 SSTable 构建。 | `vlog.write` 移出写锁（VLogManager 自有锁 + pipeline 单线程）；flush 异步化排期。 |
+| 4 | P3 | batchSetAsync 错误仅日志不进 callback | 文档化或改签名（如 `?(Result)->Unit`）。 |
+| 5 | P3 | 文件尾缺换行（两文件） | 补换行。 |
+| 6 | P3 | 10 万 trim 边缘漏检 | 保持现状即可，注释说明取舍。 |
+
+## 四、复审结论
+
+**✅ 通过，可以合入 master。**
+
+- 上一轮全部 P1（WAL 残留、batchSet 静默失败）已修复且有对应单测；P2-3 悬挂问题已修复。
+- 新增 oracle 冲突语义修改方向正确、与 badger-go 对齐、测试充分（顺序不误判 + 并发仍检测 + OracleTest 时序修正），是"桶点不开"根因的真实修复。
+- 剩余项均为 P2/P3：drain 路径错误传播、写锁内 I/O（可排期优化）、WAL replay 半截事务（仅旧数据路径，可后续加固）、代码风格小事。
+- 建议：合入 master 后，把 P2 项登记为后续优化；若追求一次到位，可在合入前补 drain 路径与 replay 整事务丢弃两处小改（各配一个单测）。

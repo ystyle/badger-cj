@@ -110,4 +110,57 @@ class LargeBatchTest {
 
         cleanup()
     }
+
+    @TestCase
+    func testWalReplaySkipsWholeFailedTxn(): Unit {
+        cleanup()
+        // 整事务原子恢复（评审 P2-3）：同一事务中任一条目写失败（超限）
+        // → 丢弃整个事务（含其正常条目），独立事务与非事务条目不受影响。
+        let dir = DIR + "/replay2"
+        if (!exists(Path(dir))) {
+            Directory.create(Path(dir), recursive: true)
+        }
+        let walPath = dir + "/0.mem"
+        let wal = WAL.open(walPath)
+        // 非事务条目：应恢复
+        let plainVs = ValueStruct("plain".toArray(), meta: 0, version: 1)
+        wal.write("plain".toArray(), plainVs.encode())
+        // 事务 42：big 超限 + ok2 正常 + finTxn → 整事务丢弃（ok2 也不恢复）
+        let bigVs = ValueStruct(Array<Byte>(70000, repeat: 0u8), meta: Meta.bitTxn, version: 42)
+        wal.write(keyWithTs("big".toArray(), 42u64), bigVs.encode())
+        let ok2Vs = ValueStruct("ok2".toArray(), meta: Meta.bitTxn, version: 42)
+        wal.write(keyWithTs("ok2".toArray(), 42u64), ok2Vs.encode())
+        let finVs = ValueStruct([], meta: Meta.bitFinTxn, version: 42)
+        wal.write(keyWithTs("__txn__".toArray(), 42u64), finVs.encode())
+        // 事务 43（独立）：应恢复
+        let ok3Vs = ValueStruct("ok3".toArray(), meta: Meta.bitTxn, version: 43)
+        wal.write(keyWithTs("ok3".toArray(), 43u64), ok3Vs.encode())
+        let finVs2 = ValueStruct([], meta: Meta.bitFinTxn, version: 43)
+        wal.write(keyWithTs("__txn__".toArray(), 43u64), finVs2.encode())
+        wal.close()
+
+        let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
+        let mt = MemTable(opt, 0, false)
+        let rw = WAL.openForRead(walPath)
+        rw.replay(mt)
+        rw.close()
+
+        // 非事务条目恢复
+        if (let Some(vs) <- mt.get("plain".toArray())) {
+            @Assert(vs.value == "plain".toArray(), true)
+        } else {
+            @Fail("非事务条目必须恢复")
+        }
+        // 事务 42 整事务丢弃：big 与 ok2 均不可见（用 keyWithTs 精确查询事务条目 key）
+        @Assert(mt.get(keyWithTs("big".toArray(), 42u64)).isNone(), true)
+        @Assert(mt.get(keyWithTs("ok2".toArray(), 42u64)).isNone(), true)
+        // 独立事务 43 恢复
+        if (let Some(vs) <- mt.get(keyWithTs("ok3".toArray(), 43u64))) {
+            @Assert(vs.value == "ok3".toArray(), true)
+        } else {
+            @Fail("独立事务必须恢复")
+        }
+
+        cleanup()
+    }
 }

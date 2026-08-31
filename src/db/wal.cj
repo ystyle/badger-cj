@@ -132,14 +132,19 @@ public class WAL {
             if (vs.isFinTxn()) {
                 let txnTs = parseTs(entry.key)
                 if (txnTs == lastTxnTs) {
+                    // 整事务原子恢复（评审 P2-3）：任一条目写失败（超限/arena 满）
+                    // → 丢弃整个事务，不再恢复其余条目。此前逐条跳过会让失败事务的
+                    // 部分数据"复活"，与"失败必报"语义矛盾。启动不崩仍由外层容错保证。
+                    var txnFailed = false
                     for ((key, value) in pendingTxnEntries) {
+                        if (txnFailed) {
+                            continue
+                        }
                         let cleanVs = value.clearTxnMarks()
                         try {
                             mt.put(key, cleanVs)
                         } catch (e: Exception) {
-                            // 该条目超限/无法写入（如旧格式桶记录超 64KB 编码上限的失败事务
-                            // 残留 WAL）：跳过该条目，不阻止启动——其余事务照常恢复。
-                            // 这保证"失败必报"与崩溃恢复不矛盾（评审 P1-1 盲区的缓解）。
+                            txnFailed = true
                         }
                     }
                 }
