@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-08-31  
-**当前阶段：** ✅ v1.6.8 优雅关闭钩子 registerShutdownHook（宿主与 badger 共存监听信号）
+**最后更新：** 2026-09-01  
+**当前阶段：** ✅ v1.6.9 io_uring 降级 + 路线图重构（v2.0 mmap 写路径设计已落盘）
 
 ---
 
@@ -9,10 +9,51 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 324/324 通过 ✅ |
+| **测试** | 336/336 通过 ✅ |
 | **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
-| **版本** | 1.6.6（反向迭代版本链修复 + 内存文档） |
+| **版本** | 1.6.9（io_uring 不可用自动降级，容器 seccomp 适配） |
+
+---
+
+## 路线图（Roadmap，统一计划表）
+
+> 来源整合：progress「下一阶段功能」表 + benchmark-report 优化方向 + 需求文档 P0/P1/P2 + port-design v2.0 规划。
+> 状态图例：✅ 已实现 / 🔶 设计中 / ⬜ 未开始 / ❌ 不做。
+
+### v1.x（当前线）
+
+| 计划项 | 来源 | 优先级 | 状态 |
+|--------|------|--------|------|
+| P0 MVP（KV/LSM/存储/事务） | 需求 P0 | — | ✅ |
+| P1 功能（快照/迭代/压缩/GC/TTL） | 需求 P1 | — | ✅ |
+| Backup/Restore / Stream API | port-design v2.0 | P1 | ✅ |
+| io_uring（SSTable 批量写） | benchmark P3 | P3 | ✅（v1.6.9 起失败自动降级） |
+| Snappy 压缩 | 下一阶段 | P2 | ✅（v1.3.0） |
+| 优雅退出 / 关闭钩子 | 防复发 | — | ✅（v1.6.7/1.6.8） |
+
+### v2.0（mmap 写路径，🔶 设计已落盘）
+
+| 计划项 | 说明 | 优先级 | 状态 |
+|--------|------|--------|------|
+| **WAL mmap 化** | 对齐 go `z.MmapFile`，消除 64KB 缓冲落盘不确定 | P1 | 🔶 `docs/plans/2026-09-01-mmap-wal-vlog-design.md` |
+| **VLog 写 mmap 化** | 对齐 go value.go，消除每次 syscall | P1 | 🔶 同上 |
+| VLog 读 mmap 化 | vlog 读取走映射（可选） | P2 | ⬜ |
+| 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | 🔶 |
+| 三平台 CI（macOS arm64） | GitHub Actions 全平台验证 | P1 | ⬜（设计已论证可行性） |
+
+### v2.x（后续线，独立规划）
+
+| 计划项 | 来源 | 优先级 | 状态 |
+|--------|------|--------|------|
+| WAL batch write + group commit | benchmark P1 | P1 | ⬜ |
+| Block/Index Cache | 需求 P1 性能优化 | P1 | ⬜ |
+| 事务批量提交流水线 | benchmark P2 | P2 | ⬜ |
+| Merge Operator | 需求 P2 / 下一阶段 | P2 | ⬜ |
+| Managed DB（补全） | 下一阶段 P3（oracle `isManaged` 已预留） | P3 | ⬜（接口已预留） |
+| Encryption | 下一阶段 P4 | P4 | ⬜ |
+| Arena 内存池调优 | benchmark P2 | P2 | ⬜ |
+| 分布式特性 | port-design v2.0 | — | ❌（嵌入式库定位） |
 
 ---
 
@@ -274,17 +315,6 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 ---
 
-## 当前任务：下一阶段功能
-
-| 任务 | 说明 | 优先级 |
-|------|------|--------|
-| Compression | SSTable 压缩（需 Snappy 库） | P2 |
-| Managed DB | 手动管理时间戳（数据迁移/CDC） | P3 |
-| Merge Operator | 合并操作（计数器/集合等） | P2 |
-| Encryption | 加密存储 | P4 |
-
----
-
 ## 性能
 
 | 操作 | Go Badger | badger-cj | 比率 |
@@ -334,6 +364,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-09-01 | v2.0 规划 | 路线图重构（统一进度表：v1.x 已完成线 / v2.0 mmap 线 / v2.x 后续线）+ mmap 写路径设计落盘 `plans/2026-09-01-mmap-wal-vlog-design.md`（WAL/VLog mmap 化对齐 go z.MmapFile，预分配规避 remap 段错误窗口，io_uring 仅留 SSTable 可选加速）；benchmark/需求文档状态同步 |
 | 2026-08-31 | v1.6.9 | io_uring 降级同步写：`writeFilesBatch` 在 io_uring 初始化/使用失败时自动降级 `syncWriteFilesFallback`（首败置全局标志防反复重试）——Docker builtin seccomp 默认拦截 io_uring_setup（Go 程序三向对照实测：宿主/内核可用、seccomp=unconfined 可用、默认 seccomp EPERM），容器内 close 多表批量 flush 必挂（优雅退出失败）；1 测试（降级标志后 useIoUring:true 同步写成功），336 测试通过 |
 | 2026-08-31 | v1.6.8 | 优雅关闭钩子 `registerShutdownHook(cb)`：宿主与 badger 共存监听信号两种模式——模式 A（宿主先注册 handler 返回 false，再调 registerSignalShutdown）与模式 B（钩子注册进 badger，信号时后台线程 close 前按序执行）；实测确认 handler 返回 false 会触发信号默认终止（进程被 SIGTERM 杀死、close 来不及执行），badger 必须返回 true；2 测试（钩子执行/顺序），335 测试通过 |
 | 2026-08-31 | v1.6.7 | write-fail-loud 完善 + 优雅退出：vlog.write 移出全局写锁（prepare→锁内 put 两阶段）、drain 路径错误传播（writeOneRequest markFailed + 合并重复逻辑）、WAL replay 整事务原子恢复（坏条目→整事务丢弃）、`registerSignalShutdown()`（std.runtime SIGINT/SIGTERM → close + exit，`@When[os == "Linux"]` 条件编译，非 Linux no-op）、README Docker 段更新；332 测试通过 |
