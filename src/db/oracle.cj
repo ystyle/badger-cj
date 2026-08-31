@@ -115,26 +115,31 @@ protected class Oracle {
             return Some(txn.commitTs)
         }
         
-        if (!detectConflicts || txn.reads.isEmpty()) {
-            let ts = nextTxnTs.fetchAdd(1)
-            txnMark.begin(ts)
-            return Some(ts)
-        }
-        
         lock.lock()
-        
-        if (hasConflict(txn)) {
+        if (detectConflicts && !txn.reads.isEmpty() && hasConflict(txn)) {
             lock.unlock()
             return None
         }
-        
         doneReadInternal(txn)
         cleanupCommittedTransactions()
         
         let ts = nextTxnTs.fetchAdd(1)
-        
-        if (detectConflicts) {
+        // 对齐 badger-go：所有带冲突键的提交都登记，供后续有 reads 的事务检测——
+        // 否则纯写事务不入册，真正的写-写交错检测不到（此前并发压测用 95% 容忍掩盖了该缺口）。
+        // 注意：hasConflict 只比较 readTs 之后提交的事务，顺序"读旧版重写"不会误判。
+        if (detectConflicts && !txn.conflictKeys.isEmpty()) {
             committedTxns.add(CommittedTxn(ts, txn.conflictKeys))
+            // 兜底防无限增长：纯写压测下 readMark 不推进（无读事务）时，仅保留最近窗口
+            if (committedTxns.size > 100000) {
+                let keep = ArrayList<CommittedTxn>()
+                let startIdx = committedTxns.size - 50000
+                var i = startIdx
+                while (i < committedTxns.size) {
+                    keep.add(committedTxns[i])
+                    i += 1
+                }
+                committedTxns = keep
+            }
         }
         
         lock.unlock()
@@ -176,6 +181,13 @@ protected class Oracle {
         }
         
         for (committedTxn in committedTxns) {
+            // 只比较"本事务读取时点（readTs）之后"提交的事务：
+            // readTs 之前提交的写已包含在本事务读快照中，不算冲突
+            // （否则顺序事务"读到自己上一版再重写"会被误判——如物化幂等重写，
+            // 修复前第二次物化必抛 TxnConflict，是"桶点不开"的根因之一）
+            if (committedTxn.ts <= txn.readTs) {
+                continue
+            }
             for (readKey in txn.reads) {
                 if (committedTxn.conflictKeys.contains(readKey)) {
                     return true

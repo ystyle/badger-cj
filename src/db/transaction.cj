@@ -168,10 +168,17 @@ public class Transaction {
         db.writeCh.add(req)
         req.wait()
         
+        // 失败必报（对齐 badger-go req.Err）：pipeline 异常时 req 被标记失败，
+        // 不再"假装成功"（此前 arena 溢出 / value 超 64KB 编码上限都会静默丢数据）。
+        // errOpt 在 reqPool.put 之前读取（put 后 req 可能被复用 reset）。
+        let errOpt = req.errorOf()
         oracle.doneCommit(commitTs)
         db.reqPool.put(req)
         committed = true
-        return TxnStatus.Ok
+        match (errOpt) {
+            case Some(msg) => TxnStatus.Error(msg)
+            case None => TxnStatus.Ok
+        }
     }
     
     public func commitOrThrow(): Unit {

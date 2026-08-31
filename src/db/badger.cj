@@ -6,7 +6,11 @@ import std.collection.*
 import std.time.*
 import std.io.*
 import std.convert.Parsable
-import std.env.atExit
+import std.env.{atExit, exit}
+// 优雅退出（SIGINT/SIGTERM → close）依赖 std.runtime 信号 API，仅 Linux 编译
+// （官方文档标注"不支持 Windows"；macOS 如需支持可放宽为 os != "Windows"）
+@When[os == "Linux"]
+import std.runtime.*
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
@@ -34,6 +38,15 @@ public class Badger <: VLogGCDB {
     private var compactorFut: ?Future<Unit>
     private var pipeline: ?WritePipeline
     protected let reqPool: WriteRequestPool
+    // —— 优雅退出（docker stop / Ctrl+C）——
+    // registerSignalShutdown() 注册后，SIGINT/SIGTERM 置 shutdownSignal，
+    // 后台 shutdownLoop 轮询到后执行 close()（信号上下文仅做 lock-free 置位，安全）
+    private var signalShutdownRegistered: Bool = false
+    private let shutdownSignal: AtomicBool = AtomicBool(false)
+    @When[os == "Linux"]
+    private var signalHandler: ?((Int32) -> Bool) = None
+    @When[os == "Linux"]
+    private var signalShutdownFut: ?Future<Unit> = None
     
     protected init(
         opt: Config,
@@ -166,6 +179,9 @@ public class Badger <: VLogGCDB {
             return
         }
         
+        // 注销信号 handler（若注册过优雅退出），close 后信号不再触发 close
+        cleanupSignalHandler()
+        
         // 1. 先关闭写入通道
         writeCh.close()
         
@@ -219,6 +235,61 @@ public class Badger <: VLogGCDB {
             lock.writeLock.unlock()
         }
     }
+    
+    // 注册优雅退出：SIGINT/SIGTERM（docker stop / Ctrl+C / kill 默认信号）→ 关闭数据库。
+    // 与 AutoCloseOnExit（仅正常退出路径）互补——容器场景 atExit 不触发，靠这里兜底。
+    // handler 内只做 lock-free 置位（信号上下文安全），真正的 close() 由后台线程执行，
+    // 不阻塞信号处理线程；exitAfterClose=true（默认）时 close 后退出进程（docker stop 语义）。
+    // 条件编译：std.runtime 信号 API 官方标注不支持 Windows，非 Linux 平台为 no-op。
+    @When[os == "Linux"]
+    public func registerSignalShutdown(exitAfterClose!: Bool = true): Unit {
+        if (signalShutdownRegistered) {
+            return
+        }
+        signalShutdownRegistered = true
+        
+        let handler: (Int32) -> Bool = { _ =>
+            shutdownSignal.store(true)
+            true  // 停止后续 handler
+        }
+        signalHandler = Some(handler)
+        registerSignalHandler(Signal.SIGINT, handler)
+        registerSignalHandler(Signal.SIGTERM, handler)
+        
+        signalShutdownFut = Some(spawn { shutdownLoop(exitAfterClose) })
+    }
+    
+    @When[os != "Linux"]
+    public func registerSignalShutdown(exitAfterClose!: Bool = true): Unit {
+        // 非 Linux 平台 no-op（std.runtime 信号 API 不可用；macOS 如需支持可放宽为 os != "Windows"）
+    }
+    
+    @When[os == "Linux"]
+    private func shutdownLoop(exitAfterClose: Bool): Unit {
+        while (running.load() && !shutdownSignal.load()) {
+            sleep(Duration.millisecond * 50)
+        }
+        if (shutdownSignal.load()) {
+            println("[badger] received SIGINT/SIGTERM, closing gracefully...")
+            close()
+            if (exitAfterClose) {
+                exit(0)
+            }
+        }
+    }
+    
+    // 注销信号 handler（close 时调用，幂等；非 Linux 为空实现）
+    @When[os == "Linux"]
+    private func cleanupSignalHandler(): Unit {
+        if (let Some(handler) <- signalHandler) {
+            unregisterSignalHandler(Signal.SIGINT, handler)
+            unregisterSignalHandler(Signal.SIGTERM, handler)
+            signalHandler = None
+        }
+    }
+    
+    @When[os != "Linux"]
+    private func cleanupSignalHandler(): Unit {}
     
     private func flushMemTablesBatch(tables: ArrayList<MemTable>): Unit {
         let requests = ArrayList<FileWriteRequest>()
@@ -372,10 +443,17 @@ public class Badger <: VLogGCDB {
         }
         writeCh.add(req)
         req.wait()
+        if (let Some(msg) <- req.errorOf()) {
+            // 失败必报（评审 P1-2）：batchSet 同样不能"假装成功"
+            reqPool.put(req)
+            throw Exception(msg)
+        }
         reqPool.put(req)
     }
     
-    public func batchSetAsync(entries: ArrayList<Entry>, callback: ?(Unit) -> Unit): Unit {
+    // 批量异步写入：callback 收到 ?String——None 表示成功，Some(msg) 表示写入失败原因。
+    // 失败必报（评审 P1-2）：错误经 callback 上报而非静默；未提供 callback 时日志兜底。
+    public func batchSetAsync(entries: ArrayList<Entry>, callback!: ?((?String) -> Unit) = None): Unit {
         if (entries.isEmpty()) {
             return
         }
@@ -390,10 +468,17 @@ public class Badger <: VLogGCDB {
         let cb = callback
         spawn {
             req.wait()
-            reqPool.put(req)
-            if (let Some(fn) <- cb) {
-                fn(())
+            let errMsg = req.errorOf()
+            if (let Some(msg) <- errMsg) {
+                if (let Some(fn) <- cb) {
+                    fn(Some(msg))
+                } else {
+                    println("[badger] batchSetAsync write failed: ${msg}")
+                }
+            } else if (let Some(fn) <- cb) {
+                fn(None)
             }
+            reqPool.put(req)
         }
     }
     
@@ -458,6 +543,13 @@ public class Badger <: VLogGCDB {
         imm.add(mt)
         let fid = Int64(nextFileID.fetchAdd(1))
         mt = MemTable(opt, fid, false)
+        // 设计约束（评审 P2-2 评估结论）：flushToLevel 在写锁内同步构建 SSTable 并
+        // addTable 到 L0，同时该表仍保留在 imm——刚写入数据始终可从内存（imm）读到。
+        // 若改为"后台线程构建+写盘+从 imm 移除"：① 刚写入数据的读取将从内存变磁盘
+        // （L0 磁盘表，无 block cache），读性能回退；② close 的 imm 写盘联动需同步
+        // 重构，属架构级改动。收益（写锁时长）与风险（读性能/数据正确性）不成比例，
+        // 且默认 memTableSize(64MB) 下 flush 不频繁、锁内构建毫秒级，影响可控。
+        // 异步化列为未来优化项。
         flushToLevel(imm[imm.size - 1])
     }
     
@@ -513,38 +605,60 @@ public class Badger <: VLogGCDB {
         }
     }
     
+    // 阶段 1（锁外）：vlog 写入所有大值条目，构建 (keyWithTs, vs) 待写入列表。
+    // vlog.write 是无缓冲 File.write（每次 syscall），必须移出全局写锁
+    // （评审 P2-2）——否则整批持锁期间所有读线程被磁盘 I/O 阻塞。
+    private func prepareEntries(entries: ArrayList<WriteEntry>, commitTs: UInt64): ArrayList<(Array<Byte>, ValueStruct)> {
+        let prepared = ArrayList<(Array<Byte>, ValueStruct)>()
+        for (entry in entries) {
+            let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
+                Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
+            } else {
+                None
+            }
+            
+            let keyWithTs = keyWithTs(entry.key, commitTs)
+            let vs = if (entry.isDelete) {
+                ValueStruct([], meta: Meta.bitDelete, version: commitTs)
+            } else if (let Some(vp) <- vpOpt) {
+                let combinedMeta = Meta.bitValuePointer | entry.meta
+                ValueStruct(vp.encode(), meta: combinedMeta, 
+                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: commitTs)
+            } else {
+                ValueStruct(entry.value, meta: entry.meta, 
+                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: commitTs)
+            }
+            prepared.add((keyWithTs, vs))
+        }
+        return prepared
+    }
+    
+    // 阶段 2（锁内）：flush 检查 + mt.put。持写锁保证 mt.put 与 flush（imm 交换）
+    // 期间读锁互斥，避免读线程在 put/flush 中途读到不一致的 memtable 集合。
+    private func putPrepared(prepared: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
+        lock.writeLock.lock()
+        try {
+            for ((keyWithTs, vs) in prepared) {
+                // 条目级检查：单 req 可含大量条目（如批量物化），若只检查一次，
+                // arena 会在条目循环中耗尽而抛异常（对齐 badger-go ensureRoomForWrite 语义）
+                if (mt.shouldFlush()) { flushMemTableInternal() }
+                mt.put(keyWithTs, vs)
+            }
+        } finally {
+            lock.writeLock.unlock()
+        }
+    }
+    
     private func writeRequests(reqs: ArrayList<WriteRequest>): Unit {
         if (reqs.isEmpty()) {
             return
         }
         
+        // vlog I/O 锁外（prepare）→ 锁内 put（putPrepared）；异常由 runBatch 统一
+        // markFailed + done（pipeline 路径）
         for (req in reqs) {
-            let entries = req.getEntries()
-            
-            lock.writeLock.lock()
-            if (mt.shouldFlush()) { flushMemTableInternal() }
-            lock.writeLock.unlock()
-            
-            for (entry in entries) {
-                let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
-                    Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
-                } else {
-                    None
-                }
-                
-                let keyWithTs = keyWithTs(entry.key, req.commitTs)
-                let vs = if (entry.isDelete) {
-                    ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
-                } else if (let Some(vp) <- vpOpt) {
-                    let combinedMeta = Meta.bitValuePointer | entry.meta
-                    ValueStruct(vp.encode(), meta: combinedMeta, 
-                                userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
-                } else {
-                    ValueStruct(entry.value, meta: entry.meta, 
-                                userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
-                }
-                mt.put(keyWithTs, vs)
-            }
+            let prepared = prepareEntries(req.getEntries(), req.commitTs)
+            putPrepared(prepared)
         }
         
         for (req in reqs) {
@@ -553,32 +667,19 @@ public class Badger <: VLogGCDB {
     }
     
     private func writeOneRequest(req: WriteRequest): Unit {
-        lock.writeLock.lock()
-        if (mt.shouldFlush()) { flushMemTableInternal() }
-        lock.writeLock.unlock()
-        
-        for (entry in req.getEntries()) {
-            let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
-                Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
-            } else {
-                None
-            }
-            
-            let keyWithTs = keyWithTs(entry.key, req.commitTs)
-            let vs = if (entry.isDelete) {
-                ValueStruct([], meta: Meta.bitDelete, version: req.commitTs)
-            } else if (let Some(vp) <- vpOpt) {
-                let combinedMeta = Meta.bitValuePointer | entry.meta
-                ValueStruct(vp.encode(), meta: combinedMeta, 
-                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
-            } else {
-                ValueStruct(entry.value, meta: entry.meta, 
-                            userMeta: entry.userMeta, expiresAt: entry.expiresAt, version: req.commitTs)
-            }
-            mt.put(keyWithTs, vs)
+        // drain 路径（flushLoop 关闭时）直接调用，无 runBatch 包装——
+        // 自身必须 try/catch/finally：失败 markFailed（评审 P2-1，此前静默成功），
+        // done() 放 finally 保证 wait() 不悬挂
+        try {
+            let prepared = prepareEntries(req.getEntries(), req.commitTs)
+            putPrepared(prepared)
+        } catch (e: Exception) {
+            req.markFailed(e.message)
+        } catch (e: Error) {
+            req.markFailed("runtime error while writing request")
+        } finally {
+            req.done()
         }
-        
-        req.done()
     }
     
     private func startCompactor(): Unit {
