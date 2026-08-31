@@ -47,6 +47,7 @@
 | 计划项 | 来源 | 优先级 | 状态 |
 |--------|------|--------|------|
 | WAL batch write + group commit | benchmark P1 | P1 | ⬜ |
+| CloseableBlockingQueue 简化（remove 阻塞化 + 哨兵 close） | 调研（2026-09-01） | P2 | ⬜（官方文档确认 LinkedBlockingQueue 自带阻塞 remove()，当前手写 Condition 循环可去掉；多消费者 close 需哨兵唤醒） |
 | Block/Index Cache | 需求 P1 性能优化 | P1 | ⬜ |
 | ~~事务批量提交流水线~~ | benchmark P2 | P2 | ✅ 已实现（WritePipeline + flushLoop 批量收集，2026-07-17 channel 优化） |
 | Merge Operator | 需求 P2 / 下一阶段 | P2 | ⬜ |
