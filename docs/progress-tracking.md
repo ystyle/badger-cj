@@ -48,11 +48,11 @@
 |--------|------|--------|------|
 | WAL batch write + group commit | benchmark P1 | P1 | ⬜ |
 | Block/Index Cache | 需求 P1 性能优化 | P1 | ⬜ |
-| 事务批量提交流水线 | benchmark P2 | P2 | ⬜ |
+| ~~事务批量提交流水线~~ | benchmark P2 | P2 | ✅ 已实现（WritePipeline + flushLoop 批量收集，2026-07-17 channel 优化） |
 | Merge Operator | 需求 P2 / 下一阶段 | P2 | ⬜ |
-| Managed DB（补全） | 下一阶段 P3（oracle `isManaged` 已预留） | P3 | ⬜（接口已预留） |
+| Managed DB（补全） | 下一阶段 P3 | P3 | ⬜（仅 Oracle 底层支持 managed 时间戳模式，公开 API 未做） |
 | Encryption | 下一阶段 P4 | P4 | ⬜ |
-| Arena 内存池调优 | benchmark P2 | P2 | ⬜ |
+| Arena 内存池调优 | benchmark P2 | P2 | 🔶 部分（Arena 已实现，调优未做） |
 | 分布式特性 | port-design v2.0 | — | ❌（嵌入式库定位） |
 
 ---

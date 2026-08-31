@@ -390,8 +390,8 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 |--------|--------|---------|------|
 | P1 | VLog/WAL mmap 替代 BufferedOutputStream | 减少 I/O 复制，预期 DB Set 减半 | 🔶 设计中（v2.0，见 `plans/2026-09-01-mmap-wal-vlog-design.md`） |
 | P1 | WAL batch write + group commit | 减少 fsync 次数 | ⬜ 未开始（v2.1） |
-| P2 | Transaction 批量提交流水线 | 提高并发吞吐 | ⬜ 未开始 |
-| P2 | Arena 内存池调优 | 减少分配开销 | ⬜ 未开始 |
+| P2 | Transaction 批量提交流水线 | 提高并发吞吐 | ✅ 已实现（WritePipeline + flushLoop 批量收集，2026-07-17） |
+| P2 | Arena 内存池调优 | 减少分配开销 | 🔶 部分（Arena 已实现，调优未做） |
 | P3 | io_uring 替代同步 I/O | 异步 I/O 减少阻塞 | ✅ 已完成（2026-03，v1.6.9 起失败自动降级） |
 
 ---
