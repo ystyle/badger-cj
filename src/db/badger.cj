@@ -47,6 +47,10 @@ public class Badger <: VLogGCDB {
     private var signalHandler: ?((Int32) -> Bool) = None
     @When[os == "Linux"]
     private var signalShutdownFut: ?Future<Unit> = None
+    // 优雅关闭钩子：registerShutdownHook() 注册的附加清理回调，信号优雅关闭时在
+    // shutdownLoop（后台线程）中、close() 之前按注册顺序依次执行（信号上下文安全）。
+    private let shutdownHooks: ArrayList<() -> Unit> = ArrayList<() -> Unit>()
+    private let shutdownHooksLock: Mutex = Mutex()
     
     protected init(
         opt: Config,
@@ -250,13 +254,49 @@ public class Badger <: VLogGCDB {
         
         let handler: (Int32) -> Bool = { _ =>
             shutdownSignal.store(true)
-            true  // 停止后续 handler
+            true  // 必须返回 true：阻止信号默认行为（实测返回 false 会触发默认终止，进程来不及 close）
         }
         signalHandler = Some(handler)
         registerSignalHandler(Signal.SIGINT, handler)
         registerSignalHandler(Signal.SIGTERM, handler)
         
         signalShutdownFut = Some(spawn { shutdownLoop(exitAfterClose) })
+    }
+    
+    // 注册优雅关闭钩子：SIGINT/SIGTERM 触发优雅关闭时，在 close()（flush memtable 落盘）
+    // 之前按注册顺序依次执行。适用宿主进程与数据库一起收尾的资源（关服务 / 停写入等）。
+    //
+    // 与「宿主自注册信号 handler」两种模式可并存：
+    //   A. 宿主先 registerSignalHandler 注册自己的 handler（返回 false 继续分发）→ 再
+    //      registerSignalShutdown()：FIFO 下两者都执行（badger 的 handler 返回 true 阻止
+    //      默认终止行为，必须放最后）；
+    //   B. 宿主把清理逻辑经本 API 注册进 badger：单一监听者、无注册顺序依赖（推荐）。
+    //
+    // 注意：钩子仅在 registerSignalShutdown() 的信号关闭路径执行，不随普通 close() 触发；
+    // 钩子在后台线程执行（非信号上下文），可安全调用 db 操作（此时尚未 close）。
+    public func registerShutdownHook(cb: () -> Unit): Unit {
+        shutdownHooksLock.lock()
+        try {
+            shutdownHooks.add(cb)
+        } finally {
+            shutdownHooksLock.unlock()
+        }
+    }
+    
+    // 按注册顺序执行优雅关闭钩子（持锁只取快照，用户代码在锁外执行）
+    private func runShutdownHooks(): Unit {
+        let hooks = ArrayList<() -> Unit>()
+        shutdownHooksLock.lock()
+        try {
+            for (h in shutdownHooks) {
+                hooks.add(h)
+            }
+        } finally {
+            shutdownHooksLock.unlock()
+        }
+        for (h in hooks) {
+            h()
+        }
     }
     
     @When[os != "Linux"]
@@ -271,6 +311,8 @@ public class Badger <: VLogGCDB {
         }
         if (shutdownSignal.load()) {
             println("[badger] received SIGINT/SIGTERM, closing gracefully...")
+            // 先执行宿主清理钩子（后台线程，非信号上下文），再 close 落盘
+            runShutdownHooks()
             close()
             if (exitAfterClose) {
                 exit(0)

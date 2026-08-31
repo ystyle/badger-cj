@@ -116,6 +116,27 @@ db.registerSignalShutdown()   // docker stop / Ctrl+C → 优雅关闭后退出�
 > 条件编译：信号 API（std.runtime）官方不支持 Windows，`registerSignalShutdown()` 仅 Linux 编译（非 Linux 为 no-op；macOS 如需支持可放宽）。
 > 兜底建议：低频写场景仍可叠加 `Config.withSyncWrites(true)` 同步落盘，即使 SIGKILL 也不丢数据。
 
+**与宿主进程共存监听信号（两种模式，按需选择）：**
+
+std.runtime 同一信号可注册多个 handler（FIFO 执行；返回 `true` 停止后续 handler——badger 必须返回 `true` 以阻止信号默认终止行为，实测返回 `false` 会让 SIGTERM 直接杀掉进程、close 来不及执行）：
+
+- **模式 A：宿主先注册自己的 handler，再调 `registerSignalShutdown()`**——宿主 handler 只做置位并**返回 `false`**（继续分发），badger 的 handler 随后执行并阻止默认行为；宿主真清理放自己的后台线程：
+
+```cangjie
+registerSignalHandler(Signal.SIGTERM, { _ => myStopFlag.store(true); false })
+db.registerSignalShutdown()   // 必须后注册（badger handler 返回 true 放链尾）
+```
+
+- **模式 B（推荐）：宿主把清理逻辑注册进 badger**——`registerShutdownHook()`，信号触发时在后台线程、`close()` 之前按注册顺序执行，无注册顺序依赖、信号上下文安全：
+
+```cangjie
+db.registerShutdownHook({ => myServer.stop() })   // 关服务 / 停写入等收尾逻辑
+db.registerShutdownHook({ => myFlag.store(true) })
+db.registerSignalShutdown()   // SIGTERM → 依次执行钩子 → close() 落盘 → exit
+```
+
+> 注意：钩子仅在 `registerSignalShutdown()` 的信号关闭路径执行（不随普通 `close()` 触发）；钩子执行时数据库尚未 close，可安全读写。
+
 **端到端验证（scripts/graceful_shutdown_e2e.sh）**：写入 5000 条（不 close、不 flush，数据仅内存）→ `kill -TERM` 模拟 `docker stop` → 进程 exit(0) 且数据落盘（SSTable+MANIFEST）→ 重启读回 5000/5000（多轮稳定通过）。对照组（不注册优雅退出）SIGTERM 默认终止（143）→ 重启 0/5000 全丢，凸显本 API 价值。示例程序 `src/examples/graceful_exit`（编译参数已加 `--static`，二进制无仓颉 runtime 动态依赖）。
 
 **手动使用 atExit：**

@@ -4,6 +4,7 @@ import std.unittest.*
 import std.unittest.testmacro.*
 import std.fs.*
 import std.collection.*
+import std.sync.*
 import std.time.*
 import std.env.getProcessId
 import std.posix.kill
@@ -91,6 +92,77 @@ class GracefulShutdownTest {
             }
         }
         @Assert(closed, true)
+        cleanup()
+    }
+
+    // 优雅关闭钩子：SIGTERM 优雅关闭时，close() 之前按注册顺序执行（方案 B——宿主把
+    // 清理逻辑注册进 badger，无信号注册顺序依赖）。
+    @TestCase
+    func testShutdownHookExecutedOnSigterm(): Unit {
+        cleanup()
+        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+        let hookRan = AtomicBool(false)
+        db.registerShutdownHook({ => hookRan.store(true) })
+        db.registerSignalShutdown(exitAfterClose: false)
+
+        spawn {
+            sleep(Duration.millisecond * 200)
+            let _ = kill(Int32(getProcessId()), 15)
+        }
+        var closed = false
+        var attempts = 0
+        while (attempts < 200 && !closed) {
+            try {
+                let r = db.update({ t => t.set("after".toArray(), "sig".toArray()) })
+                if (r.isError()) {
+                    closed = true
+                }
+            } catch (e: Exception) {
+                closed = true
+            }
+            if (!closed) {
+                sleep(Duration.millisecond * 50)
+                attempts += 1
+            }
+        }
+        @Assert(closed, true)
+        @Assert(hookRan.load(), true)
+        cleanup()
+    }
+
+    // 钩子按注册顺序执行：钩子1 store(1) → 钩子2 store(2)，最终值为 2 说明顺序正确
+    // （若乱序，钩子2 先执行再被钩子1 覆盖，最终为 1）。
+    @TestCase
+    func testShutdownHooksRunInOrder(): Unit {
+        cleanup()
+        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+        let lastRun = AtomicInt64(0)
+        db.registerShutdownHook({ => lastRun.store(1) })
+        db.registerShutdownHook({ => lastRun.store(2) })
+        db.registerSignalShutdown(exitAfterClose: false)
+
+        spawn {
+            sleep(Duration.millisecond * 200)
+            let _ = kill(Int32(getProcessId()), 15)
+        }
+        var closed = false
+        var attempts = 0
+        while (attempts < 200 && !closed) {
+            try {
+                let r = db.update({ t => t.set("after".toArray(), "sig".toArray()) })
+                if (r.isError()) {
+                    closed = true
+                }
+            } catch (e: Exception) {
+                closed = true
+            }
+            if (!closed) {
+                sleep(Duration.millisecond * 50)
+                attempts += 1
+            }
+        }
+        @Assert(closed, true)
+        @Assert(lastRun.load() == 2, true)
         cleanup()
     }
 }
