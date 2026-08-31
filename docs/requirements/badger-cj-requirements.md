@@ -71,12 +71,14 @@
 
 #### P2 - 暂不实现（后续版本）
 
-- 加密（Encryption at Rest）
-- Stream Writer（流式写入）
-- Backup/Restore（备份恢复）
-- Merge Operator（合并操作符）
-- Managed DB（版本管理）
-- 分布式特性
+> 状态更新见 `progress-tracking.md` 路线图（v2.x 线）。
+
+- 加密（Encryption at Rest）——⬜ 未开始（v2.5）
+- Stream Writer（流式写入）——✅ 已实现（Stream API，2026-03）
+- Backup/Restore（备份恢复）——✅ 已实现（2026-03）
+- Merge Operator（合并操作符）——⬜ 未开始（v2.3）
+- Managed DB（版本管理）——🔶 接口已预留（oracle isManaged），功能未做（v2.4）
+- 分布式特性——❌ 不做（嵌入式库定位）
 
 ## 非功能需求
 
