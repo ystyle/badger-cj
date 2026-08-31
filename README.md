@@ -116,6 +116,8 @@ db.registerSignalShutdown()   // docker stop / Ctrl+C → 优雅关闭后退出�
 > 条件编译：信号 API（std.runtime）官方不支持 Windows，`registerSignalShutdown()` 仅 Linux 编译（非 Linux 为 no-op；macOS 如需支持可放宽）。
 > 兜底建议：低频写场景仍可叠加 `Config.withSyncWrites(true)` 同步落盘，即使 SIGKILL 也不丢数据。
 
+**端到端验证（scripts/graceful_shutdown_e2e.sh）**：写入 5000 条（不 close、不 flush，数据仅内存）→ `kill -TERM` 模拟 `docker stop` → 进程 exit(0) 且数据落盘（SSTable+MANIFEST）→ 重启读回 5000/5000（多轮稳定通过）。对照组（不注册优雅退出）SIGTERM 默认终止（143）→ 重启 0/5000 全丢，凸显本 API 价值。示例程序 `src/examples/graceful_exit`（编译参数已加 `--static`，二进制无仓颉 runtime 动态依赖）。
+
 **手动使用 atExit：**
 
 如果不启用 `AutoCloseOnExit`，可以手动注册：
