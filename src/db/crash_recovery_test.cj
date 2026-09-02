@@ -95,7 +95,9 @@ class CrashRecoveryTest {
             }
         }
         
-        @Assert(found > 0, true)
+        // 语义：凡成功返回（updateOrThrow 未抛错并计数）的写入，close 后必须全部可恢复——
+        // 不允许任何"成功写入却在重启后丢失"（此前 >0 的宽容判据会掩盖该类缺陷）
+        @Assert(found, finalCount)
         
         db2.close()
         cleanupDir(dir)
@@ -134,7 +136,9 @@ class CrashRecoveryTest {
             }
         }
         
-        @Assert(found >= 200, true)
+        // 固定写入 5 批 × 50 key = 250 条，close→reopen 必须 250/250 全找回
+        // （此前 >=200 的 80% 宽容判据会掩盖部分落盘丢失）
+        @Assert(found, 250)
         
         db2.close()
         cleanupDir(dir)
@@ -256,7 +260,8 @@ class CrashRecoveryTest {
             }
         }
         
-        @Assert(found > 0, true)
+        // 200 条写入均已在 close 前成功返回，重启必须全部找回（不允许部分丢失）
+        @Assert(found, 200)
         
         db2.close()
         cleanupDir(dir)
