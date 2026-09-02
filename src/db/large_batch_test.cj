@@ -55,17 +55,17 @@ class LargeBatchTest {
     }
 
     @TestCase
-    func testOversizeValueFailLoud(): Unit {
+    func testLargeValueBelowThresholdSucceeds(): Unit {
         cleanup()
-        // value 超 64KB 编码上限（ValueStruct encoded size exceeds UInt16 max）：
-        // 文件模式默认 ValueThreshold=1MB → 70KB 值走 memtable 编码 → 必然抛异常
-        // （memTableSize 用小值，测试进程默认 GC 堆 256MB 装不下默认 64MB memtable 的 128MB arena）
+        // 70KB value ≤ ValueThreshold(1MB)：内联写入必须成功（对齐 badger-go——
+        // value 无 64KB 编码限制；旧实现 memtable 的 UInt16 value 槽在 64KB 处报错断写，
+        // 槽已扩 UInt32，>64KB 的失败判据随之撤销，见 key_value_limit_test）
         let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
         let txn = db.newTransaction(update: true)
         txn.set("big".toArray(), Array<Byte>(70000, repeat: 0u8))
         let status = txn.commit()
-        @Assert(status.isError(), true)
-        // 失败后库仍可用：下一个事务正常成功
+        @Assert(status.isError(), false)
+        // 成功后库仍可用
         let okStatus = db.update({ t => t.set("after".toArray(), "ok".toArray()) })
         @Assert(okStatus.isSuccess(), true)
         db.close()
@@ -76,7 +76,7 @@ class LargeBatchTest {
     func testWalReplaySkipsOversizeFailedTxn(): Unit {
         cleanup()
         // 构造"失败事务残留 WAL"场景（评审 P1-1 实锤）：
-        // WAL 中写一条超 64KB 编码上限的 txn 条目 + finTxn（模拟旧实现：
+        // WAL 中写一条超 memtable arena 容量（200KB > 128KB arena）的 txn 条目 + finTxn（模拟旧实现：
         // mt.put 抛异常前 WAL 已写入该事务）→ replay 必须跳过坏事务、其余条目照常恢复，
         // 而不能抛异常阻止启动（否则服务重启必崩：.testdata 曾因 112KB 桶记录 112165 崩溃）。
         let dir = DIR + "/replay"
@@ -89,7 +89,7 @@ class LargeBatchTest {
         let okVs = ValueStruct("hello".toArray(), meta: 0, version: 1)
         wal.write("ok".toArray(), okVs.encode())
         // 失败事务：112KB 超限条目 + finTxn（模拟残留）
-        let bigVs = ValueStruct(Array<Byte>(70000, repeat: 0u8), meta: Meta.bitTxn, version: 42)
+        let bigVs = ValueStruct(Array<Byte>(200 * 1024, repeat: 0u8), meta: Meta.bitTxn, version: 42)
         wal.write("big".toArray(), bigVs.encode())
         let finVs = ValueStruct([], meta: Meta.bitFinTxn, version: 42)
         wal.write(keyWithTs("__txn__".toArray(), 42u64), finVs.encode())
@@ -116,7 +116,7 @@ class LargeBatchTest {
     @TestCase
     func testWalReplaySkipsWholeFailedTxn(): Unit {
         cleanup()
-        // 整事务原子恢复（评审 P2-3）：同一事务中任一条目写失败（超限）
+        // 整事务原子恢复（评审 P2-3）：同一事务中任一条目写失败（超 arena 容量）
         // → 丢弃整个事务（含其正常条目），独立事务与非事务条目不受影响。
         let dir = DIR + "/replay2"
         if (!exists(Path(dir))) {
@@ -128,7 +128,7 @@ class LargeBatchTest {
         let plainVs = ValueStruct("plain".toArray(), meta: 0, version: 1)
         wal.write("plain".toArray(), plainVs.encode())
         // 事务 42：big 超限 + ok2 正常 + finTxn → 整事务丢弃（ok2 也不恢复）
-        let bigVs = ValueStruct(Array<Byte>(70000, repeat: 0u8), meta: Meta.bitTxn, version: 42)
+        let bigVs = ValueStruct(Array<Byte>(200 * 1024, repeat: 0u8), meta: Meta.bitTxn, version: 42)
         wal.write(keyWithTs("big".toArray(), 42u64), bigVs.encode())
         let ok2Vs = ValueStruct("ok2".toArray(), meta: Meta.bitTxn, version: 42)
         wal.write(keyWithTs("ok2".toArray(), 42u64), ok2Vs.encode())
@@ -201,9 +201,9 @@ class LargeBatchTest {
             @Assert(results[0].isNone(), true)
         }
 
-        // 2) 超限条目（70KB value > 64KB 编码上限）→ Some(msg)（失败）
+        // 2) 超限条目（key 70001 > 65000 上限，写前校验拒绝）→ Some(msg)（失败）
         let bigEntries = ArrayList<Entry>()
-        bigEntries.add(Entry("big".toArray(), Array<Byte>(70000, repeat: 0u8)))
+        bigEntries.add(Entry(Array<Byte>(70001, repeat: 0u8), "v".toArray()))
         db.batchSetAsync(bigEntries, callback: { err =>
             synchronized(mu) {
                 results.add(err)

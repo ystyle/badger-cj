@@ -57,12 +57,10 @@ protected class MemTable {
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
         let encoded = vs.encode()
         
-        // 64KB 上限检查与 arena 预检必须提前到 WAL 写入之前：
-        // 否则失败事务的数据会残留 WAL，崩溃后 replay 把"失败数据"复活并再次抛异常
-        // （评审 P1-1：此前顺序为 encode → WAL 写 → 64KB 检查抛错 → 重启必崩）
-        if (encoded.size > 65535) {
-            throw Exception("ValueStruct encoded size exceeds UInt16 max: ${encoded.size}")
-        }
+        // arena 预检必须在 WAL 写入之前：否则失败事务的数据会残留 WAL，崩溃后 replay
+        // 把"失败数据"复活并再次抛异常（评审 P1-1）。大小上限由写入路径统一管控：
+        // prepareEntries 校验 key ≤ 65000、value ≤ vlog 上限并按 ValueThreshold 分流，
+        // ≥ 阈值走 vlog（对齐 badger-go）——内联条目不再有 64KB 编码限制（value 槽 32 位）
         let remaining = Int64(arena.size) - Int64(arena.usedSize())
         if (Int64(encoded.size) > remaining) {
             throw Exception("Arena overflow: requested ${encoded.size}, remaining ${remaining}")
@@ -82,7 +80,7 @@ protected class MemTable {
         }
         
         let offset = arena.putBytes(encoded)
-        let size = UInt16(encoded.size)
+        let size = UInt32(encoded.size)
         
         let value = (UInt64(offset) << 32) | UInt64(size)
         table.add(key, value)
@@ -96,7 +94,7 @@ protected class MemTable {
         if (let Some(n) <- node) {
             let value = n.getValue()
             let offset = UInt32(value >> 32)
-            let size = UInt32(value & 0xFFFFu64)
+            let size = UInt32(value & 0xFFFFFFFFu64)
             let encoded = arena.getBytes(offset, size)
             return ValueStruct.decode(encoded)
         }
@@ -114,7 +112,7 @@ protected class MemTable {
                 if (ts <= readTs) {
                     let value = n.getValue()
                     let offset = UInt32(value >> 32)
-                    let size = UInt32(value & 0xFFFFu64)
+                    let size = UInt32(value & 0xFFFFFFFFu64)
                     let encoded = arena.getBytes(offset, size)
                     return ValueStruct.decode(encoded)
                 }
@@ -216,7 +214,7 @@ public class SkipIterator {
             let key = node.getKey()
             let value = node.getValue()
             let offset = UInt32(value >> 32)
-            let size = UInt32(value & 0xFFFFu64)
+            let size = UInt32(value & 0xFFFFFFFFu64)
             let encoded = table.getArena().getBytes(offset, size)
             let vs = ValueStruct.decode(encoded)
             
