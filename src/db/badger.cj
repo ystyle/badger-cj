@@ -20,6 +20,14 @@ import std.collection.concurrent.*
 
 private let TxnKey: Array<Byte> = [0x21, 0x62, 0x61, 0x64, 0x67, 0x65, 0x72, 0x21, 0x74, 0x78, 0x6e]
 
+// —— key/value 大小上限（对齐 badger-go）——
+// go：key > 65000 写前拒绝（txn.go maxKeySize——表/vlog 格式 key 长度字段为 UInt16，
+// cut 到 65000 留出内部前缀与 8 字节 ts 后缀余量）；value 无 64KB 限制，由
+// ValueThreshold 决定内联或进 vlog，且不得超过 vlog 文件大小（go ValueLogFileSize
+// 1<<30-1）。cj 侧 memtable value 槽已扩为 UInt32，内联条目不再有 64KB 编码限制。
+private let MaxKeySize: Int64 = 65000
+private let MaxValueSize: UInt64 = (1u64 << 30) - 1
+
 public class Badger <: VLogGCDB {
     private let opt: Config
     private let manifest: Manifest
@@ -742,6 +750,17 @@ public class Badger <: VLogGCDB {
     private func prepareEntries(entries: ArrayList<WriteEntry>, commitTs: UInt64): ArrayList<(Array<Byte>, ValueStruct)> {
         let prepared = ArrayList<(Array<Byte>, ValueStruct)>()
         for (entry in entries) {
+            // 大小校验（对齐 badger-go Txn.Set 的写前拒绝，在 vlog 写入与 WAL 之前）：
+            // ① key > 65000 直接拒绝——若延迟到 flush 建表才暴露，会以 UInt16 窄化系统级
+            //    异常（Error）炸掉写路径（与 OOM 杀协程同模式），且数据滞留 imm 无法落盘
+            // ② value > vlog 单文件容量拒绝（go exceedsSize("Value", ValueLogFileSize)）
+            if (entry.key.size > MaxKeySize) {
+                throw Exception("Key too big, maximum allowed size is ${MaxKeySize} bytes, got ${entry.key.size}")
+            }
+            if (UInt64(entry.value.size) > MaxValueSize) {
+                throw Exception("Value too big, maximum allowed size is ${MaxValueSize} bytes, got ${entry.value.size}")
+            }
+            
             let vpOpt: Option<ValuePointer> = if (UInt64(entry.value.size) >= opt.ValueThreshold && !entry.isDelete) {
                 Some(vlog.write(LogEntry(entry.key, entry.value, meta: entry.userMeta, expiresAt: entry.expiresAt)))
             } else {

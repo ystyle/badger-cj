@@ -38,6 +38,13 @@ protected class BlockBuilder {
             throw Exception("BlockBuilder already finished")
         }
         
+        // 块前缀压缩格式的 key 段长字段为 UInt16（与 badger-go table::header 同源）。
+        // 写入路径已限 user key ≤ 65000（+8B ts = 65008 < 65535），此处防御：一旦超限
+        // 显式报错，绝不静默截断（0b25297 曾因 UInt16 截断大 key 造成落盘损坏）
+        if (key.size > 65535) {
+            throw Exception("Key too big for table block encoding: ${key.size} bytes")
+        }
+        
         if (shouldCreateNewBlock(key)) {
             return false
         }
