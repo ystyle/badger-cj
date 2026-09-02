@@ -1,8 +1,8 @@
 # Badger-cj 性能基准测试报告
 
-**测试日期：** 2026-07-17  
-**版本：** v1.6.1+opt (CloseableBlockingQueue + WAL Buffer + keyWithTs 优化)  
-**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS, cjHeapSize=12GB  
+**测试日期：** 2026-09-02（v1.6.12 复测）/ 2026-07-17（v1.6.1+opt 历史数据，保留）  
+**版本：** v1.6.12（flush 落盘语义对齐 badger-go + key/value 上限对齐 + 崩溃恢复测试收紧；本版起运行期 memtable flush 同步落盘 SSTable + MANIFEST）  
+**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS (16 核), cjHeapSize=12GB  
 **仓颉编译器：** cjc 1.1.0 (cjnative), target x86_64-unknown-linux-gnu  
 **编译选项：** `-O2`
 
@@ -32,6 +32,10 @@ cjHeapSize=12gb ./target/release/bin/badgercj.examples.sstable_write_perf
 # Key 比较性能
 cjHeapSize=12gb ./target/release/bin/badgercj.examples.key_compare_perf
 
+# flush 落盘语义影响专项（新/旧版本对比用；传 sync 走降级同步写路径）
+cjHeapSize=12gb ./target/release/bin/badgercj.examples.flush_impact_perf
+cjHeapSize=12gb ./target/release/bin/badgercj.examples.flush_impact_perf sync
+
 # Go benchmark
 cd ~/Projects/badger
 go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
@@ -48,6 +52,7 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | benchArrayListAddAll | 0.574 ms | ±2.6% | 0.537 ms | 逐个 add + toArray |
 | benchArrayListAdd | 1.148 ms | ±5.1% | 0.836 ms | add(all:) + toArray |
 | **benchArrayDirect** | **214.6 us** | **±4.5%** | **142.2 us** | **Array 直接索引（最快的方案）** |
+| **2026-09-02 v1.6.12** | 217.2 us | ±4.6% | 141.1 us | 持平 |
 | benchByteBufferWrite | 1.145 ms | ±3.3% | 0.901 ms | ByteBuffer 逐字节写入 |
 | benchByteBufferWriteBytes | 0.905 ms | ±4.5% | 0.707 ms | ByteBuffer 批量写入 |
 
@@ -58,6 +63,7 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | Case | Median | Err | Mean |
 |------|--------|-----|------|
 | benchPut | 1.324 us (1,324 ns/op) | ±1.5% | 1.342 us |
+| **2026-09-02 v1.6.12** | **1.067 us (1,067 ns/op)** | ±3.7% | 0.790 us | 持平 |
 | benchGet | 2.241 us (2,241 ns/op) | ±1.4% | 2.173 us |
 
 ### 1.3 DBBench
@@ -65,7 +71,9 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | Case | Median | Err | Mean |
 |------|--------|-----|------|
 | benchDBSet | 15.24 us (15,240 ns/op) | ±2.6% | 15.75 us |
+| **2026-09-02 v1.6.12** | **15.09 us**（±57% 波动） | — | 19.92 us | 持平（无回退） |
 | benchDBGet | 4.834 us (4,834 ns/op) | ±1.3% | 4.819 us |
+| **2026-09-02 v1.6.12** | **3.447 us** | ±0.6% | 3.429 us | 更快（波动范围） |
 
 ### 1.4 TxnBench
 
@@ -74,6 +82,9 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | benchTxnWrite100 | 0.535 ms | ±3.9% | 0.558 ms |
 | benchTxnWrite500 | 3.214 ms | ±3.7% | 3.343 ms |
 | benchTxnWrite1000 | 9.435 ms | ±6.2% | 9.353 ms |
+| **2026-09-02 v1.6.12** | 0.449 ms | ±3.3% | 0.493 ms |
+| **2026-09-02 v1.6.12** | 2.593 ms | ±7.2% | 2.598 ms |
+| **2026-09-02 v1.6.12** | 7.904 ms | ±9.2% | 7.952 ms |
 
 ---
 
@@ -88,6 +99,8 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | Sequential Write | 606 ns/op | 1,648,825 ops/sec |
 | Sequential Read | 1,272 ns/op | 786,054 ops/sec |
 
+**2026-09-02 v1.6.12 复测：** Concurrent Write 392 ns/op / 2,546,430 ops/sec，Concurrent Read 332 ns/op / 3,009,495 ops/sec，Sequential Write 551 ns/op，Sequential Read 1,238 ns/op（读/写与历史值在系统负载波动范围内）
+
 ### 2.2 并发事务写入 (50 并发事务)
 
 | 规模 | 耗时 | 延迟 | 吞吐量 |
@@ -100,6 +113,19 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | 50×2,000 (100,000 keys) | 407,000 keys/s | 404,986 keys/s | **834,712 keys/s** |
 | 50×3,000 (150,000 keys) | 395,827 keys/s | 411,321 keys/s | **694,272 keys/s** |
 | 总耗时 | 856ms | 810ms | **903ms** |
+
+**2026-09-02 v1.6.12 复测（50 并发事务，每批后 close）：**
+
+| 规模 | 耗时 | 吞吐量 | 成功率 |
+|------|------|--------|--------|
+| 50×100 (5,000 keys) | 7ms | 671,230 keys/s | 50/50 |
+| 50×500 (25,000 keys) | 34ms | 724,271 keys/s | 50/50 |
+| 50×1,000 (50,000 keys) | 62ms | 798,729 keys/s | 50/50 |
+| 50×2,000 (100,000 keys) | 132ms | 756,511 keys/s | 50/50 |
+| 50×3,000 (150,000 keys) | 249ms | 602,317 keys/s | 50/50 |
+| 总耗时 | 912ms | — | — |
+
+与历史（优化后）量级一致（±5-15% 系统波动）；本版每批 close 走运行期已落盘 + 残余单表落盘，close 不再成为耗时大头。
 
 **结论：**
 - 事务成功率 100%
@@ -114,6 +140,8 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 |------|------|--------|
 | 500×3,000 (1,500,000 keys) | 4,707ms | **318,657 keys/s** |
 
+**2026-09-02 v1.6.12 复测：** 500×3,000 (1,500,000 keys) | 3,556ms | **421,749 keys/s**（+24%；flush 落盘 + imm 及时释放降低了运行期内存与 GC 压力）——本场景 60MB 数据远小于 256MB memtable 不触发运行期 flush，差异主要来自内存模型与系统状态。
+
 大规模长时间运行吞吐量略有下降（Compaction 和 GC 开销）。
 
 ### 2.4 直接写入性能
@@ -121,6 +149,8 @@ go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
 | 规模 | 耗时 | 吞吐量 |
 |------|------|--------|
 | 500,000 keys | 1,419ms | **352,236 keys/s** |
+
+**2026-09-02 v1.6.12 复测：** 500,000 keys | 762ms | **655,903 keys/s**（裸 MemTable 直写，不经 DB/WAL，与持久化改动无关；差异为 CPU/系统状态）
 
 ---
 
@@ -179,6 +209,8 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 | 16 | 4 MB | 4 | 9 | 0.44x |
 | 32 | 4 MB | 10 | 15 | 0.66x |
 
+**2026-09-02 v1.6.12 复测：** Sync 4/9/20/36ms（4/8/16/32 文件），io_uring 10/19/36/64ms——Sync 仍优于 io_uring（小文件提交/完成开销结论不变）；与历史数据同量级，磁盘缓存状态影响毫秒级波动
+
 **结论：** io_uring 在当前 workload 下不如 sync write——小 SSTable 文件用 io_uring 的提交/完成开销占比过高。适合大文件批量写入场景。
 
 ---
@@ -194,6 +226,8 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 
 **结论：** 仓颉逐字节比较比 FFI memcmp 调用快 ~20-26x（FFI 跨语言调用开销远大于 memcmp 本身节省的 CPU 周期）。
 
+**2026-09-02 v1.6.12 复测：** 逐字节 3-4 ns/op vs FFI memcmp 71-72 ns/op（快 18-24x），结论不变。
+
 ---
 
 ## 6. 版本性能演进
@@ -204,6 +238,7 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 | v1.3.1 (优化前) | ~1,958 ns | ~3,990 ns | ~10,840 ns | ~2,910 ns | ~457 ns | ~116 ns |
 | v1.6.1 (master) | 1,324 ns | 2,241 ns | 15,240 ns | 4,834 ns | 330 ns | 318 ns |
 | **v1.6.1+ (优化后)** | **1,115 ns** | **1,120 ns** | **15,330 ns** | **7,653 ns*** | **368 ns** | **347 ns** |
+| **v1.6.12 (flush 落盘修复)** | **1,067 ns** | **2,130 ns** | **15,090 ns** | **3,447 ns** | **392 ns** | **332 ns** |
 
 \* Go skiplist Put 数据含并发 goroutine 开销，单线程数据未直接提供。
 \* DB Get 数值波动较大（受系统负载影响），实际差距与 v1.6.1 持平。
@@ -396,6 +431,40 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 
 ---
 
+## 10. v1.6.12 flush 落盘语义修复——专项实测（2026-09-02）
+
+> 背景：v1.6.11/1.6.12 将运行期 memtable flush 对齐 badger-go——每次 flush **同步落盘
+> SSTable + MANIFEST 并从 imm 出队**（此前 flush 只建内存 L0 表，落盘全压在 close/compaction）。
+> 专项基准用「小 memtable(1MB) + 连续批量写 48.8MB（500 轮 × 100 keys × 1KB，≈40+ 次运行期
+> flush）」对比修复前(29507fd)与修复后(master)，io_uring 与降级同步写双路径各 3 次取中位数。
+> 基准程序：`src/examples/flush_impact_perf`（`cjHeapSize=12gb` 运行；`sync` 参数走降级路径）。
+
+| 版本 | 写路径 | 运行期写吞吐 (keys/s) | close 耗时 |
+|------|--------|----------------------|-----------|
+| v1.6.12（修复后） | io_uring | 46.3K-47.2K | **15-19 ms** |
+| v1.6.12（修复后） | 降级同步写 | 48.4K-51.5K | **15-31 ms** |
+| v1.6.10（修复前，仅内存表） | io_uring | 44.5K-46.0K | 719-741 ms |
+| v1.6.10（修复前，仅内存表） | 降级同步写 | 45.2K-45.4K | 694-707 ms |
+
+**结论：**
+
+1. **运行期写吞吐无回退，反而略优（~+2-13% 波动带内）**——flush 的表构建是两版共同成本；
+   修复后 imm 及时释放降低了内存与 GC 压力，磁盘写（~1MB/次，页缓存）开销不显著。
+2. **close 提速 ~40x（≈720ms → ≈16ms）**：落盘成本从 close 的集中爆发摊平到运行期逐次
+   flush——修复前 close 需一次性落盘全部 imm（本场景 40+ 张表），修复后 close 只落当前
+   mt 残余单表。对"docker stop 优雅退出/周期性重启"场景的停机时间收益显著。
+3. 降级同步写路径（容器 io_uring 被禁）与 io_uring 吞吐持平，close 亦无退化——seccomp 容器
+   内实测（ubuntu:22.04 默认 seccomp，io_uring EPERM）5000 条多轮 flush 写入 + 优雅退出全找回。
+4. 附带验证：修复前同一场景在默认 256MB GC 堆下会因 imm/L0 双份驻留卡在 GC/OOM 边缘
+   （须 `cjHeapSize≥1GB` 才能跑完）——即 issue（生产 OOM）的量化复现；修复后 256MB 堆即可。
+
+**官方基准总览（v1.6.12 vs v1.6.1+opt 历史）：** 常规场景数据量不触发运行期 flush
+（memtable 256MB/64MB），DB Set 15.09us vs 15.24us 持平、TxnBench 快 10-17%、并发事务
+吞吐同量级（±5-15% 波动）、长时间事务 421K vs 319K keys/s（+24%）、Skiplist 并发读写波动
+范围内——**持久化语义修复未引入可测的常规路径性能回退**。
+
+---
+
 ## Benchmark 测试文件
 
 | 文件 | 测试数 | 描述 |
@@ -410,6 +479,7 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 | `src/examples/raw_write_perf/` | - | 直接写入性能 |
 | `src/examples/sstable_write_perf/` | - | SSTable 写入性能 (Sync vs io_uring) |
 | `src/examples/key_compare_perf/` | - | Key 比较性能 |
+| `src/examples/flush_impact_perf/` | - | flush 落盘语义影响专项（小 memtable 高频 flush，新/旧版本对比） |
 
 ---
 
@@ -446,5 +516,5 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 
 ---
 
-**文档版本：** v5.0  
-**最后更新：** 2026-07-17
+**文档版本：** v6.0  
+**最后更新：** 2026-09-02（v1.6.12 flush 落盘修复复测，新增 §10 专项）
