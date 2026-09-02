@@ -2,8 +2,6 @@ package badgercj.db
 
 import std.unittest.*
 import std.unittest.testmacro.*
-import std.fs.*
-import std.io.*
 import std.collection.*
 
 // Issue 复现（docs/issue/2026-09-02-flush-no-persist-oom-mcp-hang.md）：
@@ -39,12 +37,12 @@ class FlushPersistRegressionTest {
             db.batchSet(entries)
             // L0 内存表数 = 已发生的 flush 次数（无 compaction 时只增不减）
             println("[repro] round ${round}: L0 tables=${db.levels()[0].NumTables} " +
-                "sstOnDisk=${flushReproCountSst(dir)} memFiles=${flushReproCountSuffix(dir, ".mem")}")
+                "sstOnDisk=${testCountFilesWithSuffix(dir, ".sst")} memFiles=${testCountFilesWithSuffix(dir, ".mem")}")
         }
 
         let l0Tables = db.levels()[0].NumTables
-        let sstCount = flushReproCountSst(dir)
-        let manifestBytes = flushReproFileBytes(dir + "/MANIFEST")
+        let sstCount = testCountFilesWithSuffix(dir, ".sst")
+        let manifestBytes = testFileBytesSize(dir + "/MANIFEST")
         println("[repro] FINAL L0 in-memory tables=${l0Tables} sstOnDisk=${sstCount} " +
             "MANIFEST bytes=${manifestBytes}")
 
@@ -128,10 +126,10 @@ private func flushReproCloseRoundtrip(dirBase: String, useIoUring: Bool): Unit {
     }
     db.close()
 
-    let sstAfterClose = flushReproCountSst(dir)
-    let manifestBytes = flushReproFileBytes(dir + "/MANIFEST")
+    let sstAfterClose = testCountFilesWithSuffix(dir, ".sst")
+    let manifestBytes = testFileBytesSize(dir + "/MANIFEST")
     println("[repro] useIoUring=${useIoUring} after close: sstOnDisk=${sstAfterClose} " +
-        "MANIFEST bytes=${manifestBytes} sizes=${flushReproSstSizes(dir)}")
+        "MANIFEST bytes=${manifestBytes} sizes=${testDirFileSnapshot(dir)}")
     @Assert(sstAfterClose > 0, true)
     @Assert(manifestBytes > 0, true)
 
@@ -160,52 +158,3 @@ private func flushReproCloseRoundtrip(dirBase: String, useIoUring: Bool): Unit {
     cleanupDir(dir)
 }
 
-// —— helpers（前缀避免与同包其它测试顶层函数冲突）——
-func flushReproCountSuffix(dir: String, suffix: String): Int64 {
-    if (!exists(Path(dir))) {
-        return 0
-    }
-    var count: Int64 = 0
-    for (entry in Directory.readFrom(Path(dir))) {
-        if (entry.name.endsWith(suffix)) {
-            count++
-        }
-    }
-    count
-}
-
-func flushReproCountSst(dir: String): Int64 {
-    flushReproCountSuffix(dir, ".sst")
-}
-
-func flushReproFileBytes(path: String): Int64 {
-    if (!exists(Path(path))) {
-        return 0
-    }
-    let f = File(path, Read)
-    let len = f.length
-    f.close()
-    len
-}
-
-func flushReproSstSizes(dir: String): String {
-    if (!exists(Path(dir))) {
-        return "[]"
-    }
-    var result = "["
-    var first = true
-    for (entry in Directory.readFrom(Path(dir))) {
-        if (entry.name.endsWith(".sst")) {
-            let f = File(Path(dir + "/" + entry.name), Read)
-            let len = f.length
-            f.close()
-            if (!first) {
-                result += ","
-            }
-            result += "${entry.name}=${len}"
-            first = false
-        }
-    }
-    result += "]"
-    result
-}
