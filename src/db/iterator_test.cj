@@ -581,6 +581,83 @@ class IteratorTest {
         db.close()
         cleanupIterDir(dir)
     }
+
+    // 回归：reverse seek 在数据已落盘（SSTable，经 TableIterWrapper）时的语义。
+    // 修复前 TableIterWrapper.seek 对 reverse 直接透传前向 seek（定位 ≥ key 的第一条）：
+    // - seek key 大于表内全部 key → 前向 seek invalid → reverse 迭代空结果
+    //   （忆时塔 queryPoints(range(0,Max), reverse) 重启后 0 条——数据在 memtable 时
+    //    二分 seek 有 reverse 分支所以 tsdb 单测全绿，落盘后即坏）
+    // - seek 落在两 key 之间 → 定位到偏大的 key，起点错位
+    // 语义锚点：磁盘表（SSTable，经 TableIterWrapper）的 reverse seek 必须与
+    // memtable（MemTableIterator 二分）完全一致——同一数据两种存储，逐 seek 输出相等。
+    private func collectReverseSeek(db: Badger, seekKey: String): ArrayList<String> {
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator(opt: IteratorOptions(reverse: true))
+        iter.seek(seekKey.toArray())
+        let keys = ArrayList<String>()
+        while (iter.valid()) {
+            keys.add(bytesToString(iter.item().key))
+            iter.next()
+        }
+        iter.close()
+        txn.discard()
+        keys
+    }
+
+    @TestCase
+    func testReverseSeekOnDiskTable() {
+        // A/B 对照：同数据 memtable（A，不 flush）与 SSTable（B，flush 后 reopen）
+        let dirA = "/tmp/badger_iter_rev_seek_mt"
+        let dirB = "/tmp/badger_iter_rev_seek_disk"
+        cleanupIterDir(dirA)
+        cleanupIterDir(dirB)
+        let optA = Config(dir: dirA, memTableSize: 1024 * 1024u64)
+        let optB = Config(dir: dirB, memTableSize: 1024 * 1024u64)
+        let dbA = Badger.open(optA)
+        let dbB = Badger.open(optB)
+
+        let writeData = { =>
+            dbA.updateOrThrow({ txn =>
+                txn.set("key1".toArray(), "v1".toArray())
+                txn.set("key2".toArray(), "v2".toArray())
+                txn.set("key3".toArray(), "v3".toArray())
+                txn.set("key4".toArray(), "v4".toArray())
+                txn.set("key5".toArray(), "v5".toArray())
+            })
+            dbB.updateOrThrow({ txn =>
+                txn.set("key1".toArray(), "v1".toArray())
+                txn.set("key2".toArray(), "v2".toArray())
+                txn.set("key3".toArray(), "v3".toArray())
+                txn.set("key4".toArray(), "v4".toArray())
+                txn.set("key5".toArray(), "v5".toArray())
+            })
+        }
+        writeData()
+        // B：flush 后数据落 L0 SSTable（memtable 空），读迭代走 TableIterWrapper
+        dbB.flushMemTable()
+
+        // 多个 seek 目标：存在/不存在/越界（大/小）
+        let targets = ArrayList<String>()
+        targets.add("key1")     // 最小 key：seek 到自身
+        targets.add("key2")     // 中间存在 key
+        targets.add("key2.5")   // 两 key 之间（不存在）
+        targets.add("key5")     // 最大 key
+        targets.add("zzz")      // 大于全部
+        targets.add("key0")     // 小于全部
+        for (t in targets) {
+            let ka = collectReverseSeek(dbA, t)
+            let kb = collectReverseSeek(dbB, t)
+            @Assert(kb.size == ka.size)
+            for (i in 0..ka.size) {
+                @Assert(kb[i] == ka[i])
+            }
+        }
+
+        dbA.close()
+        dbB.close()
+        cleanupIterDir(dirA)
+        cleanupIterDir(dirB)
+    }
 }
 
 func cleanupIterDir(path: String) {

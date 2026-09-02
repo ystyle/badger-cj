@@ -24,6 +24,11 @@ public class Iterator {
     // 反向模式：collectReverseLatest 消费完当前 userKey 版本链后，iitr 已定位到
     // 下一个 userKey 的首个条目；next() 不能再 advance，否则会跳过该 key。
     private var skipAdvance: Bool
+    // parseItem 是否产出了有效 item。valid() 不能只看 iitr.valid()：
+    // collectReverseLatest 消费到表内最后一段版本链（无后续 userKey 垫底，如磁盘表
+    // 末尾 key 之后无 finTxn 标记）时 iitr 已越界 invalid，但 item_ 仍然有效——
+    // 若以 iitr 状态判定会把最后一项吞掉（memtable 因 finTxn 垫底 key 掩盖此问题）。
+    private var itemValid: Bool
     
     public init(txn: Transaction, opt: IteratorOptions) {
         this.txn = txn
@@ -32,6 +37,7 @@ public class Iterator {
         this.closed = false
         this.lastKey = []
         this.skipAdvance = false
+        this.itemValid = false
         
         // 构造迭代器链
         let iters = ArrayList<SimpleIterator>()
@@ -71,7 +77,10 @@ public class Iterator {
     }
     
     public func valid(): Bool {
-        if (closed || !iitr.valid()) {
+        // 不能只看 iitr.valid()：collectReverseLatest 消费完表内最后一段版本链
+        // （无后续 userKey 垫底）时 iitr 已越界 invalid，但 item_ 有效——以
+        // itemValid（parseItem 产出状态）为准，最后一项不被吞。
+        if (closed || !itemValid) {
             return false
         }
         
@@ -162,6 +171,7 @@ public class Iterator {
                 // 必须收集整条版本链取最新有效版本，否则会把旧版本当最新返回；
                 // 最新版本为删除/过期时整 key 跳过（见 ReverseVersionTest）。
                 if (collectReverseLatest(userKey)) {
+                    itemValid = true
                     return
                 }
                 continue
@@ -223,6 +233,7 @@ public class Iterator {
                 userMeta: userMeta,
                 expiresAt: expiresAt
             )
+            itemValid = true
             
             // 记录读（用于冲突检测）
             let fp = hashKey(userKey)
@@ -233,6 +244,7 @@ public class Iterator {
         
         // 迭代器无效
         item_ = Item([], [])
+        itemValid = false
     }
     
     // 反向模式收集：消费当前 userKey 的全部可见版本（物理连续），
