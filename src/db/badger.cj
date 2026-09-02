@@ -711,14 +711,12 @@ public class Badger <: VLogGCDB {
     private func writeOneRequest(req: WriteRequest): Unit {
         // drain 路径（flushLoop 关闭时）直接调用，无 runBatch 包装——
         // 自身必须 try/catch/finally：失败 markFailed（评审 P2-1，此前静默成功），
-        // done() 放 finally 保证 wait() 不悬挂
+        // done() 放 finally 保证 wait() 不悬挂；Error 不捕获（系统级错误自然传播）。
         try {
             let prepared = prepareEntries(req.getEntries(), req.commitTs)
             putPrepared(prepared)
         } catch (e: Exception) {
             req.markFailed(e.message)
-        } catch (e: Error) {
-            req.markFailed("runtime error while writing request")
         } finally {
             req.done()
         }

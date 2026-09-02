@@ -49,7 +49,8 @@ public class WritePipeline {
     // handler 抛异常（如 arena 溢出、value 超过 64KB 编码上限）时给本批每个 req
     // 标记失败——commit() 就此返回 TxnStatus.Error，而不是"假装成功"的静默丢数据。
     // done() 放 finally：即使抛的是 Error（如内存耗尽，不在 Exception 体系内）也保证
-    // 调用方 wait() 不悬挂（评审 P2-3）。
+    // 调用方 wait() 不悬挂（评审 P2-3）；Error 不在此捕获——按仓颉语义属系统级错误，
+    // 执行完 finally 后自然传播（打印堆栈 + 终止进程），而非被业务层吞掉。
     // 附带语义：失败部分条目可能已写入（失败≠零写入，badger-go 相同）。
     private func runBatch(reqs: ArrayList<WriteRequest>): Unit {
         try {
@@ -57,10 +58,6 @@ public class WritePipeline {
         } catch (e: Exception) {
             for (req in reqs) {
                 req.markFailed(e.message)
-            }
-        } catch (e: Error) {
-            for (req in reqs) {
-                req.markFailed("runtime error while writing batch")
             }
         } finally {
             for (req in reqs) {
