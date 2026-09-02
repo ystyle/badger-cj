@@ -109,6 +109,60 @@ class KeyValueLimitTest {
         cleanupDir(dir)
     }
 
+    // 回归（v1.6.12 升级漏改 memtable_iterator.cj 的 UInt16 掩码）：100KB 值仍在
+    // memtable 时（未 flush），通过事务迭代器（Iterator → MergeIterator →
+    // MemTableIterator/LazySkipIterator）读回必须完整——此前 80141 被 & 0xFFFF
+    // 截成 14605，materialize 报 "array length 14605, range [6, 80141)" 数组越界。
+    @TestCase
+    func testValue100KBReadBackViaMemtableIterator() {
+        let dir = "/tmp/badger_kvlimit_v100k_iter"
+        let db = newDb(dir)
+
+        let v100 = Array<Byte>(100 * 1024, repeat: 0x61)
+        db.updateOrThrow({ txn =>
+            txn.set("v100k".toArray(), v100)
+            txn.set("small".toArray(), "sv".toArray())
+        })
+
+        // 不 flush：值仍在 memtable，迭代路径必须走 MemTableIterator
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator()
+        iter.rewind()
+        var foundBig: Bool = false
+        var foundSmall: Bool = false
+        while (iter.valid()) {
+            let item = iter.item()
+            if (bytesToString(item.key) == "v100k") {
+                foundBig = true
+                @Assert(item.value.size, v100.size)
+                @Assert(item.value[0], 0x61)
+                @Assert(item.value[v100.size - 1], 0x61)
+            } else if (bytesToString(item.key) == "small") {
+                foundSmall = true
+                @Assert(item.value, "sv".toArray())
+            }
+            iter.next()
+        }
+        iter.close()
+        @Assert(foundBig, true)
+        @Assert(foundSmall, true)
+
+        // seek 路径同样走 MemTableIterator（137 行掩码），必须完整
+        let iter2 = txn.newIterator()
+        iter2.seek(keyWithTs("v100k".toArray(), 0xFFFFFFFFFFFFFFFFu64))
+        if (iter2.valid()) {
+            let item = iter2.item()
+            @Assert(item.value.size, v100.size)
+        } else {
+            @Fail("seek v100k not found")
+        }
+        iter2.close()
+        txn.discard()
+
+        db.close()
+        cleanupDir(dir)
+    }
+
     // value 2MB（≥ ValueThreshold）：走 vlog 并跨重启完整找回
     @TestCase
     func testValue2MBViaVlogPersists() {
