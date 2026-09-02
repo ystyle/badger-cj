@@ -292,8 +292,12 @@ protected class Compaction {
         
         let data = builder.finish()
         if (data.size > 0) {
-            let tableId = db.getVersion()
+            // 表 id 必须取文件序列（对齐 badger-go reserveFileID）：此前误用 db.getVersion()
+            // （提交版本号计数器）→ 与 flush/close 的文件 id 序列重叠、同版本重复 compaction
+            // 会覆写同一 id 文件 + manifest 同 id 双记录（deleteTables 按 id 误删风险）
+            let tableId = db.reserveFileID()
             let path = sstablePath(db.getOpt().Dir, tableId)
+            // 写失败抛异常（由 compactor 外层捕获记录，不杀协程、不留半落盘表）
             writeFile(path, data, useIoUring: db.getOpt().UseIoUring)
             
             let table = Table(tableId, data)

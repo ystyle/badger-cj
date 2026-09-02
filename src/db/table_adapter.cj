@@ -25,12 +25,10 @@ public class TableAdapter <: TableInterface {
     public func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct> {
         let seekKey = keyWithTs(key, readTs)
         
-        let idx = table.findBlock(seekKey)
-        if (idx < 0) {
-            return None
-        }
-        
-        let iter = table.blockIterator(idx)
+        // 走表级迭代器（TableIterator.next 块尾自动进下一块）：同 user key 多版本
+        // 跨多个 block 时单块扫描会漏掉更旧的可读版本；同时依赖 findBlock 的
+        // 同 user key 组定位修复（R3）保证 seek 落到正确起始块。
+        let iter = table.newIterator()
         iter.seek(seekKey)
         
         while (iter.isValid()) {
@@ -43,6 +41,7 @@ public class TableAdapter <: TableInterface {
                     }
                 }
             } else {
+                // 已进入下一个 user key（组结束），无 ≤ readTs 的可读版本
                 break
             }
             iter.next()

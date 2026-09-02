@@ -99,19 +99,21 @@ public class Badger <: VLogGCDB {
         }
         let manifest = manifestFile.getManifest()
         
-        // LevelsController
+        // LevelsController（构造时已按 manifest 加载磁盘表；此处不再重复 loadTables，
+        // 避免 R2：每张表双份驻留内存）
         let lc = LevelsController(manifest: manifest, dir: opt.Dir, inMemory: opt.InMemory)
-        if (!opt.InMemory) {
-            lc.loadTables()
-        }
         
         // 回收已有的 WAL 文件（.mem 文件）
         var immTables = ArrayList<MemTable>()
         var maxVersion: UInt64 = 0
+        var maxMemFid: Int64 = -1
         
         if (!opt.InMemory && !opt.DisableWAL) {
             let memFiles = listMemFiles(opt.Dir)
             for (memFid in memFiles) {
+                if (memFid > maxMemFid) {
+                    maxMemFid = memFid
+                }
                 let memPath = "${opt.Dir}/${memFid}.mem"
                 if (exists(Path(memPath))) {
                     let replayMt = MemTable(opt, memFid, true)
@@ -126,7 +128,13 @@ public class Badger <: VLogGCDB {
             }
         }
         
-        let fid = Int64(manifest.nextFileID)
+        // 当前 memtable 的 WAL fid 必须大于所有现存 .mem（遗留文件将被 replay 后立即
+        // flush 删除，其 fid 不能被复用——否则 flush 的 WAL 删除会误删新 memtable 文件）
+        let fid = if (maxMemFid >= Int64(manifest.nextFileID)) {
+            maxMemFid + 1
+        } else {
+            Int64(manifest.nextFileID)
+        }
         let mt = MemTable(opt, fid, !opt.InMemory)
         
         // VLog（InMemory 模式不需要）
@@ -137,6 +145,10 @@ public class Badger <: VLogGCDB {
             vlog = VLogManager(Path(opt.Dir))
         }
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
+        // 当前 memtable 已占用 fid（未走 reserve），把文件序列推进到该 fid 之后——
+        // 否则首次 flush 会 reserve 到同一 id，新 memtable 的 WAL 被 flush 旧表的
+        // decrRef 误删（崩溃窗口丢未 flush 数据）。
+        db.seedFileIDAfter(fid)
         
         // 添加 replay 的 imm tables
         for (immMt in immTables) {
@@ -159,6 +171,14 @@ public class Badger <: VLogGCDB {
         if (recoveredVersion > 0) {
             db.version.store(recoveredVersion + 1)
             db.oracle.initTs(recoveredVersion + 1)
+        }
+        
+        // 对齐 badger-go（db.go:353 "Flush them to disk asap"）：open 恢复出的遗留
+        // imm（崩溃前已切出但未落盘的 memtable）立即 flush 落盘，数据不再悬在内存
+        // 等 close。失败则 open 抛错（表保留在 imm、WAL 未删，重开重放可重试），
+        // 不留半落盘状态。
+        while (!db.imm.isEmpty()) {
+            db.flushToLevel(db.imm[0], 0)
         }
         
         db.running = AtomicBool(true)
@@ -222,10 +242,16 @@ public class Badger <: VLogGCDB {
             
             if (allTables.size > 1 && opt.UseIoUring) {
                 flushMemTablesBatch(allTables)
+                for (t in allTables) {
+                    // 落盘成功即释放：decrRef 删除该表 WAL（不残留 .mem → 下次 open
+                    // 不会 replay 出重复数据）
+                    t.decrRef()
+                }
             } else {
                 for (t in allTables) {
                     let changes = flushMemTableToDisk(t)
                     manifestFile.saveChanges(changes)
+                    t.decrRef()
                 }
             }
             imm.clear()
@@ -343,12 +369,17 @@ public class Badger <: VLogGCDB {
             while (iter.hasNext()) {
                 if (let Some(e) <- iter.next()) {
                     let (key, vs) = e
-                    builder.add(key, vs)
+                    // 与单表路径 flushMemTableToDisk 对齐：跳过事务结束标记、清除事务标记
+                    if (vs.isFinTxn()) {
+                        continue
+                    }
+                    let cleanVs = vs.clearTxnMarks()
+                    builder.add(key, cleanVs)
                 }
             }
             let data = builder.finish()
             
-            let tableID = nextFileID.fetchAdd(1)
+            let tableID = reserveFileID()
             tableDataList.add((tableID, data))
             
             // 非 InMemory 模式才写文件
@@ -359,7 +390,21 @@ public class Badger <: VLogGCDB {
         }
         
         if (!opt.InMemory) {
-            writeFilesBatch(requests, useIoUring: true)
+            // 写盘结果全量检查（修复：此前完全忽略返回值，io_uring 失败/缺结果静默丢数据）
+            let results = writeFilesBatch(requests, useIoUring: true)
+            if (results.size != requests.size) {
+                throw Exception("flushMemTablesBatch: write results incomplete " +
+                    "(got ${results.size}, want ${requests.size})")
+            }
+            for (r in results) {
+                if (!r.success) {
+                    let errMsg = match (r.error) {
+                        case Some(msg) => msg
+                        case None => "unknown error"
+                    }
+                    throw Exception("flushMemTablesBatch write failed: ${r.path}: ${errMsg}")
+                }
+            }
         }
         
         for ((tableID, data) in tableDataList) {
@@ -393,11 +438,12 @@ public class Badger <: VLogGCDB {
         }
         let data = builder.finish()
         
-        let tableID = nextFileID.fetchAdd(1)
+        let tableID = reserveFileID()
         
         // InMemory 模式不写文件
         if (!opt.InMemory) {
             let path = sstablePath(opt.Dir, tableID)
+            // 写失败由 writeFile 抛异常（返回值恒为 data.size，无独立检查意义）
             writeFile(path, data, useIoUring: opt.UseIoUring)
         }
         
@@ -531,6 +577,20 @@ public class Badger <: VLogGCDB {
     }
     
     protected func getVersion(): UInt64 { version.load() }
+    
+    // 文件 id 分配统一出口（对齐 badger-go levelsController.reserveFileID）：
+    // 运行期 flush / close / compaction / WAL fid 必须出自同一序列，避免 id 重叠覆写。
+    protected func reserveFileID(): UInt64 {
+        nextFileID.fetchAdd(1)
+    }
+    
+    // open 用：当前 memtable 的 fid 未经 reserve 直读 manifest.nextFileID，
+    // 把序列推进到该 fid 之后，保证后续 reserve 不与现存文件/WAL 撞 id。
+    internal func seedFileIDAfter(fid: Int64): Unit {
+        if (Int64(nextFileID.load()) <= fid) {
+            nextFileID.store(UInt64(fid + 1))
+        }
+    }
     internal func getTxnKey(): Array<Byte> { TxnKey }
     
     protected func flushWAL(): Unit {
@@ -583,39 +643,68 @@ public class Badger <: VLogGCDB {
     
     private func flushMemTableInternal(): Unit {
         imm.add(mt)
-        let fid = Int64(nextFileID.fetchAdd(1))
+        let fid = Int64(reserveFileID())
         mt = MemTable(opt, fid, false)
-        // 设计约束（评审 P2-2 评估结论）：flushToLevel 在写锁内同步构建 SSTable 并
-        // addTable 到 L0，同时该表仍保留在 imm——刚写入数据始终可从内存（imm）读到。
-        // 若改为"后台线程构建+写盘+从 imm 移除"：① 刚写入数据的读取将从内存变磁盘
-        // （L0 磁盘表，无 block cache），读性能回退；② close 的 imm 写盘联动需同步
-        // 重构，属架构级改动。收益（写锁时长）与风险（读性能/数据正确性）不成比例，
-        // 且默认 memTableSize(64MB) 下 flush 不频繁、锁内构建毫秒级，影响可控。
-        // 异步化列为未来优化项。
-        flushToLevel(imm[imm.size - 1])
+        // 对齐 badger-go handleMemTableFlush：flush = 落盘原语（写 L0 SSTable +
+        // MANIFEST + 从 imm 出队释放），本函数在写锁内同步执行（评审 P2-2 的异步化
+        // 仍列为后续优化项——异步 flusher 线程 + flushChan，见 go db.flushMemtable）。
+        // flushToLevel 失败会抛异常：表保留在 imm、WAL 未删，请求失败上报且数据可恢复。
+        flushToLevel(imm[imm.size - 1], imm.size - 1)
     }
     
-    private func flushToLevel(mt: MemTable): Unit {
+    // 运行期/恢复期统一 flush 落盘（对齐 badger-go handleMemTableFlush 语义）：
+    //   write SSTable（io_uring 失败自动降级同步写，降级路径异常上抛）→ saveChanges
+    //   （MANIFEST 先记录，对齐 go addLevel0Table：先 manifest 后可见）→ 挂内存 L0 →
+    //   从 imm 出队 + decrRef（删 WAL，数据唯一持久副本已在盘上）。
+    // 失败时本函数抛异常，mt 保持 imm/WAL 状态不变（close/下次 open 兜底恢复）。
+    private func flushToLevel(mt: MemTable, immIdx: Int64): Unit {
         let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
         let iter = mt.iterator()
         while (iter.hasNext()) {
             if (let Some((key, vs)) <- iter.next()) {
-                builder.add(key, vs)
+                // 与 close 路径 flushMemTableToDisk 对齐：跳过事务结束标记、清除事务标记
+                if (vs.isFinTxn()) {
+                    continue
+                }
+                let cleanVs = vs.clearTxnMarks()
+                builder.add(key, cleanVs)
             }
         }
         
         let data = builder.finish()
         if (data.size == 0) {
+            // 空表无数据可落盘：直接出队释放（WAL 无内容，删除安全）
+            imm.remove(at: immIdx)
             mt.decrRef()
             return
         }
         
-        let tableID = nextFileID.fetchAdd(1)
-        let table = Table(tableID, data)
-        lc.addTable(0, TableAdapter(table))
+        let tableID = reserveFileID()
+        
+        if (!opt.InMemory) {
+            let path = sstablePath(opt.Dir, tableID)
+            // 写失败（磁盘满/IO 错）由 writeFile 抛异常；io_uring 不可用已自动降级同步写
+            writeFile(path, data, useIoUring: opt.UseIoUring)
+            
+            let changes = ManifestChangeSet()
+            changes.add(ManifestChange(tableID, ManifestChangeOp.Create, level: 0))
+            manifestFile.saveChanges(changes)
+        }
+        
+        if (opt.InMemory) {
+            lc.addMemoryTable(tableID, data)
+        } else {
+            let table = Table(tableID, data)
+            lc.addTable(0, TableAdapter(table))
+        }
+        
+        // 落盘 + MANIFEST 成功后：数据已持久、L0 内存表可读 → 从 imm 出队释放
+        // （对齐 go flusher：db.imm = db.imm[1:]; mt.DecrRef()）。本函数全程持写锁，
+        // 与读路径互斥，remove 安全。
+        imm.remove(at: immIdx)
         mt.decrRef()
     }
-    
+
 // Collect requests and emit to pipeline
     private func flushLoop(): Unit {
         while (running.load()) {
@@ -741,7 +830,14 @@ public class Badger <: VLogGCDB {
                 if (!running.load()) {
                     break
                 }
-                compaction.runCompaction()
+                // 单轮 compaction 失败（写盘/IO 错）不杀死 compactor 协程：
+                // 记录后继续下一轮（对齐 badger-go compactor 错误容忍语义），
+                // 否则一次磁盘错误 = compaction 永久停止 = L0 无限堆积。
+                try {
+                    compaction.runCompaction()
+                } catch (e: Exception) {
+                    println("[badger] compaction error: ${e.message}")
+                }
                 
                 gcCounter++
                 if (gcCounter >= 600) {

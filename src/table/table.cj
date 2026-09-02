@@ -138,7 +138,33 @@ protected class Table {
             return left
         }
         
+        // R3 修复：key < 块首 且与块首同属一个 user key（块首即该组首条 = 最大版本）。
+        // 此时 key 是「readTs ≥ 组内最大存储版本」的 seek（keyWithTs 编码 ts 取反降序，
+        // 更大 ts 排更前）——key 实际仍落在该块的 user key 组内（组首条 ≤ readTs 可命中），
+        // 必须返回本块而非回退前一块（回退会在前一块内 seek 到块尾而稳定 miss）。
+        if (sameUserKey(key, index.offsets[left].key)) {
+            return left
+        }
+        
         return left - 1
+    }
+    
+    // 比较两个带 ts 的存储 key 是否同属一个 user key（去掉尾部 8 字节 ts 后相等）
+    private func sameUserKey(a: Array<Byte>, b: Array<Byte>): Bool {
+        if (a.size <= 8 || b.size <= 8) {
+            return false
+        }
+        let alen = a.size - 8
+        let blen = b.size - 8
+        if (alen != blen) {
+            return false
+        }
+        for (i in 0..alen) {
+            if (a[i] != b[i]) {
+                return false
+            }
+        }
+        true
     }
     
     public func onDiskSize(): Int64 {
