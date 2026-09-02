@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-09-02  
-**当前阶段：** ✅ v1.6.10 写管道 Error 语义修正（Error 不捕获、自然传播）
+**当前阶段：** ✅ v1.6.12 flush 落盘语义对齐 badger-go + key/value 大小上限对齐（运行期 flush 同步落盘 SSTable+MANIFEST、key>65000 写前拒绝、value 取消 64KB 编码限制）
 
 ---
 
@@ -12,7 +12,7 @@
 | **测试** | 336/336 通过 ✅ |
 | **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
-| **版本** | 1.6.10（v1.6.10：WritePipeline/writeOneRequest 不再吞 Error） |
+| **版本** | 1.6.12（v1.6.12：flush 落盘对齐 badger-go + key/value 上限对齐；v1.6.10：写管道 Error 语义） |
 
 ---
 
