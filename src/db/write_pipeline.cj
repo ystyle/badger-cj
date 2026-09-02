@@ -33,14 +33,25 @@ public class WritePipeline {
     
     private func loop(): Unit {
         while (running.load()) {
-            if (let Some(reqs) <- queue.remove()) {
-                runBatch(reqs)
+            try {
+                if (let Some(reqs) <- queue.remove()) {
+                    runBatch(reqs)
+                }
+            } catch (e: Error) {
+                // 系统级错误（如 OOM 的 OutOfMemoryError）不许逃逸杀写管道协程：
+                // 记录后继续循环，否则一次资源耗尽 = 管道死亡 = 后续所有写请求
+                // done() 永不回调 = 调用方永久挂起（生产忆时塔 MCP 挂起症状）。
+                println("[badger] write pipeline loop system error: " + e.message)
             }
         }
         
         while (queue.size() > 0) {
-            if (let Some(reqs) <- queue.tryRemove()) {
-                runBatch(reqs)
+            try {
+                if (let Some(reqs) <- queue.tryRemove()) {
+                    runBatch(reqs)
+                }
+            } catch (e: Error) {
+                println("[badger] write pipeline drain system error: " + e.message)
             }
         }
     }
