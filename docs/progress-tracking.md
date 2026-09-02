@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-09-02  
-**当前阶段：** ✅ v1.6.12 flush 落盘语义对齐 badger-go + key/value 大小上限对齐（运行期 flush 同步落盘 SSTable+MANIFEST、key>65000 写前拒绝、value 取消 64KB 编码限制）
+**当前阶段：** ✅ v1.6.13（v1.6.12 回归修复：memtable_iterator.cj 漏改 16 位掩码 → >64KB 值迭代读回截断；叠加 v1.6.12 flush 落盘语义对齐 badger-go + key/value 大小上限对齐）
 
 ---
 
@@ -365,6 +365,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-09-02 | v1.6.13 | 修复 v1.6.12 回归：value 槽 UInt16→UInt32 升级漏改 `memtable_iterator.cj`（seek 与 LazySkipIterator 两处 `& 0xFFFF` 掩码仍 16 位）——>64KB 内联值经事务迭代器（Iterator→MergeIterator→MemTableIterator）读回被截断（80141→14605），忆时塔 materialize 报 "array length 14605, range [6, 80141)" 数组越界；新增回归测试 `KeyValueLimitTest.testValue100KBReadBackViaMemtableIterator`（迭代 + seek 双路径完整找回 100KB 值）；346 测试通过 |
 | 2026-09-02 | v1.6.12 | key/value 大小语义对齐 badger-go：① key > 65000 写入前拒绝（事务/批量路径，`prepareEntries` 在 vlog/WAL 之前校验；此前无检查——大 key 写"成功"、flush 建表时 UInt16 窄化抛系统级异常炸写路径）；② value 取消 64KB 编码限制（memtable node value 槽 UInt16→UInt32 + 3 处掩码，同 keySize 修复手法）——[64KB, ValueThreshold) 值从断写报错恢复为内联成功；③ value > vlog 单文件容量(1<<30-1) 拒绝（go ValueLogFileSize 同款）；④ block_builder UInt16 段长窄化防御。新增 key_value_limit_test 4 用例；large_batch_test 3 用例按新语义改写；
 | 2026-09-02 | v1.6.11 | flush 落盘语义对齐 badger-go（issue: flush-no-persist-oom-mcp-hang）：① 运行期 `flushToLevel` 恢复落盘原语——写 L0 SSTable（io_uring 降级）+ MANIFEST 先记录 + 从 imm 出队释放 + decrRef 删 WAL，事务标记处理与 close 路径统一；open 恢复遗留 imm 立即 flush（对齐 go db.go:353 "Flush them to disk asap"）；② 修 open memtable fid 未走 reserve 导致的 id 撞车（flush 误删新表 WAL 的崩溃丢数据窗口，`seedFileIDAfter`）；③ 修磁盘表 seek 定位（R3）：`findBlock` 对 seek 版本 ≥ 组内最大存储版本且组首恰为块首的 key 错误回退前一块 → 重启后旧表 key 稳定 miss（实测 45/160）；`TableAdapter.get` 改走跨块 TableIterator；④ 去 `loadTables` 双载（LevelsController.init 与 open 各一次，reopen 每表双份）；⑤ close 批量/compaction 写盘结果检查 + compactor 异常防护不杀协程 + close 落盘后 decrRef 清 WAL 防 reopen 重复；⑥ compaction 表 id 改 `reserveFileID`（原误用 `db.getVersion()`）。新增 `flush_persist_regression_test.cj`（运行期落盘/双配置 close→reopen 160/160/不 close 崩溃重开 160/160）；
 | 2026-09-01 | v2.0 规划 | 路线图重构（统一进度表：v1.x 已完成线 / v2.0 mmap 线 / v2.x 后续线）+ mmap 写路径设计落盘 `plans/2026-09-01-mmap-wal-vlog-design.md`（WAL/VLog mmap 化对齐 go z.MmapFile，预分配规避 remap 段错误窗口，io_uring 仅留 SSTable 可选加速）；benchmark/需求文档状态同步 |

@@ -134,7 +134,7 @@ public class MemTableIterator <: SimpleIterator {
                 currentKey = node.getKey()
                 let value = node.getValue()
                 let offset = UInt32(value >> 32)
-                let size = UInt32(value & 0xFFFFu64)
+                let size = UInt32(value & 0xFFFFFFFFu64)
                 let encoded = mt.getTable().getArena().getBytes(offset, size)
                 currentValue = encoded
                 lazyIter = LazySkipIterator.fromNode(mt.getTable(), node)
@@ -192,7 +192,7 @@ class LazySkipIterator {
             let key = node.getKey()
             let value = node.getValue()
             let offset = UInt32(value >> 32)
-            let size = UInt32(value & 0xFFFFu64)
+            let size = UInt32(value & 0xFFFFFFFFu64)
             let encoded = table.getArena().getBytes(offset, size)
             let vs = ValueStruct.decode(encoded)
             
