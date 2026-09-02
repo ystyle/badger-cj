@@ -45,6 +45,10 @@ output-type = "executable"
 [package.package-configuration."badgercj.examples.iouring_batch_test"]
 output-type = "executable"
 
+[package.package-configuration."badgercj.examples.flush_impact_perf"]
+output-type = "executable"
+compile-option = "--static -O2 -Woff unused"
+
 [package.package-configuration."badgercj.examples.graceful_exit"]
 output-type = "executable"
 compile-option = "--static -O2 -Woff unused"
