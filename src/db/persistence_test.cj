@@ -22,6 +22,11 @@ class PersistenceTest {
         })
         db1.close()
         
+        // 数据文件层验证：close 即落盘——.sst ≥1、MANIFEST 有 Create 记录、WAL 已清理
+        @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
+        @Assert(testFileBytesSize(dir + "/MANIFEST") > 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 0, true)
+        
         let db2 = Badger.open(opt)
         
         @Assert(db2.get("key1".toArray()).isSome(), true)
@@ -172,6 +177,11 @@ class PersistenceTest {
         })
         db1.close()
         
+        // 数据文件层验证：close 即落盘——.sst ≥1、MANIFEST 有 Create 记录、WAL 已清理
+        @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
+        @Assert(testFileBytesSize(dir + "/MANIFEST") > 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 0, true)
+        
         let db2 = Badger.open(opt)
         
         var found = 0
@@ -308,6 +318,10 @@ class PersistenceTest {
         db1.update({ txn => txn.set("largekey".toArray(), largeValue) })
         db1.close()
         
+        // 数据文件层验证：value < ValueThreshold 走 LSM → close 后存在 .sst
+        @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 0, true)
+        
         let db2 = Badger.open(opt)
         if (let Some(vs) <- db2.get("largekey".toArray())) {
             @Assert(vs.value.size, 10000)
@@ -329,6 +343,11 @@ class PersistenceTest {
         
         let db1 = Badger.open(opt)
         db1.close()
+        
+        // 空库 close：不产生任何表文件与 MANIFEST 记录（无 Create），WAL 已清理
+        @Assert(testCountFilesWithSuffix(dir, ".sst") == 0, true)
+        @Assert(testFileBytesSize(dir + "/MANIFEST") == 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 0, true)
         
         let db2 = Badger.open(opt)
         @Assert(db2.get("anykey".toArray()).isSome(), false)

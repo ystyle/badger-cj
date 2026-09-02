@@ -32,7 +32,16 @@ class CrashRecoveryTest {
         })
         db1.flushWAL()
         
+        // 数据文件层验证：未 close 前数据只在当前 memtable 的 WAL（.mem）里，无 .sst
+        @Assert(testCountFilesWithSuffix(dir, ".sst") == 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 1, true)
+        
         let db2 = Badger.open(opt)
+        
+        // open 恢复语义：遗留 WAL replay 后立即 flush 落盘 → .sst 出现、遗留 .mem 清理
+        // （.mem == 1 = db2 当前 memtable 自己的 WAL）
+        @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 1, true)
         
         @Assert(db2.get("key1".toArray()).isSome(), true)
         @Assert(db2.get("key2".toArray()).isSome(), true)
@@ -170,6 +179,10 @@ class CrashRecoveryTest {
         db2.flushWAL()
         
         let db3 = Badger.open(opt)
+        
+        // 多段 WAL 全部恢复并落盘：无遗留 .mem（只剩 db3 当前表），数据文件在盘
+        @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 1, true)
         
         @Assert(db3.get("key1".toArray()).isSome(), true)
         @Assert(db3.get("key2".toArray()).isSome(), true)
