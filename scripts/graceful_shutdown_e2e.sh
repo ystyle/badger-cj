@@ -1,6 +1,10 @@
 #!/bin/bash
 # badger-cj 优雅退出端到端回归（docker stop 模拟）：
-#   write（不 close、不 flush，数据仅内存）→ SIGTERM → 进程应 exit(0) 且落盘 → 重启读回 5000/5000
+#   write（不 close；memtableSize 64KB 触发多轮运行期 flush——修复后已逐轮落盘）→
+#   SIGTERM → 优雅退出 exit(0) 且 close 补落盘残余 → 重启读回 5000/5000
+#   对照组（write-nosignal，无优雅退出，SIGTERM 默认终止 exit=143）：
+#   修复前 0/5000 全丢；修复后找回 flush 已落盘部分（<5000）——未 flush 残余仅 WAL 缓冲仍丢失，
+#   故 registerSignalShutdown 的兜底价值不变
 set -u
 cd "$(dirname "$0")/.."
 BIN=./target/release/bin/badgercj.examples.graceful_exit
@@ -42,8 +46,10 @@ RC=$?
 sleep 0.5
 RES=$("$BIN" read "$DIR" 2>&1 | tail -1)
 echo "对照组: exit=$RC $RES"
-if [ "$RC" == "143" ] && echo "$RES" | grep -q "FOUND: 0/5000"; then
-  echo "对照组符合预期：无优雅退出时 docker stop 丢数据（凸显 registerSignalShutdown 价值）"
+FOUND_N=$(echo "$RES" | grep -oE 'FOUND: [0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ "$RC" == "143" ] && [ -n "$FOUND_N" ] && [ "$FOUND_N" -lt 5000 ]; then
+  echo "对照组符合预期：exit=143 且未全量落盘（找回 $FOUND_N/5000）——运行期 flush 已落盘的数据"
+  echo "  不依赖 close；未 flush 的 memtable 残余仅存 WAL 缓冲，仍靠 registerSignalShutdown 兜底"
 else
   echo "⚠️ 对照组异常（exit=$RC, $RES）"
   FAIL=$((FAIL+1))
