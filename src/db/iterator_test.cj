@@ -2,8 +2,9 @@ package badgercj.db
 
 import std.unittest.*
 import std.unittest.testmacro.*
-import std.fs.*
 import std.collection.*
+import std.convert.*
+import std.fs.*
 
 @Test
 class IteratorTest {
@@ -647,6 +648,89 @@ class IteratorTest {
         for (t in targets) {
             let ka = collectReverseSeek(dbA, t)
             let kb = collectReverseSeek(dbB, t)
+            @Assert(kb.size == ka.size)
+            for (i in 0..ka.size) {
+                @Assert(kb[i] == ka[i])
+            }
+        }
+
+        dbA.close()
+        dbB.close()
+        cleanupIterDir(dirA)
+        cleanupIterDir(dirB)
+    }
+
+    // 回归：正向 seek 的目标落在两个 data block 之间（seekKey 大于前一块全部条目、
+    // 小于下一块首条——典型的「组前缀型 seek」，如时序库 seek 到
+    // "s:<series>:<ts>:" 组首）时，Table.findBlock 按块首 key 把 seekKey 指到
+    // 前一块 → 块内二分 miss → 迭代 invalid，漏掉下一块首的 ≥ seekKey 条目
+    // （修复前：数据跨多个 block 时此类 seek 静默落空；单块/小表不触发）。
+    // 语义锚点：磁盘表 seek 必须与 memtable 二分 seek 一致——同一数据两种存储，
+    // 逐 seek 目标输出相等。
+    private func collectForwardSeek(db: Badger, seekKey: String): ArrayList<String> {
+        let txn = db.newTransaction(update: false)
+        let iter = txn.newIterator()
+        iter.seek(seekKey.toArray())
+        let keys = ArrayList<String>()
+        var guard = 0
+        while (iter.valid() && guard < 8) {
+            keys.add(bytesToString(iter.item().key))
+            guard += 1
+            iter.next()
+        }
+        iter.close()
+        txn.discard()
+        keys
+    }
+
+    @TestCase
+    func testForwardSeekAcrossBlockGap() {
+        let dirA = "/tmp/badger_iter_fwd_gap_mt"
+        let dirB = "/tmp/badger_iter_fwd_gap_disk"
+        cleanupIterDir(dirA)
+        cleanupIterDir(dirB)
+        let optA = Config(dir: dirA, memTableSize: 1024 * 1024u64)
+        let optB = Config(dir: dirB, memTableSize: 1024 * 1024u64)
+        let dbA = Badger.open(optA)
+        let dbB = Badger.open(optB)
+        // 6 组 × 400 定长 seq 点 key（共 2400 key，~160KB）→ SSTable 跨数十个 4KB block
+        let padding = "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+        let allKeys = ArrayList<String>()
+        for (g in 0..6) {
+            for (s in 0..400) {
+                allKeys.add("s:g" + g.toString() + ":" + s.format("020"))
+            }
+        }
+        dbA.updateOrThrow({ txn =>
+            for (k in allKeys) {
+                txn.set(k.toArray(), padding.toArray())
+            }
+        })
+        dbB.updateOrThrow({ txn =>
+            for (k in allKeys) {
+                txn.set(k.toArray(), padding.toArray())
+            }
+        })
+        dbB.flushMemTable()
+
+        // 候选 seekKey：组前缀型（真实时序库用法）+ 每 4 条 key 剥 1 字节（覆盖
+        // 块边界间隙：块首 B 的 B[:-1] 必大于前一块末、小于 B）+ 越界/不存在
+        let candidates = ArrayList<String>()
+        for (g in 0..6) {
+            candidates.add("s:g" + g.toString() + ":")
+        }
+        for (i in 0..allKeys.size) {
+            if (i % 4 == 0) {
+                let k = allKeys[i]
+                candidates.add(String.fromUtf8(k.toArray()[0..k.size - 1]))
+            }
+        }
+        candidates.add("s:g3:00000000000000000999")   // 组内不存在（超 seq 上限）
+        candidates.add("aaa")                          // 小于全部
+        candidates.add("zzz")                          // 大于全部
+        for (c in candidates) {
+            let ka = collectForwardSeek(dbA, c)
+            let kb = collectForwardSeek(dbB, c)
             @Assert(kb.size == ka.size)
             for (i in 0..ka.size) {
                 @Assert(kb[i] == ka[i])
