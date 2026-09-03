@@ -591,6 +591,17 @@ class IteratorTest {
     // - seek 落在两 key 之间 → 定位到偏大的 key，起点错位
     // 语义锚点：磁盘表（SSTable，经 TableIterWrapper）的 reverse seek 必须与
     // memtable（MemTableIterator 二分）完全一致——同一数据两种存储，逐 seek 输出相等。
+    //
+    // 补充回归（reverse seek ts 编码方向，对齐 badger-go Iterator.Seek）：
+    // badger-go Seek 对 reverse 用 KeyWithTs(key, 0)（编码后缀全 F）；此前本仓库
+    // Iterator.seek 对正反两个方向统一用 ts=MaxUint64（编码后缀全 0），reverse 二分
+    // "≤ seekKey 的最后一条" 时目标 user key 组条目全部 > seekKey → 漏掉目标组本身：
+    // seek 表内存在的 key1/key2/key5 输出从更小组开始甚至为空。语义要求 seek 到
+    // 存在的 key 必须包含该 key 自身（含相等）。修复后 seekKey 后缀全 F，目标组
+    // 条目全部 ≤ seekKey → 命中组内最后一条（最旧版本），collectReverseLatest
+    // 旧→新收集整组后输出最新可见版本。
+    // 注：key2.5（落两 key 之间的 seek 目标）的物理落点依赖 commitTs 反转字节与
+    // seek 目标字符的相对大小（字节序存储固有语义），仅做 memtable/磁盘 A/B 对照。
     private func collectReverseSeek(db: Badger, seekKey: String): ArrayList<String> {
         let txn = db.newTransaction(update: false)
         let iter = txn.newIterator(opt: IteratorOptions(reverse: true))
@@ -603,6 +614,15 @@ class IteratorTest {
         iter.close()
         txn.discard()
         keys
+    }
+
+    // 绝对期望断言：reverse seek 到存在的 key 必须从该 key 自身开始（badger-go 语义）
+    private func assertReverseSeekExpected(db: Badger, seekKey: String, expected: ArrayList<String>) {
+        let got = collectReverseSeek(db, seekKey)
+        @Assert(got.size == expected.size)
+        for (i in 0..expected.size) {
+            @Assert(got[i] == expected[i])
+        }
     }
 
     @TestCase
@@ -653,6 +673,29 @@ class IteratorTest {
                 @Assert(kb[i] == ka[i])
             }
         }
+
+        // 绝对期望断言（两种存储都必须满足；修复前 key1 → [] / key2 → [key1] 漏目标组）
+        // 全量期望：key1..key5 五个 key 的反向输出
+        let allKeys = ArrayList<String>()
+        allKeys.add("key5"); allKeys.add("key4"); allKeys.add("key3")
+        allKeys.add("key2"); allKeys.add("key1")
+        let key1Only = ArrayList<String>()
+        key1Only.add("key1")
+        let key2AndBelow = ArrayList<String>()
+        key2AndBelow.add("key2"); key2AndBelow.add("key1")
+        let noneKeys = ArrayList<String>()
+        // memtable（A）——二分 seek 语义锚点
+        assertReverseSeekExpected(dbA, "key1", key1Only)     // seek 自身
+        assertReverseSeekExpected(dbA, "key2", key2AndBelow) // 存在 key：包含自身
+        assertReverseSeekExpected(dbA, "key5", allKeys)      // 最大 key：包含自身
+        assertReverseSeekExpected(dbA, "zzz", allKeys)       // 大于全部：seekLast 全量
+        assertReverseSeekExpected(dbA, "key0", noneKeys)     // 小于全部：空
+        // 磁盘表（B）——TableIterWrapper 路径必须一致
+        assertReverseSeekExpected(dbB, "key1", key1Only)
+        assertReverseSeekExpected(dbB, "key2", key2AndBelow)
+        assertReverseSeekExpected(dbB, "key5", allKeys)
+        assertReverseSeekExpected(dbB, "zzz", allKeys)
+        assertReverseSeekExpected(dbB, "key0", noneKeys)
 
         dbA.close()
         dbB.close()
