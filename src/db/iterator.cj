@@ -126,10 +126,21 @@ public class Iterator {
             seekKey = opt.prefix
         }
         
-        // 为 seek key 添加时间戳 MaxUint64（取反后为 min，确保找到最新版本）
-        // 这样 findGe 会找到 >= key\x00... 的第一个，即最新版本
+        // 为 seek key 编码版本后缀（对齐 badger-go Iterator.Seek）：
+        // - forward：ts=MaxUint64 → 反转后后缀 0x00..00（组内最小），findGe ≥ seekKey
+        //   命中该 user key 组首条（最新版本），ts>readTs 的版本由 parseItem 过滤
+        // - reverse：ts=0 → 反转后后缀 0xFF..FF（组内最大），"≤ seekKey 的最后一条"
+        //   二分可覆盖目标 user key 组全部条目 → 定位组内末条（最旧版本），
+        //   collectReverseLatest 自旧至新收集整组后输出最新可见版本。
+        //   此前 reverse 也统一用 ts=MaxUint64（后缀 0x00..00）：目标组条目全部
+        //   > seekKey，二分落到前一组/空——seek 到表内存在的 key 漏掉该 key 自身
+        //   （seek key1 → []、key2 → [key1]，而 badger-go Seek 到存在 key 应含自身）。
         if (seekKey.size > 0) {
-            seekKey = keyWithTs(seekKey, 0xFFFFFFFFFFFFFFFFu64)
+            if (opt.reverse) {
+                seekKey = keyWithTs(seekKey, 0u64)
+            } else {
+                seekKey = keyWithTs(seekKey, 0xFFFFFFFFFFFFFFFFu64)
+            }
         }
         
         iitr.seek(seekKey)
