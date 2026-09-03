@@ -38,9 +38,10 @@ public class WritePipeline {
                     runBatch(reqs)
                 }
             } catch (e: Error) {
-                // 系统级错误（如 OOM 的 OutOfMemoryError）不许逃逸杀写管道协程：
-                // 记录后继续循环，否则一次资源耗尽 = 管道死亡 = 后续所有写请求
-                // done() 永不回调 = 调用方永久挂起（生产忆时塔 MCP 挂起症状）。
+                // 兜底防线（v1.6.13 起）：runBatch 已内部捕获 Error 整批 markFailed，
+                // 此处再兜底队列层异常（如 remove 系统级错误）——系统级错误（OOM 等）
+                // 不许逃逸杀写管道协程：记录后继续循环，否则一次资源耗尽 = 管道死亡 =
+                // 后续所有写请求 done() 永不回调 = 调用方永久挂起（生产 MCP 挂起症状）。
                 println("[badger] write pipeline loop system error: " + e.message)
             }
         }
@@ -59,14 +60,22 @@ public class WritePipeline {
     // 执行一批写请求（对齐 badger-go writeRequests 的 done(err) 语义）：
     // handler 抛异常（如 arena 溢出、value 超过 64KB 编码上限）时给本批每个 req
     // 标记失败——commit() 就此返回 TxnStatus.Error，而不是"假装成功"的静默丢数据。
-    // done() 放 finally：即使抛的是 Error（如内存耗尽，不在 Exception 体系内）也保证
-    // 调用方 wait() 不悬挂（评审 P2-3）；Error 不在此捕获——按仓颉语义属系统级错误，
-    // 执行完 finally 后自然传播（打印堆栈 + 终止进程），而非被业务层吞掉。
+    // handler 抛系统级 Error（如 OOM）：同样整批 markFailed 后再 done()——Error 虽
+    // 无法在业务层重新抛出（仓颉不允许手动 throw Error），但失败必须对调用方可见，
+    // 否则本批只 done() 不标记 → commit() wait 返回后 errorOf()==None → 误报成功 =
+    // 静默丢写（评审 P2；此前该场景仅由 loop() 边界捕获打印，批次对外显示成功）。
+    // markFailed 必须先于 finally 的 done()：wait() 唤醒后再补标已无意义。
     // 附带语义：失败部分条目可能已写入（失败≠零写入，badger-go 相同）。
     private func runBatch(reqs: ArrayList<WriteRequest>): Unit {
         try {
             handler(reqs)
         } catch (e: Exception) {
+            for (req in reqs) {
+                req.markFailed(e.message)
+            }
+        } catch (e: Error) {
+            // 系统级错误（如 OOM）：整批标记失败（错误信息透出给调用方），
+            // finally 仍保证 done()，管道协程不死亡（与 loop 边界兜底一致）。
             for (req in reqs) {
                 req.markFailed(e.message)
             }

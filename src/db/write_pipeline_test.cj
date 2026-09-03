@@ -10,6 +10,9 @@ import std.time.*
 //   finally 保证 done() 后自然传播（仓颉不允许手动 throw Error，该路径由语言语义保证）
 // v1.6.13 补充：runBatch 的 Error 逃逸到 loop() 必须被边界兜底捕获——否则管道协程死亡，
 //   后续所有写请求 done() 永不回调 = 调用方永久挂起（生产忆时塔 MCP 挂起症状）。
+// v1.6.16 补充（评审 P2）：Error 不再只靠 loop() 边界兜底——runBatch 内 catch Error
+//   并整批 markFailed（先于 finally done()），失败对调用方显式可见（errorOf Some），
+//   杜绝 OOM 批 commit() 误报成功 = 静默丢写。
 @Test
 class WritePipelineErrorSemanticsTest {
 
@@ -47,16 +50,34 @@ class WritePipelineErrorSemanticsTest {
         let okReqs = ArrayList<WriteRequest>()
         okReqs.add(WriteRequest(1))
         okReqs.add(WriteRequest(2))
+        // 真实 OutOfMemoryError（Error 层级，无法手动 throw Error）：
+        // 分配超巨型数组并 touch 首字节强制运行时提交。sink 让数组逃逸出闭包，
+        // 防止 -O2 死代码消除（仅读 size 或读取结果未消费时整个分配被优化掉、
+        // OOM 永不触发——v1.6.13 原测试即因此从未真正抛过 Error，属假阳性）。
+        let sink = ArrayList<Array<Byte>>()
+        let oomOnce = AtomicInt64(0)
         let pipe = WritePipeline({ reqs =>
-            // 触发真实 OutOfMemoryError（Error 层级，无法手动 throw）
-            let huge = Array<Byte>(Int64.Max - 1024, repeat: 0)
-            for (r in reqs) { let _ = huge.size; r.done() }
+            if (oomOnce.fetchAdd(1) == 0) {
+                // 仅首次批次触发 OOM；后续批次走正常路径验证管道存活
+                let huge = Array<Byte>(Int64.Max - 1024, repeat: 0)
+                sink.add(huge)
+                let _ = huge[0]
+            }
+            for (r in reqs) { r.done() }
         })
         pipe.emit(okReqs)   // 本批必然 OOM
 
         // 等待 OOM 批 settle（runBatch finally 已 done，wait 不悬挂）
         okReqs[0].wait()
         okReqs[1].wait()
+
+        // v1.6.16（评审 P2）：OOM 批必须显式标记失败（errorOf Some）——
+        // 此前 Error 只被 loop() 边界捕获打印，本批 done() 未带失败标记，
+        // commit() wait 后 errorOf()==None 返回 Ok = 静默丢写（write_request.cj
+        // "杜绝写入失败却返回成功" 目标仅覆盖 Exception，Error 漏网）。
+        // markFailed 必须在 finally done() 之前完成，否则 wait 已返回、补标无效。
+        @Expect(okReqs[0].errorOf().isSome())
+        @Expect(okReqs[1].errorOf().isSome())
 
         // OOM 后管道必须仍存活：再发一批正常请求，必须被处理（wait 返回、无失败标记）
         let nextReqs = ArrayList<WriteRequest>()
