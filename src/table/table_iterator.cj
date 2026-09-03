@@ -38,6 +38,16 @@ protected class TableIterator <: TableIter {
         if (blockIdx >= 0 && blockIdx < table.numBlocks()) {
             blockIter = table.blockIterator(blockIdx)
             blockIter.seek(key)
+            // findBlock 只按「块首 key」定位：key 落在前一块末尾与下一块首之间时
+            // 会被指到前一块，块内二分 miss（块内全部 < key）而 invalid——
+            // 但 ≥ key 的最小条目在下一块首。正向推进到下一块首；
+            // reverse 场景由上层（TableIterWrapper.seek）对 > key 的结果 prev 收尾，
+            // 落在上一块末尾恰好是 reverse 想要的 ≤ key 最后一条，同样受益。
+            if (!blockIter.isValid() && blockIdx + 1 < table.numBlocks()) {
+                blockIdx++
+                blockIter = table.blockIterator(blockIdx)
+                blockIter.seekToFirst()
+            }
         }
     }
     
