@@ -22,6 +22,10 @@ protected class MemTable {
     private let wal: ?WAL
     private let replaying: AtomicBool
     private let maxVersion: AtomicUInt64
+    // 异步 flusher 完成标志：落盘 + addTable + imm 出队后由 db 置位（dequeueFlushed）。
+    // 供 flushMemTable() 精确等待"本表已持久可读"（水位等待无法区分队列中其它表
+    // 的出队，会提前返回）。
+    private let flushDone: AtomicBool
     
     protected init(opt: Config, fid: Int64, walExists: Bool) {
         this.opt = opt
@@ -39,6 +43,7 @@ protected class MemTable {
         this.sizeInBytes_ = AtomicUInt64(0)
         this.replaying = AtomicBool(false)
         this.maxVersion = AtomicUInt64(0)
+        this.flushDone = AtomicBool(false)
         
         if (opt.DisableWAL) {
             this.wal = None
@@ -179,6 +184,22 @@ protected class MemTable {
     
     public func getTable(): Skiplist {
         table
+    }
+    
+    // memtable 唯一标识（文件/WAL id）：imm 内不重复（open 恢复表来自不同 .mem，
+    // 运行期轮换表经 reserveFileID 单调分配）。用于 flusher 按对象出队定位
+    // （仓颉类无引用相等比较，== 需要 Equatable）。
+    public func getFid(): Int64 {
+        fid
+    }
+    
+    // 异步 flush 完成标志（db.dequeueFlushed 置位；仅前进一次，重试不重置）
+    public func markFlushDone(): Unit {
+        flushDone.store(true)
+    }
+    
+    public func isFlushDone(): Bool {
+        flushDone.load()
     }
 }
 

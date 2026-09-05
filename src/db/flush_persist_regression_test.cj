@@ -86,8 +86,12 @@ class FlushPersistRegressionTest {
             }
             db1.batchSet(entries)
         }
-        // 模拟崩溃：不 close db1。先把当前 memtable 的 WAL 缓冲刷盘（进程消失前的
-        // 最后落盘），随后的重开 = replay WAL + manifest 恢复
+        // 模拟崩溃：不 close db1。异步 flusher 架构下，先等待已轮换表全部落盘出队
+        // （进程死亡时 flusher 随进程终止，磁盘状态即崩溃点状态——此处同进程重开
+        // 必须等 flusher 静止，否则其写盘/删 WAL 会与 db2 互踩目录）。随后把当前
+        // memtable 的 WAL 缓冲刷盘（进程消失前的最后落盘），重开 = replay WAL +
+        // manifest 恢复。
+        db1.awaitFlusherIdle()
         db1.flushWAL()
 
         let db2 = Badger.open(opt)

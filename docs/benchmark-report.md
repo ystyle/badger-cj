@@ -465,6 +465,34 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 
 ---
 
+## 11. 异步 flusher + TableBuilder 单拷贝——专项实测（2026-09-05，v7.0）
+
+> 背景：flush 移出全局写锁（写路径只轮换 memtable，构建/落盘由 flusher 协程并行执行，
+> 队列深度 = NumMemtables 背压）+ TableBuilder 分块持有消除双拷贝。同一基准程序复测
+> （io_uring 3 次取中位；对比 §10 的 v6.0 基线）。
+
+| 版本 | 写路径 | 运行期写吞吐 (keys/s) | close 耗时 |
+|------|--------|----------------------|-----------|
+| v7.0（异步 flusher，本版） | io_uring | **93.7K-95.6K** | 54-60 ms |
+| v7.0（异步 flusher，本版） | 降级同步写 | 97.4K | 52 ms |
+| v6.0（v1.6.12，同步 flush） | io_uring | 46.3K-47.2K | 15-19 ms |
+
+**结论：**
+
+1. **运行期写吞吐 ~2 倍（46.3-47.2K → 93.7-95.6K keys/s）**：flush 的 SSTable 构建 + 写盘
+   从写锁内同步执行移出为 flusher 并行——写路径不再被每轮 flush（~1MB 表构建 + io_uring
+   落盘 + MANIFEST）整批阻塞，读者也不再被 flush 磁盘 I/O 阻塞。
+2. **close 54-60ms（毫秒级）**：较 v6.0 的 15-19ms 略增——close 需等 flusher 把在途表
+   落盘完毕（数据完整性语义：close 返回 = 无在途表），相对 v1.6.10 集中落盘的 ~720ms
+   仍是 ~12x 提升；该成本随在途表数量线性，常规 memtable 下为个位数毫秒。
+3. flush_impact 场景下运行期落盘表数不变（每 ~1MB 一张），imm 峰值受 NumMemtables（默认 5）
+   约束——**长期运行内存上界 = NumMemtables × 2 × MemTableSize**（v6.0 同步 flush 恒 1 张在途）。
+
+**文档版本：** v7.0  
+**最后更新：** 2026-09-05（异步 flusher + L1 单拷贝复测，新增 §11 专项）
+
+---
+
 ## Benchmark 测试文件
 
 | 文件 | 测试数 | 描述 |
@@ -516,5 +544,5 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 
 ---
 
-**文档版本：** v6.0  
-**最后更新：** 2026-09-02（v1.6.12 flush 落盘修复复测，新增 §10 专项）
+**文档版本：** v7.0  
+**最后更新：** 2026-09-05（异步 flusher + L1 单拷贝复测，新增 §11 专项）

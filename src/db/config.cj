@@ -16,6 +16,10 @@ public struct Config {
     public var Compression: CompressionType
     public var AutoCloseOnExit: Bool
     public var SyncWrites: Bool
+    // 内存中允许的未落盘 memtable 上限（对齐 badger-go WithNumMemtables 默认 5）：
+    // 超过后写路径停顿等待 flusher（背压），约束 flush 峰值内存
+    // ≈ NumMemtables × 2 × MemTableSize。
+    public var NumMemtables: Int
     
     public init(
         dir!: String = "",
@@ -30,7 +34,8 @@ public struct Config {
         inMemory!: Bool = false,
         compression!: CompressionType = CompressionType.None,
         autoCloseOnExit!: Bool = false,
-        syncWrites!: Bool = false
+        syncWrites!: Bool = false,
+        numMemtables!: Int = 5
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -43,6 +48,7 @@ public struct Config {
         this.Compression = compression
         this.AutoCloseOnExit = autoCloseOnExit
         this.SyncWrites = syncWrites
+        this.NumMemtables = numMemtables
         
         // InMemory 模式：ValueThreshold 设为最大值，所有数据进 LSM
         if (inMemory) {
@@ -134,6 +140,12 @@ public struct Config {
     public func withSyncWrites(sync: Bool): Config {
         var conf = this
         conf.SyncWrites = sync
+        conf
+    }
+    
+    public func withNumMemtables(n: Int): Config {
+        var conf = this
+        conf.NumMemtables = n
         conf
     }
     
