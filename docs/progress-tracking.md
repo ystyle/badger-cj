@@ -31,6 +31,8 @@
 | io_uring（SSTable 批量写） | benchmark P3 | P3 | ✅（v1.6.9 起失败自动降级） |
 | Snappy 压缩 | 下一阶段 | P2 | ✅（v1.3.0） |
 | 优雅退出 / 关闭钩子 | 防复发 | — | ✅（v1.6.7/1.6.8） |
+| flush 异步化（移出写锁 + 背压） | #518 评审 P2-2 | P2 | ✅（e744941，v1.6.17） |
+| TableBuilder 单拷贝（L1） | 内存峰值优化 | P2 | ✅（3c8f261，v1.6.17） |
 
 ### v2.0（mmap 写路径，🔶 设计已落盘）
 
@@ -365,6 +367,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-09-05 | v1.6.17 | **flush 移出全局写锁异步化**（评审 P2-2 遗留闭环，对齐 badger-go flushChan/flushMemtable）：写路径/`flushMemTable()` 写锁内只轮换 memtable，SSTable 构建+落盘+MANIFEST+addTable 由单 flusher 协程锁外执行，完成后锁内出队 decrRef；队列深度=新 `Config.NumMemtables`（默认 5，对齐 go WithNumMemtables），超限写路径锁外等待背压；失败无限重试（Error 边界保活不杀 flusher）；close 时序重排（join flusher 先于拿写锁）后保留全量兜底落盘；`flushMemTable()` 保持同步语义（per-table 完成标志 + 空表 drain 在途）；**TableBuilder L1 单拷贝**：buf ArrayList 逐字节累积 → 分块持有 + finish 一次拼接（位级布局不变，golden 指纹回归），空表不再落盘空 .sst。测试 349→361；flush_impact 专项：运行期写吞吐 ~2x（46-47K→94-96K keys/s），close 毫秒级 |
 | 2026-09-03 | v1.6.16 | ① **reverse seek 编码对齐 badger-go**（评审发现）：`Iterator.seek` 对 reverse 统一用 `keyWithTs(key, MaxUint64)`（反转后缀 0x00..00），而 badger-go Seek 对 reverse 用 `KeyWithTs(key, 0)`（反转后缀 0xFF..FF）——"≤ seekKey 的最后一条"二分需覆盖目标 user key 组全部版本条目才能命中，后缀 0x00..00 使目标组条目全部 > seekKey，seek 到表内存在的 key 漏掉该 key 自身（key1→[]、key2→[key1]），memtable 与磁盘 A/B 两侧同错故未被发现。修复：reverse 分支改用 ts=0 编码（后缀全 F），forward 保持 ts=Max；`testReverseSeekOnDiskTable` 增加绝对期望断言（seek 存在 key 必须包含自身，memtable 与磁盘双锚点；修复前 FAILED）。② **WritePipeline Error 批显式失败**（评审 P2 发现）：runBatch 系统级 Error（OOM）此前仅 loop() 边界捕获打印，本批 done() 未带失败标记 → commit() 误报 Ok = 静默丢写。修复：runBatch catch (e: Error) 与 Exception 同语义整批 markFailed（先于 finally done()）；`testSystemErrorDoesNotKillPipeline` 修复假阳性（原 handler 只读 size、-O2 死代码消除使 OOM 从未真正发生）——sink 逃逸 + touch 首字节稳定触发真实 OOM，新增断言 OOM 批 errorOf Some、管道存活后续正常批无失败标记；349 测试通过 |
 | 2026-09-03 | v1.6.15 | 磁盘表**正向 seek 跨 block 间隙漏条目**（tsdb key 编码 v1→v2 迁移演练发现：重建库块布局变化使「组前缀型 seek」——seekKey 大于前一块全部条目、小于下一块首条——落入两 block 间隙）：Table.findBlock 只按「块首 key」二分定位，此类 seekKey 被指回前一块 → 块内二分 miss → 迭代 invalid，漏掉 ≥ seekKey 的首条目（此前 R3 修复只覆盖 seekKey 与块首同 user key 的版本场景，通用间隙 case 未覆盖）。修复 `TableIterator.seek`：块内 seek invalid 且存在下一块时推进到下一块 `seekToFirst`（reverse 场景由 TableIterWrapper.seek 对 > key 结果 prev 收尾——落点恰为其想要的 ≤ key 最后一条，一并受益）。回归测试 `testForwardSeekAcrossBlockGap`（memtable vs flush 落盘 A/B：2400 定长 key 跨数十 4KB block，6 组前缀 + 地毯式逐 key 剥尾 seek 逐项相等；修复前 FAILED）；349 测试通过 |
 | 2026-09-02 | v1.6.14 | 磁盘表 reverse seek/迭代修复（tsdb 游标分页联调发现）：① `TableIterWrapper.seek` reverse 语义对齐 MemTableIterator——forward seek 定位后若 key 大于全部则 seekLast、落在两 key 间则 prev 一步（此前直接透传前向 seek：seek key 大于表内全部 key 时 reverse 迭代空结果、两 key 之间时起点偏大）；② `Iterator.valid()` 改以 parseItem 产出状态 itemValid 判定（此前看 iitr.valid()：collectReverseLatest 消费完表内最后一段版本链、无 finTxn 垫底 key 时 iitr 越界 invalid，reverse 全量迭代吞最后一项）。回归测试 `testReverseSeekOnDiskTable`（memtable vs flush 落盘 A/B 对照 6 个 seek 目标逐项相等）；348 测试通过 |
