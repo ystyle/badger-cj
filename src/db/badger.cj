@@ -46,6 +46,18 @@ public class Badger <: VLogGCDB {
     private var compactorFut: ?Future<Unit>
     private var pipeline: ?WritePipeline
     protected let reqPool: WriteRequestPool
+    // —— 异步 flusher（flush 移出写锁，对齐 badger-go flushChan + flushMemtable）——
+    // 写路径/公开 API 在写锁内只做 memtable 轮换（imm.add + 新表），轮换出的表经
+    // flushQueue 交给 flusher 协程在锁外构建 SSTable + 落盘 + MANIFEST + addTable，
+    // 完成后回到写锁内短临界区出队 decrRef。imm 集合变更（add/remove）始终持写锁，
+    // 与读路径（读锁内遍历 imm）的互斥不变量不变。
+    private let flushQueue: CloseableBlockingQueue<MemTable>
+    // imm 深度的原子镜像（imm ArrayList 由写锁保护，等待水位判断需要在锁外读）
+    private let immCount: AtomicInt64
+    // flusher 腾位/完成通知（等待方均须在写锁外 wait，避免死锁）
+    private let flushCondMutex: Mutex
+    private let flushCond: Condition
+    private var flusherFut: ?Future<Unit>
     // —— 优雅退出（docker stop / Ctrl+C）——
     // registerSignalShutdown() 注册后，SIGINT/SIGTERM 置 shutdownSignal，
     // 后台 shutdownLoop 轮询到后执行 close()（信号上下文仅做 lock-free 置位，安全）
@@ -85,6 +97,13 @@ public class Badger <: VLogGCDB {
         this.compactorFut = None
         this.pipeline = None
         this.reqPool = WriteRequestPool(maxSize: 1000)
+        this.flushQueue = CloseableBlockingQueue<MemTable>(Int64(opt.NumMemtables))
+        this.immCount = AtomicInt64(0)
+        this.flushCondMutex = Mutex()
+        synchronized(this.flushCondMutex) {
+            this.flushCond = this.flushCondMutex.condition()
+        }
+        this.flusherFut = None
     }
     
     public static func open(opt: Config): Badger {
@@ -161,6 +180,7 @@ public class Badger <: VLogGCDB {
         // 添加 replay 的 imm tables
         for (immMt in immTables) {
             db.imm.add(immMt)
+            db.immCount.fetchAdd(1)
         }
         
         if (!opt.InMemory) {
@@ -184,9 +204,9 @@ public class Badger <: VLogGCDB {
         // 对齐 badger-go（db.go:353 "Flush them to disk asap"）：open 恢复出的遗留
         // imm（崩溃前已切出但未落盘的 memtable）立即 flush 落盘，数据不再悬在内存
         // 等 close。失败则 open 抛错（表保留在 imm、WAL 未删，重开重放可重试），
-        // 不留半落盘状态。
+        // 不留半落盘状态。此阶段 flusher 尚未启动，走同步 flush 路径。
         while (!db.imm.isEmpty()) {
-            db.flushToLevel(db.imm[0], 0)
+            db.flushMemTableSync(db.imm[0])
         }
         
         db.running = AtomicBool(true)
@@ -194,6 +214,7 @@ public class Badger <: VLogGCDB {
         let fut = spawn { db.flushLoop() }
         db.flushFut = Some(fut)
         db.startCompactor()
+        db.startFlusher()
         
         // 注册进程退出时自动关闭
         if (opt.AutoCloseOnExit) {
@@ -225,6 +246,16 @@ public class Badger <: VLogGCDB {
         // 3. 关闭 pipeline（处理完队列中的请求）
         if (let Some(p) <- pipeline) {
             p.close()
+        }
+        
+        // 3.5. 停止 flusher（对齐 go flusher drain 语义）：关队列唤醒阻塞的 remove，
+        // flusher 把队列中剩余表处理完（成功落盘的完成 imm 出队）后退出。必须放在
+        // 拿写锁之前 join——flusher 的完成段（imm 出队）需要写锁，先拿锁再 join 即
+        // 死锁。flusher 关闭期间重试失败而放弃的表留在 imm/队列，由下方锁内兜底
+        // flush（数据不丢；失败上抛语义与旧 close 一致）。
+        flushQueue.close()
+        if (let Some(f) <- flusherFut) {
+            f.get()
         }
         
         // 4. 等待 compactor 结束
@@ -263,6 +294,12 @@ public class Badger <: VLogGCDB {
                 }
             }
             imm.clear()
+            // 兜底 flush 已处理全部在途表：镜像计数归零并唤醒（可能仍在水位等待的
+            // flushMemTable 调用者；其等待循环同时检查 running，close 后即退出）
+            immCount.store(0)
+            synchronized(flushCondMutex) {
+                flushCond.notifyAll()
+            }
             
             mt.deleteWAL()
             
@@ -579,9 +616,50 @@ public class Badger <: VLogGCDB {
     }
     
     public func flushMemTable(): Unit {
-        lock.writeLock.lock()
-        try { flushMemTableInternal() }
-        finally { lock.writeLock.unlock() }
+        // 同步语义（对齐 badger-go / 旧 flushMemTableInternal）：返回时当前 memtable
+        // 已落盘（含 MANIFEST + imm 出队，数据不再悬在内存）。实现 = 写锁内轮换入队
+        // → 锁外交给 flusher → 等待该表完成标志（flusher 串行 FIFO，本表完成时队列
+        // 中更早的表必然已全部落盘）。
+        // 空表分支：当前 mt 无数据不可轮换，但仍须等待此前已轮换（在途）的表全部
+        // 落盘——旧同步实现 flush 后 imm 恒空，调用方（含测试/宿主）依赖
+        // 「flushMemTable 返回 = 无在途表」的约定（skiplist node 高度随机导致
+        // arena 占用波动，最后一轮写入可能恰好整轮轮换完 → mt 为空但队列非空）。
+        while (true) {
+            var oldOpt: ?MemTable = None
+            var needRoom = false
+            var emptyMt = false
+            lock.writeLock.lock()
+            try {
+                if (mt.isEmpty()) {
+                    emptyMt = true
+                } else if (immCount.load() >= Int64(opt.NumMemtables)) {
+                    // 背压：imm 已满，锁外等待（不能持写锁等 flusher——死锁）
+                    needRoom = true
+                } else {
+                    oldOpt = Some(rotateMemTableLocked())
+                }
+            } finally {
+                lock.writeLock.unlock()
+            }
+            if (emptyMt) {
+                // 无可轮换数据：等在途表全部落盘出队后返回
+                awaitFlusherIdle()
+                return
+            }
+            if (needRoom) {
+                waitForFlushRoom()
+                continue
+            }
+            let old = oldOpt.getOrThrow()
+            flushQueue.add(old)
+            waitMemTableFlushed(old)
+            return
+        }
+    }
+    
+    // 供测试观测：imm 在途深度（immCount 原子镜像）
+    internal func getImmCount(): Int64 {
+        immCount.load()
     }
     
     protected func getVersion(): UInt64 { version.load() }
@@ -649,23 +727,38 @@ public class Badger <: VLogGCDB {
         }
     }
     
-    private func flushMemTableInternal(): Unit {
-        imm.add(mt)
+    // ==================== 异步 flusher（flush 移出写锁，对齐 badger-go flushChan 机制）===
+    // 锁模型不变量（与旧 flushToLevel 全程持写锁相比，安全模型不扩大）：
+    //   ① imm 集合的 add/remove 必须在 db 写锁内——读路径（get/getVS/ranges 等）在
+    //      读锁内遍历 imm，二者互斥关系保持不变；
+    //   ② 表「逻辑出队」（读不可见）只发生在落盘 + MANIFEST + addTable 之后，不存在
+    //      「已从 imm 摘除但新表不可读」的窗口；
+    //   ③ 持 db 写锁期间绝不等待 flusher（flusher 完成段需要写锁，持锁等待即死锁）；
+    //      背压/水位等待一律先释放写锁。
+    // 运行期结构：写路径 / flushMemTable() 在写锁内只做轮换（rotateMemTableLocked），
+    // 轮换出的表锁外入 flushQueue → 单 flusher 协程锁外 persistMemTable（构建 +
+    // 写盘 + MANIFEST + 挂内存 L0）→ 完成后回写锁内 dequeueFlushed 出队释放。
+    // 失败语义（对齐 go handleMemTableFlush 无限重试）：表保留 imm/WAL，重试不丢数据；
+    // close 中放弃重试，由 close 锁内兜底 flush（失败上抛 = 旧 close 语义）。
+    
+    // [写锁内] 轮换：当前 mt → imm 尾，新建空 mt（reserve 新 fid/WAL）；返回被轮换表
+    // （调用方负责在锁外将其入 flushQueue）。
+    private func rotateMemTableLocked(): MemTable {
+        let old = mt
+        imm.add(old)
+        immCount.fetchAdd(1)
         let fid = Int64(reserveFileID())
         mt = MemTable(opt, fid, false)
-        // 对齐 badger-go handleMemTableFlush：flush = 落盘原语（写 L0 SSTable +
-        // MANIFEST + 从 imm 出队释放），本函数在写锁内同步执行（评审 P2-2 的异步化
-        // 仍列为后续优化项——异步 flusher 线程 + flushChan，见 go db.flushMemtable）。
-        // flushToLevel 失败会抛异常：表保留在 imm、WAL 未删，请求失败上报且数据可恢复。
-        flushToLevel(imm[imm.size - 1], imm.size - 1)
+        old
     }
     
-    // 运行期/恢复期统一 flush 落盘（对齐 badger-go handleMemTableFlush 语义）：
-    //   write SSTable（io_uring 失败自动降级同步写，降级路径异常上抛）→ saveChanges
-    //   （MANIFEST 先记录，对齐 go addLevel0Table：先 manifest 后可见）→ 挂内存 L0 →
-    //   从 imm 出队 + decrRef（删 WAL，数据唯一持久副本已在盘上）。
-    // 失败时本函数抛异常，mt 保持 imm/WAL 状态不变（close/下次 open 兜底恢复）。
-    private func flushToLevel(mt: MemTable, immIdx: Int64): Unit {
+    // [锁外] 把一张 memtable 构建为 L0 SSTable：迭代 → TableBuilder → finish → 落盘
+    // （io_uring 失败自动降级同步写）→ MANIFEST saveChanges（先记录后可见，对齐 go
+    // addLevel0Table）→ 挂内存 L0。成功返回后数据已持久且可读，调用方随后出队释放。
+    // 空表（无条目）直接返回：不建表不落盘（与旧实现落盘空表相比的行为修正——空表
+    // 无数据可持久，imm 出队由调用方统一完成）。
+    // 失败抛异常：表保持 imm/WAL 状态不变（重试 / close / 下次 open 兜底恢复）。
+    private func persistMemTable(mt: MemTable): Unit {
         let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
         let iter = mt.iterator()
         while (iter.hasNext()) {
@@ -681,9 +774,7 @@ public class Badger <: VLogGCDB {
         
         let data = builder.finish()
         if (data.size == 0) {
-            // 空表无数据可落盘：直接出队释放（WAL 无内容，删除安全）
-            imm.remove(at: immIdx)
-            mt.decrRef()
+            // 空表无数据可落盘（出队 + decrRef 由调用方统一做，WAL 无内容删除安全）
             return
         }
         
@@ -705,12 +796,133 @@ public class Badger <: VLogGCDB {
             let table = Table(tableID, data)
             lc.addTable(0, TableAdapter(table))
         }
-        
-        // 落盘 + MANIFEST 成功后：数据已持久、L0 内存表可读 → 从 imm 出队释放
-        // （对齐 go flusher：db.imm = db.imm[1:]; mt.DecrRef()）。本函数全程持写锁，
-        // 与读路径互斥，remove 安全。
-        imm.remove(at: immIdx)
+    }
+    
+    // [应持写锁（或 open 恢复期单线程）] 出队：从 imm 按 fid 定位移除 + decrRef（删
+    // WAL——数据唯一持久副本已在盘上）+ 计数减一 + 唤醒水位等待者。
+    // 按 fid 定位而非假定队首：轮换入队与 flusher 处理顺序可解耦（并发 flushMemTable
+    // 与写路径轮换可能交错入队，但写锁保证 remove 与读遍历互斥）。
+    private func dequeueFlushed(mt: MemTable): Unit {
+        var idx = -1
+        for (i in 0..imm.size) {
+            if (imm[i].getFid() == mt.getFid()) {
+                idx = i
+                break
+            }
+        }
+        if (idx < 0) {
+            throw Exception("async flush: memtable fid=${mt.getFid()} not found in imm (double dequeue?)")
+        }
+        imm.remove(at: idx)
+        immCount.fetchSub(1)
         mt.decrRef()
+        // 完成标志必须在 decrRef（删 WAL）之后置位：等待方（flushMemTable）据此
+        // 认为"本表已持久可读且不再悬在内存"
+        mt.markFlushDone()
+        synchronized(flushCondMutex) {
+            flushCond.notifyAll()
+        }
+    }
+    
+    // 同步 flush 一张 imm 表（open 恢复期专用：flusher 未启动、无并发读写）。
+    // 语义与异步路径一致：persist → 出队。失败抛（open 中止，表保留 imm/WAL，
+    // 重开重放可重试——不留半落盘状态）。
+    private func flushMemTableSync(mt: MemTable): Unit {
+        persistMemTable(mt)
+        dequeueFlushed(mt)
+    }
+    
+    // 启动单 flusher 协程（open 末尾调用；close 中 join 停止）
+    private func startFlusher(): Unit {
+        let fut = spawn { flusherLoop() }
+        flusherFut = Some(fut)
+    }
+    
+    // flusher 主循环：串行取表处理（对齐 go flushMemtable 单 goroutine）。
+    // 循环存活条件 = running 或队列仍有表（close 后 drain 阶段继续工作）。
+    // 队列层系统级错误（Error）只记录不退出——一次 OOM 不能杀死 flusher，
+    // 否则写路径背压（flushQueue.add 阻塞）永久停顿 = 重演生产挂起事故
+    // （WritePipeline.loop 同款 Error 边界，b19a030）。
+    private func flusherLoop(): Unit {
+        while (running.load() || flushQueue.size() > 0) {
+            var table: ?MemTable = None
+            try {
+                table = flushQueue.remove()
+            } catch (e: Error) {
+                println("[badger] flusher queue system error: ${e.message}")
+                continue
+            }
+            if (let Some(mt) <- table) {
+                flushWithRetry(mt)
+            }
+        }
+    }
+    
+    // 单表落盘 + 出队，失败重试：
+    //   - Exception（磁盘/IO/编码）：running 中 sleep 1s 重试（表保留 imm/WAL 不丢，
+    //     对齐 go flushMemtable 的"error flushing memtable, retrying"）；close 中
+    //     （!running）放弃重试，表留给 close 锁内兜底 flush（失败由 close 上抛）。
+    //   - Error（OOM 等系统级）：不吞协程，同策略记录后重试/放弃——错误可见且链路存活。
+    private func flushWithRetry(mt: MemTable): Unit {
+        while (true) {
+            try {
+                persistMemTable(mt)
+                lock.writeLock.lock()
+                try {
+                    dequeueFlushed(mt)
+                } finally {
+                    lock.writeLock.unlock()
+                }
+                return
+            } catch (e: Exception) {
+                if (!running.load()) {
+                    println("[badger] flusher: abandon flush during close: ${e.message}")
+                    return
+                }
+                println("[badger] flusher: flush failed, retrying in 1s: ${e.message}")
+                sleep(Duration.second)
+            } catch (e: Error) {
+                if (!running.load()) {
+                    println("[badger] flusher: abandon flush during close (system error): ${e.message}")
+                    return
+                }
+                println("[badger] flusher: flush system error, retrying in 1s: ${e.message}")
+                sleep(Duration.second)
+            }
+        }
+    }
+    
+    // [锁外] 等待 flusher 腾出空间（immCount 降到 NumMemtables 之下）或 db 停止。
+    // 供写路径 / flushMemTable 在检测到背压后调用——必须在未持 db 写锁时执行。
+    private func waitForFlushRoom(): Unit {
+        synchronized(flushCondMutex) {
+            while (immCount.load() >= Int64(opt.NumMemtables) && running.load()) {
+                flushCond.wait()
+            }
+        }
+    }
+    
+    // [锁外] 等待特定 memtable 完成异步 flush（flushMemTable 同步语义）。
+    // flusher 串行 FIFO：本表完成 ⇒ 队列中更早的表已全部落盘。db 停止（close）时
+    // 退出（close 兜底 flush 保证数据仍落盘或上抛）。
+    private func waitMemTableFlushed(mt: MemTable): Unit {
+        synchronized(flushCondMutex) {
+            while (!mt.isFlushDone() && running.load()) {
+                flushCond.wait()
+            }
+        }
+    }
+    
+    // [锁外] 等待所有已轮换（入队）的 memtable 完成落盘出队；不动当前 mt。
+    // 供崩溃恢复类测试模拟「进程静止」（真实 kill -9 时 flusher 随进程终止，磁盘
+    // 状态即崩溃点状态，无需等待）——同进程不 close 直接重开前调用，避免后台
+    // flusher 仍在写盘/删 WAL 与第二个实例互踩目录。
+    internal func awaitFlusherIdle(): Unit {
+        synchronized(flushCondMutex) {
+            while (immCount.load() > 0 && running.load()) {
+                flushCond.wait()
+            }
+        }
     }
 
 // Collect requests and emit to pipeline
@@ -783,19 +995,51 @@ public class Badger <: VLogGCDB {
         return prepared
     }
     
-    // 阶段 2（锁内）：flush 检查 + mt.put。持写锁保证 mt.put 与 flush（imm 交换）
-    // 期间读锁互斥，避免读线程在 put/flush 中途读到不一致的 memtable 集合。
+    // 阶段 2：flush 检查 + mt.put。持写锁保证 mt.put 与 imm 轮换/出队期间与读路径
+    // （读锁遍历 imm）互斥；单条目的锁段极短（无磁盘 I/O），flush 构建/写盘已移出
+    // 写锁由 flusher 执行——写路径不再被 flush 的磁盘 I/O 整批阻塞。
     private func putPrepared(prepared: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
-        lock.writeLock.lock()
-        try {
-            for ((keyWithTs, vs) in prepared) {
-                // 条目级检查：单 req 可含大量条目（如批量物化），若只检查一次，
-                // arena 会在条目循环中耗尽而抛异常（对齐 badger-go ensureRoomForWrite 语义）
-                if (mt.shouldFlush()) { flushMemTableInternal() }
-                mt.put(keyWithTs, vs)
+        for ((keyWithTs, vs) in prepared) {
+            putOneWithFlush(keyWithTs, vs)
+        }
+    }
+    
+    // 单条目原子段（对齐 badger-go ensureRoomForWrite 语义的条目级版）：
+    //   - 条目级检查：单 req 可含大量条目（如批量物化），若只检查一次，arena 会在
+    //     条目循环中耗尽而抛异常；
+    //   - mt 满 → 写锁内轮换（imm.add + 新表，极短），轮换出的旧表锁外入 flushQueue；
+    //   - imm 深度已达 NumMemtables（背压）→ 释放写锁等 flusher 腾位后重试——
+    //     持写锁等待 flusher 即死锁（flusher 完成段需要写锁）。
+    private func putOneWithFlush(keyWithTs: Array<Byte>, vs: ValueStruct): Unit {
+        while (true) {
+            var rotated: ?MemTable = None
+            var needRoomWait = false
+            lock.writeLock.lock()
+            try {
+                if (mt.shouldFlush()) {
+                    if (immCount.load() >= Int64(opt.NumMemtables)) {
+                        needRoomWait = true
+                    } else {
+                        rotated = Some(rotateMemTableLocked())
+                    }
+                }
+                if (!needRoomWait) {
+                    mt.put(keyWithTs, vs)
+                }
+            } finally {
+                lock.writeLock.unlock()
             }
-        } finally {
-            lock.writeLock.unlock()
+            if (needRoomWait) {
+                // 背压：等 flusher 出队腾位（flusher 存活由 Error 边界保证，见
+                // flusherLoop）；等待期间读者不受影响（写锁已释放）
+                waitForFlushRoom()
+                continue
+            }
+            if (let Some(old) <- rotated) {
+                // 锁外入队：队列满则阻塞（flusher 腾位后返回），不持任何 db 锁
+                flushQueue.add(old)
+            }
+            return
         }
     }
     

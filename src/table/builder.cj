@@ -31,7 +31,11 @@ protected class TableBuilder {
     private let bloomFalsePositive: Float64
     private let compression: CompressionType
     private var currentBlock: BlockBuilder
-    private var buf: ArrayList<Byte>
+    // L1（单拷贝）：各 block 压缩完成后整块持有（零逐字节累积），finish() 一次拼接
+    // 为唯一一份连续数据——不再有 ArrayList<Byte> 全表累积 + toArray 第二份拷贝
+    private var blocks: ArrayList<Array<Byte>>
+    // 已落 blocks 的累计字节数（文件 on-disk 偏移/大小基准）
+    private var writtenSize: Int64
     private var blockOffsets: ArrayList<BlockOffset>
     private var keyHashes: ArrayList<UInt32>
     private var keyCount: UInt32
@@ -47,7 +51,8 @@ protected class TableBuilder {
         this.bloomFalsePositive = bloomFalsePositive
         this.compression = compression
         this.currentBlock = BlockBuilder(blockSize: blockSize)
-        this.buf = ArrayList<Byte>()
+        this.blocks = ArrayList<Array<Byte>>()
+        this.writtenSize = 0
         this.blockOffsets = ArrayList<BlockOffset>()
         this.keyHashes = ArrayList<UInt32>()
         this.keyCount = 0
@@ -103,7 +108,7 @@ protected class TableBuilder {
         }
         
         let blockData = currentBlock.finish()
-        let offset = UInt32(buf.size)
+        let offset = UInt32(writtenSize)
         
         // 压缩 Block
         let (finalData, compressionType) = compressBlock(blockData)
@@ -111,9 +116,9 @@ protected class TableBuilder {
         let blockOffset = BlockOffset(currentBlock.getBaseKey(), offset, UInt32(finalData.size), compression: compressionType)
         blockOffsets.add(blockOffset)
         
-        for (b in finalData) {
-            buf.add(b)
-        }
+        // L1：整块引用持有，零逐字节累积/扩容搬运
+        blocks.add(finalData)
+        writtenSize += Int64(finalData.size)
         
         compressedSize += UInt32(finalData.size)
         currentBlock.reset()
@@ -145,6 +150,12 @@ protected class TableBuilder {
     
     /**
      * 完成 SSTable 构建并返回字节数组
+     * 
+     * L1：一次分配最终缓冲，各 block/index 整块拷入并同步增量喂 CRC32C——
+     * 全表仅存在一份连续数据（供落盘 + 磁盘 Table 常驻引用），构建期不再有
+     * 「ArrayList 累积 + toArray 副本」的双份驻留。
+     * 
+     * 布局（与旧实现位级一致）：[Block 1..N][Index][Index Size 4B][CRC 4B][CRC Size 4B]
      */
     public func finish(): Array<Byte> {
         if (finished) {
@@ -154,34 +165,65 @@ protected class TableBuilder {
         finished = true
         finishBlock()
         
-        let indexData = buildTableIndex()
-        
-        for (b in indexData) {
-            buf.add(b)
+        if (keyCount == 0) {
+            // 空表无数据可落盘：返回空数组，调用方（flushToLevel 等）据此跳过
+            // 建表/落盘（行为修正：旧实现空表也会产出 index 头 → 落盘空 .sst）
+            return []
         }
         
+        let indexData = buildTableIndex()
         let indexSize = UInt32(indexData.size)
-        buf.add(UInt8(indexSize & 0xFF))
-        buf.add(UInt8((indexSize >> 8) & 0xFF))
-        buf.add(UInt8((indexSize >> 16) & 0xFF))
-        buf.add(UInt8((indexSize >> 24) & 0xFF))
         
-        let data = buf.toArray()
+        // 尾部 8B 追加：[crc 4B][crcSize 4B=4]，crc 覆盖 blocks+index+indexSize
+        let bodyLen = writtenSize + Int64(indexData.size) + 4
+        let out = Array<Byte>(bodyLen + 8, repeat: 0)
         let crc = CRC32C()
-        crc.write(data)
+        var off: Int64 = 0
+        
+        // 1) 全部 block
+        for (blk in blocks) {
+            copyInto(out, off, blk)
+            crc.write(blk)  // 增量喂原始块引用，零额外拷贝
+            off += blk.size
+        }
+        
+        // 2) index
+        copyInto(out, off, indexData)
+        crc.write(indexData)
+        off += Int64(indexData.size)
+        
+        // 3) indexSize 4B
+        for (k in 0..4) {
+            out[off + k] = UInt8((indexSize >> (k * 8)) & 0xFF)
+        }
+        let iszBytes = [UInt8(indexSize & 0xFF), UInt8((indexSize >> 8) & 0xFF),
+            UInt8((indexSize >> 16) & 0xFF), UInt8((indexSize >> 24) & 0xFF)]
+        crc.write(iszBytes)
+        off += 4
+        
+        // 4) checksum
         let checksum = crc.sum32()
+        for (k in 0..4) {
+            out[off + k] = UInt8((checksum >> (k * 8)) & 0xFF)
+        }
+        off += 4
         
-        buf.add(UInt8(checksum & 0xFF))
-        buf.add(UInt8((checksum >> 8) & 0xFF))
-        buf.add(UInt8((checksum >> 16) & 0xFF))
-        buf.add(UInt8((checksum >> 24) & 0xFF))
+        // 5) checksum size（固定 4 字节）
+        out[off] = 4
+        out[off + 1] = 0
+        out[off + 2] = 0
+        out[off + 3] = 0
         
-        buf.add(4)
-        buf.add(0)
-        buf.add(0)
-        buf.add(0)
-        
-        return buf.toArray()
+        return out
+    }
+    
+    // 逐字节块拷贝 helper（块级整体搬入最终缓冲）
+    private func copyInto(dst: Array<Byte>, dstOff: Int64, src: Array<Byte>): Unit {
+        var k: Int64 = 0
+        while (k < src.size) {
+            dst[dstOff + k] = src[k]
+            k++
+        }
     }
     
     /**
@@ -276,7 +318,7 @@ protected class TableBuilder {
         indexBuf.add(UInt8((uncompressedSize >> 16) & 0xFF))
         indexBuf.add(UInt8((uncompressedSize >> 24) & 0xFF))
         
-        let onDiskSize = UInt32(buf.size)
+        let onDiskSize = UInt32(writtenSize)
         indexBuf.add(UInt8(onDiskSize & 0xFF))
         indexBuf.add(UInt8((onDiskSize >> 8) & 0xFF))
         indexBuf.add(UInt8((onDiskSize >> 16) & 0xFF))
@@ -297,7 +339,7 @@ protected class TableBuilder {
     }
     
     public func size(): Int64 {
-        return buf.size + currentBlock.size()
+        return writtenSize + currentBlock.size()
     }
     
     public func getKeyCount(): UInt32 {

@@ -217,7 +217,9 @@ class TableIntegrationTest {
         let builder = TableBuilder(blockSize: 1024)
         let data = builder.finish()
         
-        @Assert(data.size >= 8, true)
+        // L1 行为修正（builder_l1_test 同步）：空表无数据 → finish 返回空数组，
+        // 调用方据此跳过建表/落盘（旧实现对空表产出 index 头 → 落盘空 .sst）
+        @Assert(data.size, 0)
         
         let table = Table(1, data)
         
