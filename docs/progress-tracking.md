@@ -43,6 +43,7 @@
 | VLog 读 mmap 化 | vlog 读取走映射（可选） | P2 | ⬜ |
 | 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | 🔶 |
 | 三平台 CI（macOS arm64） | GitHub Actions 全平台验证 | P1 | ⬜（设计已论证可行性） |
+| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
 
 ### v2.x（后续线，独立规划）
 

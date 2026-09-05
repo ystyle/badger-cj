@@ -238,4 +238,6 @@ io_uring 不再承担 WAL/vlog；v2.0 后 io_uring 仅作 Linux 下 SSTable 批�
 - `benchmark-report.md`（P1 优化项来源）
 - `docs/plans/2026-03-11-iouring-optimization-design.md`（io_uring 设计，职责对照）
 - `docs/progress-tracking.md`（路线图重构后）
+- `docs/plans/2026-09-05-sstable-read-on-demand.md`（SSTable 读按需化——表数据移出
+  GC 堆，与本文档共用 mmap-cj 基础设施，同属 v2.0）
 - go 版：`~/Projects/badger/memtable.go`（z.MmapFile）、`value.go`（vlog mmap）
