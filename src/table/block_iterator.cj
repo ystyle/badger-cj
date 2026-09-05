@@ -156,13 +156,24 @@ protected class BlockIterator {
             return
         }
         
-        currentKey = Array<Byte>(Int64(overlap) + Int64(diffLen), {i =>
-            if (i < Int64(overlap)) {
-                baseKey[i]
-            } else {
-                diffKey[i - Int64(overlap)]
-            }
-        })
+        // key 重建：Array(n, repeat) + 循环赋值，规避 {j=>} 闭包构造路径
+        // （cjc 对特定形状「参数化长度闭包构造数组」存在末元素取反的确定性错误代码
+        // 生成，见 docs/issue/2026-09-05-array-closure-ctor-last-byte-flip.md——
+        // 读路径 key 逐字节正确性不容依赖编译器未修复行为）
+        let totalLen = Int64(overlap) + Int64(diffLen)
+        let rebuilt = Array<Byte>(totalLen, repeat: 0)
+        var bi: Int64 = 0
+        while (bi < Int64(overlap)) {
+            rebuilt[bi] = baseKey[bi]
+            bi++
+        }
+        var di: Int64 = 0
+        while (di < Int64(diffLen)) {
+            rebuilt[bi] = diffKey[di]
+            bi++
+            di++
+        }
+        currentKey = rebuilt
         
         currentValue = parseValueStruct()
         valid = true

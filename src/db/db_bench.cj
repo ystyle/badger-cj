@@ -27,7 +27,7 @@ class DBBench {
         db = Badger.open(Config(dir: dbDir))
         
         key = dbBenchKey(0)
-        value = Array<Byte>(64, { _ => 65 })
+        value = Array<Byte>(64, repeat: 65)
         
         if (let Some(d) <- db) {
             d.update({ txn =>

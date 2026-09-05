@@ -113,6 +113,93 @@ class KeyValueLimitTest {
     // memtable 时（未 flush），通过事务迭代器（Iterator → MergeIterator →
     // MemTableIterator/LazySkipIterator）读回必须完整——此前 80141 被 & 0xFFFF
     // 截成 14605，materialize 报 "array length 14605, range [6, 80141)" 数组越界。
+    // 大 key 经磁盘表 block_iterator key 重建后逐字节完整（首/中/尾），双路径回归：
+    //   - cjc 对特定形状「参数化长度闭包构造数组」存在末元素取反的确定性错误代码生成
+    //     （docs/issue/2026-09-05-array-closure-ctor-last-byte-flip.md），block_iterator
+    //     的 key 重建原用 {j=>} 闭包构造，已改安全构造——本用例防该类缺陷波及读路径
+    //   - 内容用非重复模式使块内 diffLen 大（大 key 单条进块，diff≈key 全长）
+    @TestCase
+    func testLargeKeyReconstructedByteExact() {
+        let dir = "/tmp/badger_kvlimit_largekey_rebuild"
+        let db = newDb(dir)
+
+        let key1 = patternKey(30000, 7)
+        let key2 = patternKey(45000, 13)
+        let key3 = patternKey(60000, 29)
+        db.updateOrThrow({ txn =>
+            txn.set(key1, "v1".toArray())
+            txn.set(key2, "v2".toArray())
+            txn.set(key3, "v3".toArray())
+        })
+        db.flushMemTable()
+        db.close()
+
+        @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
+        let db2 = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64))
+
+        // 路径 1：迭代器遍历读回 key，逐字节比对（尾字节是编译器缺陷高发位）
+        let expected = ArrayList<Array<Byte>>()
+        expected.add(key1)
+        expected.add(key2)
+        expected.add(key3)
+        db2.view({ txn =>
+            let iter = txn.newIterator()
+            iter.rewind()
+            var seen = 0
+            while (iter.valid()) {
+                let gotKey = iter.item().keyCopy()
+                var matched = false
+                for (exp in expected) {
+                    if (bytesEqual(gotKey, exp)) {
+                        matched = true
+                        break
+                    }
+                }
+                if (!matched) {
+                    @Fail("iterated key mismatch (size=${gotKey.size})")
+                }
+                seen++
+                iter.next()
+            }
+            iter.close()
+            if (seen != expected.size) {
+                @Fail("iterated ${seen} keys, want ${expected.size}")
+            }
+        })
+
+        // 路径 2：get 逐个命中（走 seek + keysEqual）
+        if (db2.get(key1).isNone() || db2.get(key2).isNone() || db2.get(key3).isNone()) {
+            @Fail("large key get miss after reopen")
+        }
+        db2.close()
+        cleanupDir(dir)
+    }
+
+    // 大 key 数据构造：Array(n, repeat) + 循环赋值（规避 {j=>} 闭包构造的编译器缺陷路径）
+    private static func patternKey(len: Int64, seed: Int64): Array<Byte> {
+        let arr = Array<Byte>(len, repeat: 0)
+        var i: Int64 = 0
+        while (i < len) {
+            arr[i] = UInt8((i * seed + 3) % 256)
+            i++
+        }
+        arr
+    }
+
+    private static func bytesEqual(a: Array<Byte>, b: Array<Byte>): Bool {
+        if (a.size != b.size) {
+            return false
+        }
+        var i: Int64 = 0
+        while (i < a.size) {
+            if (a[i] != b[i]) {
+                return false
+            }
+            i++
+        }
+        true
+    }
+
     @TestCase
     func testValue100KBReadBackViaMemtableIterator() {
         let dir = "/tmp/badger_kvlimit_v100k_iter"

@@ -16,6 +16,17 @@ class BufferBench {
     // 防止编译器优化
     private static var sink: Array<Byte> = []
     
+    // 数据构造规避 {j=>} 闭包（编译器 bug 见 docs/issue/2026-09-05-array-closure-ctor-last-byte-flip.md）
+    private static func patternKey(len: Int64): Array<Byte> {
+        let arr = Array<Byte>(len, repeat: 0)
+        var i: Int64 = 0
+        while (i < len) {
+            arr[i] = UInt8(i % 256)
+            i++
+        }
+        arr
+    }
+    
     @Bench
     func benchArrayListAddAll() {
         for (_ in 0..BufferBench.iterations) {
@@ -50,7 +61,7 @@ class BufferBench {
             // for (i in 0..BufferBench.keySize) {
             //    result.add(UInt8(i % 256))
             // }
-            let key = Array<Byte>(BufferBench.keySize, {i => UInt8(i % 256)})
+            let key = BufferBench.patternKey(BufferBench.keySize)
             result.add(all: key)
 
             
@@ -100,7 +111,7 @@ class BufferBench {
             let buf = ByteBuffer(BufferBench.keySize + 8)
             
             // 写入 key
-            let key = Array<Byte>(BufferBench.keySize, {i => UInt8(i % 256)})
+            let key = BufferBench.patternKey(BufferBench.keySize)
             buf.write(key)
             
             // 写入 8 字节时间戳
@@ -124,14 +135,15 @@ class BufferBench {
             let buf = ByteBuffer(BufferBench.keySize + 8)
             
             // 写入 key
-            let key = Array<Byte>(BufferBench.keySize, {i => UInt8(i % 256)})
+            let key = BufferBench.patternKey(BufferBench.keySize)
             buf.write(key)
             
             // 写入 8 字节时间戳（一次性写入）
             let invTs = 0xFFFFFFFFFFFFFFFFu64 ^ BufferBench.ts
-            let tsBytes = Array<Byte>(8, {i => 
-                UInt8((invTs >> UInt64(56 - i * 8)) & 0xFF)
-            })
+            let tsBytes = Array<Byte>(8, repeat: 0)
+            for (i in 0..8) {
+                tsBytes[i] = UInt8((invTs >> UInt64(56 - i * 8)) & 0xFF)
+            }
             buf.write(tsBytes)
             
             BufferBench.sink = buf.bytes()
