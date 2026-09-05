@@ -58,8 +58,45 @@ for (L in lengths) {
 - **workaround 建议**：数据构造统一走「`Array(n, repeat: 0)` + 循环赋值」或
   ArrayList → toArray，规避闭包构造路径。
 
-## 最小化上报素材
+## 最小化上报素材（已单文件 cjc 直编译复现）
 
-待整理为单文件（main + content + for 循环 + 尾字节断言）提交编译器团队；
-复现依赖「函数调用 + 数组迭代传参 + 大 L」组合，建议编译器侧从闭包构造的
-长度下界/闭包调用边界代码生成入手。
+`cjc -O2 -o repro repro_min2.cj && ./repro`（-O0 同样复现，4/4 翻转）：
+
+```cangjie
+import std.collection.*
+
+class Probe {
+    static func content(L: Int64): Array<Byte> {
+        Array<Byte>(L, {j => UInt8((j * 7 + 3) % 256)})
+    }
+
+    func testLengths(): Int64 {
+        var fails: Int64 = 0
+        let lengths = [30000, 30001, 30357, 65536]
+        for (L in lengths) {
+            let direct = content(L)
+            let copy = direct[0..direct.size]
+            copy[copy.size - 1] = UInt8(copy[copy.size - 1] ^ 0xFF)
+            let wantLast = UInt8(((L - 1) * 7 + 3) % 256)
+            if (copy[copy.size - 1] != wantLast) {
+                fails++
+                println("[FAIL] L=${L} got=${direct[direct.size - 1]} want=${wantLast}")
+            }
+        }
+        fails
+    }
+}
+
+main(): Int64 {
+    let fails = Probe().testLengths()
+    if (fails == 0) {
+        println("[PASS]")
+    } else {
+        println("[SUMMARY] ${fails} flipped")
+    }
+    fails
+}
+```
+
+输出：`[FAIL] L=30000 got=179 want=76` 等（got = want ^ 0xFF，其余字节全部正确）。
+2026-09-05 已上报 Cangjie/UsersForum issue。
