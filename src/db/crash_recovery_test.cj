@@ -89,14 +89,24 @@ class CrashRecoveryTest {
         
         let finalCount = writeCount.load()
         var found = 0
+        var missDesc = ""
+        var missCnt: Int64 = 0
         for (i in 0..finalCount) {
             if (db2.get("key${i}".toArray()).isSome()) {
                 found++
+            } else {
+                missCnt++
+                if (missCnt <= 10) {
+                    missDesc += " k${i}"
+                }
             }
         }
+        println("[ccdiag] final=${finalCount} found=${found} miss=${missCnt} tail=${if (missCnt > 0 && found > 0) { "firstMiss=${finalCount - found}" } else { "-" }} missKeys:${missDesc}")
         
         // 语义：凡成功返回（updateOrThrow 未抛错并计数）的写入，close 后必须全部可恢复——
         // 不允许任何"成功写入却在重启后丢失"（此前 >0 的宽容判据会掩盖该类缺陷）
+        db2.close()
+        cleanupDir(dir)
         @Assert(found, finalCount)
         
         db2.close()

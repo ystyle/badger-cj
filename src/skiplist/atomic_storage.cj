@@ -19,8 +19,22 @@ class Segment {
     // 注意：不能使用 repeat: AtomicUInt64(0)，因为 AtomicUInt64/AtomicUInt32 是引用类型
     // repeat 会创建值拷贝，导致所有元素共享同一个原子对象，造成并发问题
     public init() {
-        this.values = Array<AtomicUInt64>(SEGMENT_SIZE, { _ => AtomicUInt64(0) })
-        this.towers = Array<AtomicUInt32>(SEGMENT_SIZE * MAX_HEIGHT, { _ => AtomicUInt32(0) })
+        // repeat 占位 + 逐个覆盖为新对象：既避免 repeat 共享同一原子对象（并发错），
+        // 又规避 {j=>} 闭包构造（cjc 缺陷见 docs/issue/2026-09-05-array-closure-ctor-last-byte-flip.md）
+        var vs = Array<AtomicUInt64>(SEGMENT_SIZE, repeat: AtomicUInt64(0))
+        var i: Int64 = 0
+        while (i < SEGMENT_SIZE) {
+            vs[i] = AtomicUInt64(0)
+            i++
+        }
+        this.values = vs
+        var tw = Array<AtomicUInt32>(SEGMENT_SIZE * MAX_HEIGHT, repeat: AtomicUInt32(0))
+        var j: Int64 = 0
+        while (j < SEGMENT_SIZE * MAX_HEIGHT) {
+            tw[j] = AtomicUInt32(0)
+            j++
+        }
+        this.towers = tw
     }
 }
 

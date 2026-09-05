@@ -45,13 +45,19 @@ protected class BlockIterator {
             return
         }
         
-        this.entryOffsets = Array<UInt32>(Int64(numEntries), {i =>
-            let pos = entryOffsetsStart + Int64(i) * 4
-            UInt32(data[pos]) |
-            (UInt32(data[pos + 1]) << 8) |
-            (UInt32(data[pos + 2]) << 16) |
-            (UInt32(data[pos + 3]) << 24)
-        })
+        // 占位 + 循环赋值，规避 {j=>} 闭包构造（cjc 缺陷见
+        // docs/issue/2026-09-05-array-closure-ctor-last-byte-flip.md）
+        var offsets = Array<UInt32>(Int64(numEntries), repeat: 0)
+        var oi: Int64 = 0
+        while (oi < Int64(numEntries)) {
+            let pos = entryOffsetsStart + oi * 4
+            offsets[oi] = UInt32(data[pos]) |
+                (UInt32(data[pos + 1]) << 8) |
+                (UInt32(data[pos + 2]) << 16) |
+                (UInt32(data[pos + 3]) << 24)
+            oi++
+        }
+        this.entryOffsets = offsets
     }
     
     public func seekToFirst(): Unit {

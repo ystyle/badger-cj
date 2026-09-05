@@ -22,7 +22,7 @@ protected class BloomFilter {
     public init(bitsPerKey!: Int64 = 10) {
         this.numHashes = BloomFilter.calcNumHashes(bitsPerKey)
         this.numBits = 64
-        this.bits = ArrayList<Byte>(8, { _ => 0 })
+        this.bits = zeroBits(8)
     }
     
     public init(numKeys!: Int64, bitsPerKey!: Int64 = 10) {
@@ -34,9 +34,21 @@ protected class BloomFilter {
         }
         let nBytes = (nBits + 7) / 8
         this.numBits = nBytes * 8
-        this.bits = ArrayList<Byte>(nBytes, { _ => 0 })
+        this.bits = zeroBits(nBytes)
     }
     
+    // 全 0 bits 构造：规避闭包构造（cjc 缺陷见
+    // docs/issue/2026-09-05-array-closure-ctor-last-byte-flip.md）
+    private static func zeroBits(n: Int64): ArrayList<Byte> {
+        let list = ArrayList<Byte>()
+        var i: Int64 = 0
+        while (i < n) {
+            list.add(0)
+            i++
+        }
+        list
+    }
+
     public init(data: Array<Byte>) {
         this.bits = ArrayList<Byte>()
         for (b in data) {
