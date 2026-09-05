@@ -636,7 +636,8 @@ public class Badger <: VLogGCDB {
                     // 背压：imm 已满，锁外等待（不能持写锁等 flusher——死锁）
                     needRoom = true
                 } else {
-                    oldOpt = Some(rotateMemTableLocked())
+                    // 轮换 + 入队同锁段原子（见 rotateAndEnqueueLocked）
+                    oldOpt = Some(rotateAndEnqueueLocked())
                 }
             } finally {
                 lock.writeLock.unlock()
@@ -651,7 +652,6 @@ public class Badger <: VLogGCDB {
                 continue
             }
             let old = oldOpt.getOrThrow()
-            flushQueue.add(old)
             waitMemTableFlushed(old)
             return
         }
@@ -735,20 +735,28 @@ public class Badger <: VLogGCDB {
     //      「已从 imm 摘除但新表不可读」的窗口；
     //   ③ 持 db 写锁期间绝不等待 flusher（flusher 完成段需要写锁，持锁等待即死锁）；
     //      背压/水位等待一律先释放写锁。
-    // 运行期结构：写路径 / flushMemTable() 在写锁内只做轮换（rotateMemTableLocked），
-    // 轮换出的表锁外入 flushQueue → 单 flusher 协程锁外 persistMemTable（构建 +
+    // 运行期结构：写路径 / flushMemTable() 在写锁内做「轮换 + 入队」（rotateAndEnqueue
+    // Locked，两动作同锁段原子）→ 单 flusher 协程锁外 persistMemTable（构建 +
     // 写盘 + MANIFEST + 挂内存 L0）→ 完成后回写锁内 dequeueFlushed 出队释放。
     // 失败语义（对齐 go handleMemTableFlush 无限重试）：表保留 imm/WAL，重试不丢数据；
     // close 中放弃重试，由 close 锁内兜底 flush（失败上抛 = 旧 close 语义）。
     
-    // [写锁内] 轮换：当前 mt → imm 尾，新建空 mt（reserve 新 fid/WAL）；返回被轮换表
-    // （调用方负责在锁外将其入 flushQueue）。
-    private func rotateMemTableLocked(): MemTable {
+    // [写锁内] 轮换 + 入队（原子）：当前 mt → imm 尾并新建空 mt（reserve 新 fid/WAL），
+    // 被轮换表在**同一锁段内**入 flushQueue。原子性的必要性：
+    //   ① 消除「rotate 后、入队前异常（OOM/写失败等 Error）中断」窗口——否则表滞留
+    //      imm 永不入队 = 已成功写入的数据无人落盘（并发 close 测试在高负载 -j8 下
+    //      复现的整批丢失，根因即此）；
+    //   ② 锁内 add 不会阻塞：rotate 前调用方已检查 immCount < NumMemtables，而队列
+    //      元素数 ≤ immCount - flusher 手中表数 < 容量——数学上必有空位；即便个别
+    //      时刻队列满，flusher 的 remove 不依赖 db 写锁，腾位后 add 返回，无死锁。
+    // 返回被轮换表（供调用方等待其完成标志）。
+    private func rotateAndEnqueueLocked(): MemTable {
         let old = mt
         imm.add(old)
         immCount.fetchAdd(1)
         let fid = Int64(reserveFileID())
         mt = MemTable(opt, fid, false)
+        flushQueue.add(old)
         old
     }
     
@@ -1007,12 +1015,13 @@ public class Badger <: VLogGCDB {
     // 单条目原子段（对齐 badger-go ensureRoomForWrite 语义的条目级版）：
     //   - 条目级检查：单 req 可含大量条目（如批量物化），若只检查一次，arena 会在
     //     条目循环中耗尽而抛异常；
-    //   - mt 满 → 写锁内轮换（imm.add + 新表，极短），轮换出的旧表锁外入 flushQueue；
+    //   - mt 满 → 写锁内「轮换 + 入队」原子完成（rotateAndEnqueueLocked）——即便
+    //     随后本条 put 抛异常（OOM 等 Error），旧表已入队，其数据必被 flusher 落盘
+    //     （不丢已成功写入的数据；本条失败由 runBatch markFailed 上报）；
     //   - imm 深度已达 NumMemtables（背压）→ 释放写锁等 flusher 腾位后重试——
     //     持写锁等待 flusher 即死锁（flusher 完成段需要写锁）。
     private func putOneWithFlush(keyWithTs: Array<Byte>, vs: ValueStruct): Unit {
         while (true) {
-            var rotated: ?MemTable = None
             var needRoomWait = false
             lock.writeLock.lock()
             try {
@@ -1020,7 +1029,7 @@ public class Badger <: VLogGCDB {
                     if (immCount.load() >= Int64(opt.NumMemtables)) {
                         needRoomWait = true
                     } else {
-                        rotated = Some(rotateMemTableLocked())
+                        rotateAndEnqueueLocked()
                     }
                 }
                 if (!needRoomWait) {
@@ -1034,10 +1043,6 @@ public class Badger <: VLogGCDB {
                 // flusherLoop）；等待期间读者不受影响（写锁已释放）
                 waitForFlushRoom()
                 continue
-            }
-            if (let Some(old) <- rotated) {
-                // 锁外入队：队列满则阻塞（flusher 腾位后返回），不持任何 db 锁
-                flushQueue.add(old)
             }
             return
         }

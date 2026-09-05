@@ -60,20 +60,20 @@ class AsyncFlusherTest {
     // —— 背压 + 数据完整性：小 memtable + 极小 NumMemtables=2，多轮写远超队列深度 ——
     @TestCase
     func testBackpressureKeepsDataIntact() {
-        valRoundtrip("badger_async_flush_backpressure", 256 * 1024u64, 2, 10, true)
-        valRoundtrip("badger_async_flush_backpressure_sync", 256 * 1024u64, 2, 10, false)
+        valRoundtrip("badger_async_flush_backpressure", 128 * 1024u64, 2, 12, true)
+        valRoundtrip("badger_async_flush_backpressure_sync", 128 * 1024u64, 2, 12, false)
     }
 
     // —— 排队中直接 close（不调用 flushMemTable）：close 兜底全量落盘，重开全找回 ——
     @TestCase
     func testCloseWithPendingFlushesNoLoss() {
-        valRoundtrip("badger_async_flush_close_pending", 256 * 1024u64, 3, 12, true)
+        valRoundtrip("badger_async_flush_close_pending", 128 * 1024u64, 3, 14, true)
     }
 
     // —— InMemory 模式走同一 flush 链：背压不丢数据 ——
     @TestCase
     func testInMemoryMultiRoundFlush() {
-        valRoundtripInMemory("badger_async_flush_inmemory", 256 * 1024u64, 2, 10)
+        valRoundtripInMemory("badger_async_flush_inmemory", 128 * 1024u64, 2, 12)
     }
 
     // —— 写路径触发 flush 期间并发读者：不悬挂、不抛错、最终一致 ——
@@ -159,7 +159,7 @@ class AsyncFlusherTest {
     // —— 背压直接观测：immCount（在途 memtable）峰值不超过 NumMemtables ——
     @TestCase
     func testImmDepthCappedByNumMemtables() {
-        let opt = Config(dir: "", inMemory: true, memTableSize: 128 * 1024u64, numMemtables: 2)
+        let opt = Config(dir: "", inMemory: true, memTableSize: 64 * 1024u64, numMemtables: 2)
         let db = Badger.open(opt)
 
         let peak = AtomicInt64(0)
@@ -179,11 +179,12 @@ class AsyncFlusherTest {
             }
         }
 
-        // 触发远超队列深度的轮换（每批 ~1.2MB / 128KB memtable ≈ 9 张表）
+        // 触发远超队列深度的轮换（每批 ~200KB / 64KB memtable ≈ 3 张表；总量 6MB，
+        // 保持背压多次打满的同时控制 InMemory L0 常驻内存）
         for (round in 0..30) {
             let entries = ArrayList<Entry>()
-            for (i in 0..60) {
-                entries.add(Entry("r${round}_k${i}".toArray(), Array<Byte>(20000, repeat: UInt8(i))))
+            for (i in 0..20) {
+                entries.add(Entry("r${round}_k${i}".toArray(), Array<Byte>(10000, repeat: UInt8(i))))
             }
             db.batchSet(entries)
         }
@@ -195,14 +196,27 @@ class AsyncFlusherTest {
         @Assert(peak.load() <= 2, true)
 
         var found: Int64 = 0
+        var missRounds = ""
+        var missFirst = -1
+        var missLast = -1
         for (round in 0..30) {
-            for (i in 0..60) {
+            var inRound = 0
+            for (i in 0..20) {
                 if (db.get("r${round}_k${i}".toArray()).isSome()) {
                     found++
+                    inRound++
                 }
             }
+            if (inRound < 20) {
+                missRounds += " r${round}=${inRound}/20"
+                if (missFirst < 0) {
+                    missFirst = round
+                }
+                missLast = round
+            }
         }
-        @Assert(found, 30 * 60)
+        println("[async] immCount peak=${peak.load()} found=${found} missRounds:${missRounds} first=${missFirst} last=${missLast} immNow=${db.getImmCount()}")
+        @Assert(found, 30 * 20)
         db.close()
     }
 
@@ -240,12 +254,12 @@ private func valRoundtrip(dirBase: String, memTableSize: UInt64, numMemtables: I
         numLevelZeroTables: 1000, useIoUring: useIoUring)
     let db = Badger.open(opt)
 
-    let perRound = 60  // 60 × 20KB = 1.2MB/轮
+    let perRound = 40  // 40 × 10KB = 400KB/轮（高频轮换：128KB memtable 每轮 ~3 次 rotate）
     for (round in 0..rounds) {
         let entries = ArrayList<Entry>()
         for (i in 0..perRound) {
             let key = "r${round}_k${i}".toArray()
-            let value = Array<Byte>(20000, repeat: UInt8((round + i) % 256))
+            let value = Array<Byte>(10000, repeat: UInt8((round + i) % 256))
             entries.add(Entry(key, value))
         }
         db.batchSet(entries)
@@ -284,11 +298,11 @@ private func valRoundtripInMemory(dirBase: String, memTableSize: UInt64, numMemt
     let opt = Config(dir: "", inMemory: true, memTableSize: memTableSize, numMemtables: numMemtables)
     let db = Badger.open(opt)
 
-    let perRound = 60
+    let perRound = 40
     for (round in 0..rounds) {
         let entries = ArrayList<Entry>()
         for (i in 0..perRound) {
-            entries.add(Entry("r${round}_k${i}".toArray(), Array<Byte>(20000, repeat: UInt8(i))))
+            entries.add(Entry("r${round}_k${i}".toArray(), Array<Byte>(10000, repeat: UInt8(i))))
         }
         db.batchSet(entries)
     }
