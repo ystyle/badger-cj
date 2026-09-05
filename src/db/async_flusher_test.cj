@@ -48,12 +48,12 @@ class AsyncFlusherTest {
         }
         println("[async] flushMemTable sync: keys=${found}/${rounds * 40} sst=${testCountFilesWithSuffix(dir, ".sst")} " +
             "imm=${db.getImmCount()}")
+        // 同步语义：flushMemTable 返回后 imm 中无在途表（全部出队落盘）
+        let immAfter = db.getImmCount()
+        db.close()
         @Assert(found, rounds * 40)
         @Assert(testCountFilesWithSuffix(dir, ".sst") > 0, true)
-        // 同步语义：flushMemTable 返回后 imm 中无在途表（全部出队落盘）
-        @Assert(db.getImmCount(), 0)
-
-        db.close()
+        @Assert(immAfter, 0)
         cleanupDir(dir)
     }
 
@@ -139,7 +139,6 @@ class AsyncFlusherTest {
 
         wf.get()
         rf.get()
-        @Assert(writeErr.load(), false)
 
         // 最终一致：全部 key 可读且值正确
         var found: Int64 = 0
@@ -151,9 +150,9 @@ class AsyncFlusherTest {
             }
         }
         println("[async] final consistent keys=${found}/${totalKeys}")
-        @Assert(found, totalKeys)
-
         db.close()
+        @Assert(found, totalKeys)
+        @Assert(writeErr.load(), false)
     }
 
     // —— 背压直接观测：immCount（在途 memtable）峰值不超过 NumMemtables ——
@@ -193,7 +192,6 @@ class AsyncFlusherTest {
         monitor.get()
 
         println("[async] immCount peak=${peak.load()} (NumMemtables=2)")
-        @Assert(peak.load() <= 2, true)
 
         var found: Int64 = 0
         var missRounds = ""
@@ -216,8 +214,9 @@ class AsyncFlusherTest {
             }
         }
         println("[async] immCount peak=${peak.load()} found=${found} missRounds:${missRounds} first=${missFirst} last=${missLast} immNow=${db.getImmCount()}")
-        @Assert(found, 30 * 20)
         db.close()
+        @Assert(found, 30 * 20)
+        @Assert(peak.load() <= 2, true)
     }
 
     // —— 空表 flushMemTable 为无操作（不轮换、不产生表文件）——
@@ -287,8 +286,9 @@ private func valRoundtrip(dirBase: String, memTableSize: UInt64, numMemtables: I
         }
     }
     println("[async] ${dirBase} reopen: keys=${found}/${rounds * perRound}")
-    @Assert(found, rounds * perRound)
     db2.close()
+    // 断言放 close 后：失败不泄漏 db（避免连锁 OOM 污染后续用例）
+    @Assert(found, rounds * perRound)
     cleanupDir(dir)
 }
 
@@ -318,8 +318,8 @@ private func valRoundtripInMemory(dirBase: String, memTableSize: UInt64, numMemt
         }
     }
     println("[async] ${dirBase} inmemory: keys=${found}/${rounds * perRound} l0=${db.levels()[0].NumTables}")
-    @Assert(found, rounds * perRound)
     db.close()
+    @Assert(found, rounds * perRound)
 }
 
 // cleanupDir / testCountFilesWithSuffix 复用 test_helpers.cj 的公共版本

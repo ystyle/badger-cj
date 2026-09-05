@@ -742,20 +742,27 @@ public class Badger <: VLogGCDB {
     // close 中放弃重试，由 close 锁内兜底 flush（失败上抛 = 旧 close 语义）。
     
     // [写锁内] 轮换 + 入队（原子）：当前 mt → imm 尾并新建空 mt（reserve 新 fid/WAL），
-    // 被轮换表在**同一锁段内**入 flushQueue。原子性的必要性：
-    //   ① 消除「rotate 后、入队前异常（OOM/写失败等 Error）中断」窗口——否则表滞留
-    //      imm 永不入队 = 已成功写入的数据无人落盘（并发 close 测试在高负载 -j8 下
-    //      复现的整批丢失，根因即此）；
-    //   ② 锁内 add 不会阻塞：rotate 前调用方已检查 immCount < NumMemtables，而队列
+    // 被轮换表在**同一锁段内**入 flushQueue。
+    // 原子性与异常安全的关键：
+    //   ① 所有可能抛错的步骤（reserve + 新 MemTable 构造：arena 2×memTableSize 分配、
+    //      WAL 建文件）**先于任何状态变更**执行——OOM/IO 失败时本函数零变更，调用方
+    //      （写路径）下一轮自然重试 rotate，无孤儿表；
+    //   ② 状态变更序列（imm.add + immCount++ + mt 切换 + 入队）不再含大分配——消除
+    //      「表已入 imm 却未入队」的滞留窗口（高负载 OOM 下复现的整批数据丢失根因，
+    //      修复前 rotate 与入队两段式 + 新表构造夹在中间均产生过该窗口）；
+    //   ③ 锁内 add 不会阻塞：rotate 前调用方已检查 immCount < NumMemtables，而队列
     //      元素数 ≤ immCount - flusher 手中表数 < 容量——数学上必有空位；即便个别
     //      时刻队列满，flusher 的 remove 不依赖 db 写锁，腾位后 add 返回，无死锁。
     // 返回被轮换表（供调用方等待其完成标志）。
     private func rotateAndEnqueueLocked(): MemTable {
+        // 阶段 1（可抛）：新表构造完成前不触碰任何共享状态
+        let fid = Int64(reserveFileID())
+        let newMt = MemTable(opt, fid, false)
+        // 阶段 2（不可抛的引用移动 + 入队）：同锁段原子完成
         let old = mt
         imm.add(old)
         immCount.fetchAdd(1)
-        let fid = Int64(reserveFileID())
-        mt = MemTable(opt, fid, false)
+        mt = newMt
         flushQueue.add(old)
         old
     }
@@ -1101,10 +1108,14 @@ public class Badger <: VLogGCDB {
                 // 单轮 compaction 失败（写盘/IO 错）不杀死 compactor 协程：
                 // 记录后继续下一轮（对齐 badger-go compactor 错误容忍语义），
                 // 否则一次磁盘错误 = compaction 永久停止 = L0 无限堆积。
+                // 系统级 Error（OOM 等）同策略（与 flusherLoop/WritePipeline.loop
+                // 同款存活性边界）：compactor 死亡 = L0 永不压缩 = 内存/磁盘无限堆积。
                 try {
                     compaction.runCompaction()
                 } catch (e: Exception) {
                     println("[badger] compaction error: ${e.message}")
+                } catch (e: Error) {
+                    println("[badger] compaction system error: ${e.message}")
                 }
                 
                 gcCounter++
