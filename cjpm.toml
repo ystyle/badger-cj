@@ -54,8 +54,8 @@ output-type = "executable"
 compile-option = "--static -O2 -Woff unused"
 
 [dependencies]
-"snappy" = "1.0.1"
-"ystyle::crc" = "1.0.0"
+"snappy" = "1.0.2"
+"ystyle::crc" = "1.0.1"
 
 # Linux 平台特定配置 - 链接 liburing
 [target.x86_64-unknown-linux-gnu]

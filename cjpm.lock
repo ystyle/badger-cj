@@ -1,5 +1,5 @@
 version = 0
 
 [requires]
-  "ystyle::crc" = {version = "1.0.0"}
-  snappy = {version = "1.0.1"}
+  "ystyle::crc" = {version = "1.0.1"}
+  snappy = {version = "1.0.2"}
