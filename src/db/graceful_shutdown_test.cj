@@ -165,4 +165,56 @@ class GracefulShutdownTest {
         @Assert(lastRun.load() == 2, true)
         cleanup()
     }
+    // 宿主钩子抛异常**不能**吃掉落盘。
+    //
+    // 实测背景（cjreg）：它的关闭钩子做 cjxtApp.stop()（停 HTTP/WS 时会抛
+    // SocketException）。runShutdownHooks() 逐钩子裸调、无 try/catch →
+    // 异常从 shutdownLoop 逃出去 → 后面的 close()（flush 全部 memtable）**根本没跑**
+    // → 容器等不到落盘被 SIGKILL → 最近写入全丢（删掉的上游/计划复活、刚发布的记录回退）。
+    @TestCase
+    func testThrowingShutdownHookStillFlushes(): Unit {
+        let dir = DIR + "_throwing_hook"
+        let path = Path(dir)
+        if (exists(path)) {
+            remove(path, recursive: true)
+        }
+        // 第一段：写入 → 注册"会抛异常"的钩子 → 发 SIGTERM → 等关闭
+        let db = Badger.open(Config(dir: dir, memTableSize: 64 * 1024u64))
+        let ok = db.update({ t => t.set("k".toArray(), "v".toArray()) })
+        @Assert(ok.isSuccess(), true)
+        let hookRan = Box<Bool>(false)
+        let _ = db.registerShutdownHook({ =>
+            hookRan.value = true
+            throw Exception("host hook failed")
+        })
+        db.registerSignalShutdown(exitAfterClose: false)
+        spawn {
+            sleep(Duration.millisecond * 200)
+            let _ = kill(Int32(getProcessId()), 15)
+        }
+        // 等 close（钩子抛异常时旧实现会永远等不到 → 这条断言就是回归点）
+        var closed = false
+        var attempts = 0
+        while (attempts < 100 && !closed) {
+            if (db.isClosed()) {
+                closed = true
+            } else {
+                sleep(Duration.millisecond * 50)
+                attempts += 1
+            }
+        }
+        @Assert(hookRan.value, true)
+        @Assert(closed, true)
+
+        // 第二段：重开数据库，写入的数据必须还在（证明 flush 真的跑了）
+        sleep(Duration.millisecond * 300)
+        let db2 = Badger.open(Config(dir: dir, memTableSize: 64 * 1024u64))
+        let got = db2.get("k".toArray())
+        @Assert(got.isSome(), true)
+        db2.close()
+        if (exists(path)) {
+            remove(path, recursive: true)
+        }
+    }
+
 }

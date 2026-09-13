@@ -365,8 +365,17 @@ public class Badger <: VLogGCDB {
         } finally {
             shutdownHooksLock.unlock()
         }
+        // 逐个隔离：**宿主钩子抛异常绝不能吃掉落盘**。
+        // 实测（cjreg）：它的钩子做 cjxtApp.stop()（停 HTTP/WS 时抛 SocketException），
+        // 旧实现让异常从 shutdownLoop 逃出去 → 下面的 close()（flush 全部 memtable）
+        // 根本没跑 → 容器等不到落盘被 SIGKILL → 最近写入全丢。
+        // 钩子只是"顺手收尾"，失败也不能影响本库最关键的落盘动作。
         for (h in hooks) {
-            h()
+            try {
+                h()
+            } catch (e: Exception) {
+                println("[badger] shutdown hook failed (ignored, close/flush continues): " + e.toString())
+            }
         }
     }
     
