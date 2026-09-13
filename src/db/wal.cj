@@ -110,6 +110,9 @@ public class WAL {
                     entries.add(entry)
                     offset += entrySize
                 } catch (e: Exception) {
+                    // 解码失败按 WAL 尾部截断处理：不再解析剩余字节（语义不变），
+                    // 但必须留痕——否则被丢掉的这段写记录在恢复后毫无痕迹。
+                    println("[badger] WAL decode failed at offset ${offset}/${fileLength}, truncating rest of WAL: " + e.toString())
                     break
                 }
             }
@@ -144,7 +147,10 @@ public class WAL {
                         try {
                             mt.put(key, cleanVs)
                         } catch (e: Exception) {
+                            // 整事务丢弃是刻意的原子性选择（失败事务不许部分复活），
+                            // 但"失败必报"：不打印则这次数据丢失在恢复期完全不可见。
                             txnFailed = true
+                            println("[badger] WAL replay: txn put failed, dropping whole txn (ts=${txnTs}): " + e.toString())
                         }
                     }
                 }
@@ -171,6 +177,8 @@ public class WAL {
                     mt.put(entry.key, vs)
                 } catch (e: Exception) {
                     // 单条坏数据（超限/容器满）跳过，其余继续恢复
+                    // （跳过语义不变，但必须留痕：否则这条数据静默丢失，事后无法归因）
+                    println("[badger] WAL replay: skip bad entry (keyLen=${entry.key.size}): " + e.toString())
                 }
             }
         }

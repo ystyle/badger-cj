@@ -94,7 +94,9 @@ protected class DiscardStats {
                 i += 16
             }
         } catch (e: Exception) {
-            // Ignore errors
+            // 读取失败不阻塞启动（保留容错语义），但必须可见：
+            // discard stats 丢失会让 VLog GC 的丢弃率判断失真。
+            println("[badger] discard stats load failed (${filePath}): " + e.toString())
         }
     }
     
@@ -111,7 +113,9 @@ protected class DiscardStats {
             }
             File.writeTo(filePath, data.toArray())
         } catch (e: Exception) {
-            // Ignore errors
+            // 写失败不上抛（保留容错语义），但必须可见：
+            // 静默写失败 = 下次启动 discard stats 回退，VLog GC 行为无痕改变。
+            println("[badger] discard stats flush failed (${filePath}): " + e.toString())
         }
     }
     
