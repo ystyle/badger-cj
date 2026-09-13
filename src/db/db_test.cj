@@ -40,6 +40,42 @@ class DBTest {
         cleanupDir("/tmp/badger_db_test2")
     }
     
+    // 删除必须跨"重开"持久：set → delete → close → reopen → get/scan 都不能再看到它。
+    //
+    // 为什么单独立这条：实测（cjreg 生产）"删掉的上游在容器重建后又出现"，而同进程内
+    // 删除是立刻生效的 —— 典型症状就是"删除只改了内存、没落到盘上（或重开时被旧数据盖回来）"。
+    // 原 testDBDelete 只验证同进程内 get 为 None，覆盖不到重开路径。
+    @TestCase
+    func testDeletePersistsAcrossReopen() {
+        let dir = "/tmp/badger_delete_reopen_test"
+        let path = Path(dir)
+        if (exists(path)) {
+            remove(path, recursive: true)
+        }
+        let db = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64))
+        db.updateOrThrow({ txn => txn.set("keep".toArray(), "v1".toArray()) })
+        db.updateOrThrow({ txn => txn.set("gone".toArray(), "v2".toArray()) })
+        db.updateOrThrow({ txn => txn.delete("gone".toArray()) })
+        @Assert(db.get("gone".toArray()).isNone(), true)
+        db.close()
+
+        let db2 = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64))
+        @Assert(db2.get("keep".toArray()).isSome(), true)
+        @Assert(db2.get("gone".toArray()).isNone(), true)
+        // 扫描（前缀）也不能把删掉的键带回来 —— 上层 all<T>() 走的就是扫描
+        var found = false
+        for (item in db2.scan([])) {
+            if (item.key == "gone".toArray()) {
+                found = true
+            }
+        }
+        @Assert(found, false)
+        db2.close()
+        if (exists(path)) {
+            remove(path, recursive: true)
+        }
+    }
+
     @TestCase
     func testDBDelete() {
         let opt = Config(dir: "/tmp/badger_db_test3", memTableSize: 1024 * 1024u64)
