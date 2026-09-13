@@ -110,6 +110,9 @@ func runTest(testDir: String, writeCount: Int64, memTableSize: UInt64, useIoUrin
             written = batchEnd
         } catch (e: Exception) {
             txn.discard()
+            // 失败既不计入结果也不打印（written 不推进 → 持续失败会静默自旋），
+            // 仅补可见性，不动循环/推进逻辑。
+            println("[badger] iouring_integration_test: txn failed, written=${written}: " + e.toString())
         }
     }
     

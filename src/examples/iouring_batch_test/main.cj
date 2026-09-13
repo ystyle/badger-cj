@@ -81,6 +81,9 @@ func runConcurrentTest(testDir: String, memTableSize: UInt64, threads: Int64, to
                 
                 txn.commit()
             } catch (e: Exception) {
+                // 写失败此前完全无声：基准表的吞吐/SSTable 数会照常打印，
+                // 实际有多少写被吞掉无人知晓。仅补可见性，不动控制流。
+                println("[badger] iouring_batch_test: txn failed: " + e.toString())
             }
             0
         }

@@ -1493,7 +1493,9 @@ private func listMemFiles(dir: String): ArrayList<Int64> {
             }
         }
     } catch (e: Exception) {
-        // 忽略读取目录失败
+        // 忽略读取目录失败（不阻塞打开），但必须告警：本函数用于启动恢复 WAL(.mem)，
+        // 整目录枚举失败 = 所有 .mem 都被当作不存在 = WAL 数据静默不恢复。
+        println("[badger] list .mem files failed in dir ${dir}, WAL recovery entries may be lost: " + e.toString())
     }
     
     // 按升序排序

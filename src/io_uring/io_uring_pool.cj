@@ -249,6 +249,10 @@ public func writeFilesBatch(requests: ArrayList<FileWriteRequest>, useIoUring!: 
         try {
             return IoUringPool.getInstance().writeFiles(requests)
         } catch (_) {
+            // 降级是刻意的容错（容器 seccomp/内核禁用），但过去完全无痕：
+            // io_uring 悄悄关掉后写性能断崖式下跌却查不到原因。保留 catch-all
+            // 与降级语义不变，只补一行"本进程已降级"的可见痕迹（只在首次失败时打印）。
+            println("[badger] io_uring batch write failed, degraded to sync writes (io_uring disabled in this process)")
             ioUringDisabled.store(true)
             return syncWriteFilesFallback(requests)
         }
