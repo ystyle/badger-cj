@@ -54,8 +54,12 @@ output-type = "executable"
 compile-option = "--static -O2 -Woff unused"
 
 [dependencies]
-"snappy" = "1.0.2"
-"ystyle::crc" = "1.0.1"
+# 依赖只能声明**目标仓（中心仓）确实已有**的版本：声明一个只存在于私有预演仓的版本，
+# 会让消费者在本包发布后解析失败（中心仓不可覆盖，只能靠再发新版本补救）。
+# snappy 1.0.2 / ystyle::crc 1.0.1 是预演仓里没有源码差异的空版本，未发中心仓，
+# 故这里声明中心仓已有的 snappy 1.0.1 与 ystyle::crc 1.0.0。
+"snappy" = "1.0.1"
+"ystyle::crc" = "1.0.0"
 
 # Linux 平台特定配置 - 链接 liburing
 [target.x86_64-unknown-linux-gnu]
