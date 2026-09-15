@@ -13,6 +13,10 @@ import std.time.*
 // v1.6.16 补充（评审 P2）：Error 不再只靠 loop() 边界兜底——runBatch 内 catch Error
 //   并整批 markFailed（先于 finally done()），失败对调用方显式可见（errorOf Some），
 //   杜绝 OOM 批 commit() 误报成功 = 静默丢写。
+// v1.6.20 补充：**失败文案不允许为空**。OOM 等系统级 Error 的 message 常为空串，
+//   原样透传 → 调用方只看到 Exception("")，生产排查被迫从"空消息"反推 OOM（忆时塔两次
+//   事故都是这个签名）。systemFailureMsg/failureMsg 在 message 为空时退回 toString()
+//   并标注「系统级错误」，本用例断言文案非空且含该标注。
 @Test
 class WritePipelineErrorSemanticsTest {
 
@@ -78,6 +82,16 @@ class WritePipelineErrorSemanticsTest {
         // markFailed 必须在 finally done() 之前完成，否则 wait 已返回、补标无效。
         @Expect(okReqs[0].errorOf().isSome())
         @Expect(okReqs[1].errorOf().isSome())
+
+        // 失败文案必须可诊断：OOM 的 message 常为空，原样透传会让调用方只看到
+        // Exception("")（生产事故现场：维护任务每轮 "Job 0 failed:（空）"+ 写路径全断）。
+        // 必须带出 Error 类型，且标明是系统级错误。
+        match (okReqs[0].errorOf()) {
+            case Some(msg) =>
+                @Expect(msg != "", true)
+                @Expect(msg.contains("系统级错误"), true)
+            case None => @Expect(false)
+        }
 
         // OOM 后管道必须仍存活：再发一批正常请求，必须被处理（wait 返回、无失败标记）
         let nextReqs = ArrayList<WriteRequest>()

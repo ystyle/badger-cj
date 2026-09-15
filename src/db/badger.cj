@@ -1089,7 +1089,7 @@ public class Badger <: VLogGCDB {
             let prepared = prepareEntries(req.getEntries(), req.commitTs)
             putPrepared(prepared)
         } catch (e: Exception) {
-            req.markFailed(e.message)
+            req.markFailed(failureMsg(e))
         } finally {
             req.done()
         }

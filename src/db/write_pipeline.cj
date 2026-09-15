@@ -5,6 +5,20 @@ import std.collection.*
 import std.collection.concurrent.*
 import std.time.*
 
+// 失败文案：系统级 Error（OOM 等）的 message 常常是**空串**——原样透传会让调用方只看到
+// `Exception("")`，生产现场表现为「维护任务每轮 Job 0 failed:（空消息）」+ 写路径全断而
+// 毫无线索（忆时塔两次生产事故都栽在这条空消息上，见 docs/blog/2026-09-09-cangjie-service-oom-hunt.md
+// 「空 message 异常 ≈ OOM」）。message 为空时退回 toString()（含异常类型名）。
+func failureMsg(e: Exception): String {
+    if (e.message != "") { e.message } else { e.toString() }
+}
+
+// 系统级 Error 版本：额外标注「系统级错误」，让 OOM 在一眼之下就能被认出来
+// （仓颉 Error 与 Exception 是两条继承链，诊断时必须区分开）
+func systemFailureMsg(e: Error): String {
+    if (e.message != "") { e.message } else { "系统级错误（OOM 等）：" + e.toString() }
+}
+
 public class WritePipeline {
     private let queue: CloseableBlockingQueue<ArrayList<WriteRequest>>
     private let running: AtomicBool
@@ -42,7 +56,7 @@ public class WritePipeline {
                 // 此处再兜底队列层异常（如 remove 系统级错误）——系统级错误（OOM 等）
                 // 不许逃逸杀写管道协程：记录后继续循环，否则一次资源耗尽 = 管道死亡 =
                 // 后续所有写请求 done() 永不回调 = 调用方永久挂起（生产 MCP 挂起症状）。
-                println("[badger] write pipeline loop system error: " + e.message)
+                println("[badger] write pipeline loop system error: " + systemFailureMsg(e))
             }
         }
         
@@ -52,7 +66,7 @@ public class WritePipeline {
                     runBatch(reqs)
                 }
             } catch (e: Error) {
-                println("[badger] write pipeline drain system error: " + e.message)
+                println("[badger] write pipeline drain system error: " + systemFailureMsg(e))
             }
         }
     }
@@ -71,13 +85,15 @@ public class WritePipeline {
             handler(reqs)
         } catch (e: Exception) {
             for (req in reqs) {
-                req.markFailed(e.message)
+                req.markFailed(failureMsg(e))
             }
         } catch (e: Error) {
             // 系统级错误（如 OOM）：整批标记失败（错误信息透出给调用方），
             // finally 仍保证 done()，管道协程不死亡（与 loop 边界兜底一致）。
+            // OOM 的 message 常为空 → systemFailureMsg 兜底成带类型的文案，
+            // 否则调用方只看到 Exception("")（生产事故的「空消息」签名）。
             for (req in reqs) {
-                req.markFailed(e.message)
+                req.markFailed(systemFailureMsg(e))
             }
         } finally {
             for (req in reqs) {
