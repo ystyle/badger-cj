@@ -1069,15 +1069,14 @@ public class Badger <: VLogGCDB {
             return
         }
         
-        // vlog I/O 锁外（prepare）→ 锁内 put（putPrepared）；异常由 runBatch 统一
-        // markFailed + done（pipeline 路径）
+        // vlog I/O 锁外（prepare）→ 锁内 put（putPrepared）；异常与完成信号统一由
+        // runBatch 处理（pipeline 路径）——此处**不得**再 done()：完成计数多减一次会让
+        // wait() 提前唤醒，调用方随即把请求归还对象池，另一线程取出后 reset() 清空
+        // entries，而 runBatch 的 finally 仍在遍历同一请求 → ConcurrentModificationException
+        // （表现为偶发写入失败）。
         for (req in reqs) {
             let prepared = prepareEntries(req.getEntries(), req.commitTs)
             putPrepared(prepared)
-        }
-        
-        for (req in reqs) {
-            req.done()
         }
     }
     

@@ -80,3 +80,6 @@ compile-option = "--static -O2 -Woff unused"
 
 [package.package-configuration."badgercj.examples.txn_queue_perf"]
 output-type = "executable"
+
+[package.package-configuration."badgercj.examples.batch_commit_perf"]
+output-type = "executable"

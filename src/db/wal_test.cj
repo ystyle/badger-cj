@@ -109,6 +109,30 @@ class WALTest {
     }
 
     @TestCase
+    func testBatchSetNoDoubleDoneRace(): Unit {
+        // 回归：写管道曾对每个请求 done 两次（writeRequests 与 runBatch 的 finally 各一次），
+        // 完成计数被多减一次 → wait() 提前唤醒 → 调用方把请求归还对象池、另一线程取出后
+        // reset() 清空 entries，而管道仍在遍历同一请求 → ConcurrentModificationException。
+        // 该竞态在真实负载下偶发（单线程连续批量写即可触发），这里用高频批量写覆盖。
+        let testDir = Path("./test_batchset_double_done")
+        if (exists(testDir)) {
+            remove(testDir, recursive: true)
+        }
+        Directory.create(testDir.toString())
+        let db = Badger.open(Config(dir: testDir.toString(), memTableSize: 64 * 1024u64))
+        for (i in 0..4000) {
+            let entries = ArrayList<Entry>()
+            for (j in 0..32) {
+                entries.add(Entry.new("k${i}_${j}".toArray(), "value_${j}_padding".toArray()))
+            }
+            db.batchSet(entries)
+        }
+        @Expect(db.get("k3999_31".toArray()).isSome(), true)
+        db.close()
+        remove(testDir, recursive: true)
+    }
+
+    @TestCase
     func testWALReplay() {
         let testDir = Path("./test_wal_replay")
         if (exists(testDir)) {
