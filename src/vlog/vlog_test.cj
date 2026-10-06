@@ -112,6 +112,83 @@ class VLogManagerTest {
     }
     
     @TestCase
+    func testVLogMmapPreallocation() {
+        // 阶段 2：VLog 段改 mmap 后按 maxFileSize 稀疏预分配。
+        // 物理文件大小 == maxFileSize（稀疏，不占实际磁盘），
+        // 而逻辑大小 size() 只能是实际写入量——若沿用文件长度会被撑到 maxFileSize。
+        let dir = Path("./test_vlog_mmap_prealloc")
+        if (exists(dir)) { remove(dir, recursive: true) }
+        Directory.create(dir.toString())
+
+        var opt = VLogOptions()
+        opt.maxFileSize = 1 << 20
+        let vlog = VLogManager(dir, opt: opt)
+        let vp = vlog.write(LogEntry("k1".toArray(), "v1".toArray()))
+
+        @Expect(vlog.size() < 1024, true)
+
+        let f = File(dir.join("0.vlog"), Read)
+        @Expect(UInt64(f.length), UInt64(opt.maxFileSize))
+        f.close()
+
+        @Expect(vlog.read(vp).value.toArray(), "v1".toArray())
+        vlog.close()
+        remove(dir, recursive: true)
+    }
+
+    @TestCase
+    func testVLogReopenPreservesData() {
+        // VLog 是长期文件：重开后写偏移必须恢复到已有数据的有效长度——
+        // 既不能从 0 开始（会覆盖旧 value），也不能用预分配后的文件长度（会写出空洞）。
+        let dir = Path("./test_vlog_reopen")
+        if (exists(dir)) { remove(dir, recursive: true) }
+        Directory.create(dir.toString())
+
+        let vlog1 = VLogManager(dir)
+        let vp1 = vlog1.write(LogEntry("k1".toArray(), "v1".toArray()))
+        let sizeAfter1 = vlog1.size()
+        vlog1.close()
+
+        let vlog2 = VLogManager(dir)
+        @Expect(vlog2.size(), sizeAfter1)
+
+        let vp2 = vlog2.write(LogEntry("k2".toArray(), "v2".toArray()))
+        @Expect(vp2.offset > vp1.offset, true)
+        @Expect(vlog2.read(vp1).value.toArray(), "v1".toArray())
+        @Expect(vlog2.read(vp2).value.toArray(), "v2".toArray())
+        vlog2.close()
+        remove(dir, recursive: true)
+    }
+
+    @TestCase
+    func testVLogRotatesOnMaxFileSize() {
+        // 小 maxFileSize 强制换段：每个 value 都要能按指针读回。
+        let dir = Path("./test_vlog_rotate")
+        if (exists(dir)) { remove(dir, recursive: true) }
+        Directory.create(dir.toString())
+
+        var opt = VLogOptions()
+        opt.maxFileSize = 4096
+        let vlog = VLogManager(dir, opt: opt)
+
+        let pointers = ArrayList<ValuePointer>()
+        let fids = HashSet<UInt32>()
+        for (i in 0..120) {
+            let vp = vlog.write(LogEntry("key${i}".toArray(), Array<Byte>(64, repeat: 7u8)))
+            pointers.add(vp)
+            fids.add(vp.fid)
+        }
+        @Expect(fids.size > 1, true)
+
+        for (i in 0..120) {
+            let e = vlog.read(pointers[i])
+            @Expect(e.key == "key${i}".toArray(), true)
+        }
+        vlog.close()
+        remove(dir, recursive: true)
+    }
+
+    @TestCase
     func testVLogGCBasic() {
         let dir = Path("./test_vlog_gc")
         if (exists(dir)) {
