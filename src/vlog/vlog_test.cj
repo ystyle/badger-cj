@@ -189,6 +189,28 @@ class VLogManagerTest {
     }
 
     @TestCase
+    func testVLogNonMmapFallback() {
+        // useMmap=false 走无缓冲 File.write（v1.x 路径）：不预分配，物理长度 = 实际写入量。
+        let dir = Path("./test_vlog_no_mmap")
+        if (exists(dir)) { remove(dir, recursive: true) }
+        Directory.create(dir.toString())
+
+        var opt = VLogOptions()
+        opt.maxFileSize = 1 << 20
+        opt.useMmap = false
+        let vlog = VLogManager(dir, opt: opt)
+        let vp = vlog.write(LogEntry("k1".toArray(), "v1".toArray()))
+
+        let f = File(dir.join("0.vlog"), Read)
+        @Expect(UInt64(f.length) < UInt64(opt.maxFileSize), true)
+        f.close()
+
+        @Expect(vlog.read(vp).value.toArray(), "v1".toArray())
+        vlog.close()
+        remove(dir, recursive: true)
+    }
+
+    @TestCase
     func testVLogGCBasic() {
         let dir = Path("./test_vlog_gc")
         if (exists(dir)) {

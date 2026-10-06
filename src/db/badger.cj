@@ -169,7 +169,10 @@ public class Badger <: VLogGCDB {
         if (opt.InMemory) {
             vlog = VLogManager()
         } else {
-            vlog = VLogManager(Path(opt.Dir))
+            // Config.MmapVLog 控制段写路径（mmap 稀疏预分配 vs 无缓冲 File.write）
+            var vlogOpt = VLogOptions()
+            vlogOpt.useMmap = opt.MmapVLog
+            vlog = VLogManager(Path(opt.Dir), opt: vlogOpt)
         }
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
         // 当前 memtable 已占用 fid（未走 reserve），把文件序列推进到该 fid 之后——

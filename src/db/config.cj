@@ -19,6 +19,9 @@ public struct Config {
     // v2.0：WAL 写路径是否走 mmap（默认开）。关闭则回退 v1.x 的 BufferedOutputStream 路径，
     // 用于性能对比与问题回退（设计 §8）；mmap 模式下文件按 2×MemTableSize 预分配。
     public var MmapWAL: Bool
+    // v2.0：VLog 段写路径是否走 mmap（默认开）。关闭则回退无缓冲 File.write（v1.x 路径），
+    // 用于性能对比与问题回退；mmap 模式下段按 maxFileSize 稀疏预分配。
+    public var MmapVLog: Bool
     // 内存中允许的未落盘 memtable 上限（对齐 badger-go WithNumMemtables 默认 5）：
     // 超过后写路径停顿等待 flusher（背压），约束 flush 峰值内存
     // ≈ NumMemtables × 2 × MemTableSize。
@@ -39,7 +42,8 @@ public struct Config {
         autoCloseOnExit!: Bool = false,
         syncWrites!: Bool = false,
         numMemtables!: Int = 5,
-        mmapWAL!: Bool = true
+        mmapWAL!: Bool = true,
+        mmapVLog!: Bool = true
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -54,6 +58,7 @@ public struct Config {
         this.SyncWrites = syncWrites
         this.NumMemtables = numMemtables
         this.MmapWAL = mmapWAL
+        this.MmapVLog = mmapVLog
         
         // InMemory 模式：ValueThreshold 设为最大值，所有数据进 LSM
         if (inMemory) {
@@ -145,6 +150,12 @@ public struct Config {
     public func withSyncWrites(sync: Bool): Config {
         var conf = this
         conf.SyncWrites = sync
+        conf
+    }
+    
+    public func withMmapVLog(use: Bool): Config {
+        var conf = this
+        conf.MmapVLog = use
         conf
     }
     
