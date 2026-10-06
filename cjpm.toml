@@ -58,6 +58,9 @@ compile-option = "--static -O2 -Woff unused"
 output-type = "executable"
 compile-option = "--static -O2 -Woff unused"
 
+[package.package-configuration."badgercj.examples.sst_read_mem_perf"]
+output-type = "executable"
+
 [dependencies]
 # v2.0 起 WAL/VLog 写路径依赖 mmap-cj（跨平台内存映射封装）。
 # ⚠️ mmapcj 尚未发布中心仓：开发期用 path 依赖，发布 v2.0.0 前必须先发 mmapcj
