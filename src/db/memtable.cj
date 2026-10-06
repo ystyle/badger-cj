@@ -49,7 +49,9 @@ protected class MemTable {
             this.wal = None
         } else {
             let walPath = opt.Dir + "/${fid}.mem"
-            this.wal = Some(WAL.open(walPath))
+            // v2.0：WAL 走 mmap（预分配 = arena 大小，保证 WAL 不会先于 arena 满）；
+            // Config.MmapWAL=false 时回退 v1.x 的 BufferedOutputStream 路径
+            this.wal = Some(WAL.open(walPath, capacity: arenaSize, useMmap: opt.MmapWAL))
         }
         
         if (walExists && !opt.DisableWAL) {
@@ -59,6 +61,18 @@ protected class MemTable {
         }
     }
     
+    /**
+     * 标记进入/退出恢复期。恢复期内的写入不再回写 WAL —— 数据本就来自 WAL，
+     * 重写既冗余又受 WAL 预分配容量限制（残留 WAL 可能大于本 memtable 的容量）。
+     */
+    protected func beginReplay(): Unit {
+        replaying.store(true)
+    }
+
+    protected func endReplay(): Unit {
+        replaying.store(false)
+    }
+
     public func put(key: Array<Byte>, vs: ValueStruct): Unit {
         let encoded = vs.encode()
         

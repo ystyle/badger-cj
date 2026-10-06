@@ -154,7 +154,9 @@ public class WAL {
 
 go badger 在运行中 `Truncate + remap`（memtable.go:417 自述存在段错误窗口）。badger-cj **不采用运行中 remap**：
 
-- **WAL**：open 时预分配满额（memTableSize 数据上限），close/flush 时一次截断——生命周期内映射固定
+- **WAL**：每段 open 时预分配满额（memTableSize 数据上限），**段写满即换段**（`<fid>.mem` → `<fid>.mem.N`），
+  段封口时截断回收——段内映射固定，仍无运行中 remap
+  （换段原属阶段 4，因"单段固定容量必须自带兜底"已提前至阶段 1 实现）
 - **VLog**：段内映射固定（maxFileSize），写满开新段
 
 => 全程无 remap，消除段错误窗口（比 go 更安全）。
@@ -205,10 +207,10 @@ io_uring 不再承担 WAL/vlog；v2.0 后 io_uring 仅作 Linux 下 SSTable 批�
 
 | 阶段 | 内容 | 验收 |
 |------|------|------|
-| 1 | WAL mmap 化（WAL 类内部替换） | wal/large_batch/graceful_shutdown 测试过 |
+| 1 | WAL mmap 化（WAL 类内部替换）+ **换段** | wal/large_batch/graceful_shutdown 测试过；换段用例过 |
 | 2 | VLog 写 mmap 化 + 稀疏预分配 | vlog/integration/atomicity 测试过 |
 | 3 | VLog 读 mmap 化（可选） | vlog 读取路径测试过 |
-| 4 | 截断回收 + 换段边界 | 文件大小断言 + 多段测试 |
+| 4 | 截断回收（换段已提前至阶段 1） | 文件大小断言 + 多段测试 |
 | 5 | 三平台 CI 接入（macOS arm64） | GitHub Actions 全绿 |
 | 6 | 性能复测（对比 v1.6.9） | DB Set 目标减半，更新 benchmark-report |
 

@@ -489,9 +489,42 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
    约束——**长期运行内存上界 = NumMemtables × 2 × MemTableSize**（v6.0 同步 flush 恒 1 张在途）。
 
 **文档版本：** v7.0  
-**最后更新：** 2026-09-05（异步 flusher + L1 单拷贝复测，新增 §11 专项）
+**最后更新：** 2026-10-06（新增 §12 WAL mmap 后端对比）
 
 ---
+
+---
+
+## 12. WAL mmap 后端对比——专项实测（2026-10-06）
+
+**背景**：v2.0 引入 `Config.MmapWAL`（默认开）：WAL 写路径由 `BufferedOutputStream(64KB)` 改为
+「按 arena 大小预分配 + 固定映射 + memcpy」，`sync` 由「仅刷新缓冲」改为 `msync(MS_SYNC)`。
+本节量化该替换对**写入吞吐**的影响。
+
+**方法**：同一二进制内用命令行参数切换后端
+（`txn_queue_perf [threads] [txnsPerThread] [keysPerTxn] [mmap:on|off] [valueSize]`），
+A/B **每轮交替**执行，共 8 轮 × 2 组 × 3 次内部重复 = 每组 24 样本；按轮配对统计（配对差 + t 检验），
+避免单轮 best 值造成的误判。环境：Linux x86_64、cjc 1.2.0、`-O2`、`cjHeapSize=4gb`。
+
+| 场景 | mmap mean ns/txn | buffered mean ns/txn | 比值 buffered/mmap | mmap 胜 | 配对 t |
+|---|---|---|---|---|---|
+| 小 value（8 线程 × 5000 事务 × 1 key） | 10103（median 7546，min 4394） | **9151**（median 6288，min 4690） | 0.906x | 6/16 | 0.65 |
+| 大 value 4KB（8 线程 × 500 事务 × 1 key） | **18065**（median 17844，min 16317） | 18435（median 16928，min 15836） | 1.020x | 9/16 | −2.31 |
+
+**结论**：
+
+1. **小 value 场景 mmap 无优势**：均值慢 9.4% 但不显著（t=0.65，配对仅 6/16 胜出）；
+   两个场景的**中位数都是 buffered 更低**，mmap 的优势只出现在均值上（分布更平）。
+2. **大 value 场景 mmap 略快 2.0% 且统计显著**（t=−2.31），但效应量处于噪音级别，
+   不足以支撑「换 mmap 提升写吞吐」的假设。
+3. 与写路径结构一致：单事务提交成本主要在跨线程投递与唤醒（见 §1.3 DBBench），
+   WAL 的缓冲/映射差异在该负载下被淹没；mmap 另外还要承担预分配文件的**首次触碰页 page fault**
+   （表现为 min 更低、长尾更差）。
+
+**因此 v2.0 的 mmap 收益不体现在写吞吐**，其价值需在别处验证：崩溃一致性语义（`msync` 对齐 fsync）、
+恢复期读取路径、以及消除缓冲未落盘窗口。
+
+**原始数据**：`docs/bench-wal-mmap-ab.txt`
 
 ## Benchmark 测试文件
 
@@ -545,4 +578,4 @@ Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读�
 ---
 
 **文档版本：** v7.0  
-**最后更新：** 2026-09-05（异步 flusher + L1 单拷贝复测，新增 §11 专项）
+**最后更新：** 2026-10-06（新增 §12 WAL mmap 后端对比）

@@ -1,3 +1,8 @@
+[profile]
+# 依赖 mmap-cj 使用 experimental 的 [[source-set]] 多平台布局，消费侧需同样开启
+# （否则 cjpm 忽略其 source-set 配置、按默认 src 查找而报错）
+experimental = true
+
 [package]
   cjc-version = "1.1.0"
   name = "badgercj"
@@ -54,6 +59,11 @@ output-type = "executable"
 compile-option = "--static -O2 -Woff unused"
 
 [dependencies]
+# v2.0 起 WAL/VLog 写路径依赖 mmap-cj（跨平台内存映射封装）。
+# ⚠️ mmapcj 尚未发布中心仓：开发期用 path 依赖，发布 v2.0.0 前必须先发 mmapcj
+#    （或换成中心仓版本号），否则消费者解析失败。
+"mmapcj" = { path = "../mmap-cj" }
+
 # 依赖只能声明**目标仓（中心仓）确实已有**的版本：声明一个只存在于私有预演仓的版本，
 # 会让消费者在本包发布后解析失败（中心仓不可覆盖，只能靠再发新版本补救）。
 # snappy 1.0.2 / ystyle::crc 1.0.1 是预演仓里没有源码差异的空版本，未发中心仓，

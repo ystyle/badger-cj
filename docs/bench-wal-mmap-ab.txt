@@ -1,0 +1,103 @@
+# WAL 后端 A/B 原始输出（txn_queue_perf RESULT 行）
+# 采集 2026-10-06：每轮 mmap → buffered 交替，共 8 轮；每组 8×3=24 样本
+# 环境：Linux x86_64 / cjc 1.2.0 / -O2 / cjHeapSize=4gb
+
+[小 value] txn_queue_perf 8 5000 1 on|off
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=289730070 ns_per_txn=7243.251750 ns_per_key=7243.251750 txn_per_sec=138059.539350
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=229541830 ns_per_txn=5738.545750 ns_per_key=5738.545750 txn_per_sec=174260.177328
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=184193048 ns_per_txn=4604.826200 ns_per_key=4604.826200 txn_per_sec=217163.462109
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=204259495 ns_per_txn=5106.487375 ns_per_key=5106.487375 txn_per_sec=195829.329745
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=188942760 ns_per_txn=4723.569000 ns_per_key=4723.569000 txn_per_sec=211704.327808
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=305422507 ns_per_txn=7635.562675 ns_per_key=7635.562675 txn_per_sec=130966.117700
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=970602314 ns_per_txn=24265.057850 ns_per_key=24265.057850 txn_per_sec=41211.523425
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=477549289 ns_per_txn=11938.732225 ns_per_key=11938.732225 txn_per_sec=83760.987444
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=302327892 ns_per_txn=7558.197300 ns_per_key=7558.197300 txn_per_sec=132306.681118
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=355927207 ns_per_txn=8898.180175 ns_per_key=8898.180175 txn_per_sec=112382.529948
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=313586753 ns_per_txn=7839.668825 ns_per_key=7839.668825 txn_per_sec=127556.408609
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=305081077 ns_per_txn=7627.026925 ns_per_key=7627.026925 txn_per_sec=131112.687792
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=373823776 ns_per_txn=9345.594400 ns_per_key=9345.594400 txn_per_sec=107002.289763
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=282008357 ns_per_txn=7050.208925 ns_per_key=7050.208925 txn_per_sec=141839.768245
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=266190269 ns_per_txn=6654.756725 ns_per_key=6654.756725 txn_per_sec=150268.453277
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=245692944 ns_per_txn=6142.323600 ns_per_key=6142.323600 txn_per_sec=162804.838221
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=219799988 ns_per_txn=5494.999700 ns_per_key=5494.999700 txn_per_sec=181983.631409
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=202130625 ns_per_txn=5053.265625 ns_per_key=5053.265625 txn_per_sec=197891.833561
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=355001488 ns_per_txn=8875.037200 ns_per_key=8875.037200 txn_per_sec=112675.584053
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=301334772 ns_per_txn=7533.369300 ns_per_key=7533.369300 txn_per_sec=132742.729073
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=891453662 ns_per_txn=22286.341550 ns_per_key=22286.341550 txn_per_sec=44870.531925
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=419276814 ns_per_txn=10481.920350 ns_per_key=10481.920350 txn_per_sec=95402.365846
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=650951687 ns_per_txn=16273.792175 ns_per_key=16273.792175 txn_per_sec=61448.492720
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=733427438 ns_per_txn=18335.685950 ns_per_key=18335.685950 txn_per_sec=54538.455923
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=345499868 ns_per_txn=8637.496700 ns_per_key=8637.496700 txn_per_sec=115774.284464
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=175769758 ns_per_txn=4394.243950 ns_per_key=4394.243950 txn_per_sec=227570.433362
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=179586117 ns_per_txn=4489.652925 ns_per_key=4489.652925 txn_per_sec=222734.366488
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=257351933 ns_per_txn=6433.798325 ns_per_key=6433.798325 txn_per_sec=155429.180320
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=318495096 ns_per_txn=7962.377400 ns_per_key=7962.377400 txn_per_sec=125590.630758
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=187583976 ns_per_txn=4689.599400 ns_per_key=4689.599400 txn_per_sec=213237.830080
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=257652911 ns_per_txn=6441.322775 ns_per_key=6441.322775 txn_per_sec=155247.615270
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=190905204 ns_per_txn=4772.630100 ns_per_key=4772.630100 txn_per_sec=209528.075515
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=183155913 ns_per_txn=4578.897825 ns_per_key=4578.897825 txn_per_sec=218393.167574
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=205695749 ns_per_txn=5142.393725 ns_per_key=5142.393725 txn_per_sec=194461.967223
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=189944379 ns_per_txn=4748.609475 ns_per_key=4748.609475 txn_per_sec=210587.963753
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=214136108 ns_per_txn=5353.402700 ns_per_key=5353.402700 txn_per_sec=186797.081415
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=689941469 ns_per_txn=17248.536725 ns_per_key=17248.536725 txn_per_sec=57975.932448
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=616026647 ns_per_txn=15400.666175 ns_per_key=15400.666175 txn_per_sec=64932.256088
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=313112115 ns_per_txn=7827.802875 ns_per_key=7827.802875 txn_per_sec=127749.767843
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=243133575 ns_per_txn=6078.339375 ns_per_key=6078.339375 txn_per_sec=164518.619035
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=199569814 ns_per_txn=4989.245350 ns_per_key=4989.245350 txn_per_sec=200431.113295
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=234137137 ns_per_txn=5853.428425 ns_per_key=5853.428425 txn_per_sec=170840.049180
+RESULT scenario=txn_queue wal=mmap rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=226591106 ns_per_txn=5664.777650 ns_per_key=5664.777650 txn_per_sec=176529.435361
+RESULT scenario=txn_queue wal=mmap rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=803529715 ns_per_txn=20088.242875 ns_per_key=20088.242875 txn_per_sec=49780.361887
+RESULT scenario=txn_queue wal=mmap rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=792970615 ns_per_txn=19824.265375 ns_per_key=19824.265375 txn_per_sec=50443.231115
+RESULT scenario=txn_queue wal=buffered rep=0 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=984762770 ns_per_txn=24619.069250 ns_per_key=24619.069250 txn_per_sec=40618.919824
+RESULT scenario=txn_queue wal=buffered rep=1 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=758662707 ns_per_txn=18966.567675 ns_per_key=18966.567675 txn_per_sec=52724.352510
+RESULT scenario=txn_queue wal=buffered rep=2 threads=8 keys_per_txn=1 txns=40000 keys=40000 ns=847382268 ns_per_txn=21184.556700 ns_per_key=21184.556700 txn_per_sec=47204.197575
+
+[大 value 4096B] txn_queue_perf 8 500 1 on|off 4096
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=81941271 ns_per_txn=20485.317750 ns_per_key=20485.317750 txn_per_sec=48815.449787
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=76686640 ns_per_txn=19171.660000 ns_per_key=19171.660000 txn_per_sec=52160.324145
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=73901001 ns_per_txn=18475.250250 ns_per_key=18475.250250 txn_per_sec=54126.465757
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=88424311 ns_per_txn=22106.077750 ns_per_key=22106.077750 txn_per_sec=45236.428249
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=66943790 ns_per_txn=16735.947500 ns_per_key=16735.947500 txn_per_sec=59751.621472
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65187577 ns_per_txn=16296.894250 ns_per_key=16296.894250 txn_per_sec=61361.384854
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=74794557 ns_per_txn=18698.639250 ns_per_key=18698.639250 txn_per_sec=53479.827416
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=69881641 ns_per_txn=17470.410250 ns_per_key=17470.410250 txn_per_sec=57239.640380
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65267580 ns_per_txn=16316.895000 ns_per_key=16316.895000 txn_per_sec=61286.169948
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=85378011 ns_per_txn=21344.502750 ns_per_key=21344.502750 txn_per_sec=46850.470667
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65075100 ns_per_txn=16268.775000 ns_per_key=16268.775000 txn_per_sec=61467.443000
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65913611 ns_per_txn=16478.402750 ns_per_key=16478.402750 txn_per_sec=60685.493319
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=76146812 ns_per_txn=19036.703000 ns_per_key=19036.703000 txn_per_sec=52530.104609
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=86322434 ns_per_txn=21580.608500 ns_per_key=21580.608500 txn_per_sec=46337.896357
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=66456755 ns_per_txn=16614.188750 ns_per_key=16614.188750 txn_per_sec=60189.517228
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=88826232 ns_per_txn=22206.558000 ns_per_key=22206.558000 txn_per_sec=45031.742425
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=68239277 ns_per_txn=17059.819250 ns_per_key=17059.819250 txn_per_sec=58617.268175
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=64281537 ns_per_txn=16070.384250 ns_per_key=16070.384250 txn_per_sec=62226.265685
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=74361054 ns_per_txn=18590.263500 ns_per_key=18590.263500 txn_per_sec=53791.599027
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=70524807 ns_per_txn=17631.201750 ns_per_key=17631.201750 txn_per_sec=56717.631287
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=71320013 ns_per_txn=17830.003250 ns_per_key=17830.003250 txn_per_sec=56085.239356
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=91071945 ns_per_txn=22767.986250 ns_per_key=22767.986250 txn_per_sec=43921.319568
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=63345390 ns_per_txn=15836.347500 ns_per_key=15836.347500 txn_per_sec=63145.873757
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65919692 ns_per_txn=16479.923000 ns_per_key=16479.923000 txn_per_sec=60679.895167
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=73966736 ns_per_txn=18491.684000 ns_per_key=18491.684000 txn_per_sec=54078.363009
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=71435796 ns_per_txn=17858.949000 ns_per_key=17858.949000 txn_per_sec=55994.336509
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=68331254 ns_per_txn=17082.813500 ns_per_key=17082.813500 txn_per_sec=58538.366646
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=90182838 ns_per_txn=22545.709500 ns_per_key=22545.709500 txn_per_sec=44354.337130
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=66547509 ns_per_txn=16636.877250 ns_per_key=16636.877250 txn_per_sec=60107.433924
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65897270 ns_per_txn=16474.317500 ns_per_key=16474.317500 txn_per_sec=60700.541919
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=76943793 ns_per_txn=19235.948250 ns_per_key=19235.948250 txn_per_sec=51985.999702
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=67014154 ns_per_txn=16753.538500 ns_per_key=16753.538500 txn_per_sec=59688.883038
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=67891919 ns_per_txn=16972.979750 ns_per_key=16972.979750 txn_per_sec=58917.173928
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=82732760 ns_per_txn=20683.190000 ns_per_key=20683.190000 txn_per_sec=48348.441415
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=67187397 ns_per_txn=16796.849250 ns_per_key=16796.849250 txn_per_sec=59534.974989
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=65737683 ns_per_txn=16434.420750 ns_per_key=16434.420750 txn_per_sec=60847.900587
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=74786721 ns_per_txn=18696.680250 ns_per_key=18696.680250 txn_per_sec=53485.430923
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=66306074 ns_per_txn=16576.518500 ns_per_key=16576.518500 txn_per_sec=60326.298312
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=67653652 ns_per_txn=16913.413000 ns_per_key=16913.413000 txn_per_sec=59124.672235
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=88089718 ns_per_txn=22022.429500 ns_per_key=22022.429500 txn_per_sec=45408.250711
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=68284133 ns_per_txn=17071.033250 ns_per_key=17071.033250 txn_per_sec=58578.762361
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=66387510 ns_per_txn=16596.877500 ns_per_key=16596.877500 txn_per_sec=60252.297458
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=77645018 ns_per_txn=19411.254500 ns_per_key=19411.254500 txn_per_sec=51516.505541
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=68565483 ns_per_txn=17141.370750 ns_per_key=17141.370750 txn_per_sec=58338.391637
+RESULT scenario=txn_queue wal=mmap value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=66098836 ns_per_txn=16524.709000 ns_per_key=16524.709000 txn_per_sec=60515.437821
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=0 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=86569508 ns_per_txn=21642.377000 ns_per_key=21642.377000 txn_per_sec=46205.645526
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=1 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=71421588 ns_per_txn=17855.397000 ns_per_key=17855.397000 txn_per_sec=56005.475543
+RESULT scenario=txn_queue wal=buffered value_size=4096 rep=2 threads=8 keys_per_txn=1 txns=4000 keys=4000 ns=72128525 ns_per_txn=18032.131250 ns_per_key=18032.131250 txn_per_sec=55456.561742

@@ -62,6 +62,53 @@ class WALTest {
     }
     
     @TestCase
+    func testMmapWALRotatesWhenCapacityExceeded() {
+        // 小 capacity 强制换段：写入量远超单段容量 → 应切出多段，且数据一条不少、顺序不变。
+        let testDir = Path("./test_wal_rotate")
+        if (exists(testDir)) {
+            remove(testDir, recursive: true)
+        }
+        Directory.create(testDir.toString())
+        let walPath = testDir.toString() + "/1.mem"
+        let cap: Int64 = 4096
+
+        let wal = WAL.open(walPath, capacity: cap, useMmap: true)
+        let n: Int64 = 100
+        for (i in 0..n) {
+            let vs = ValueStruct("value_${i}_padding_padding_padding_padding".toArray())
+            wal.write("key_${i}".toArray(), vs.encode())
+        }
+        wal.close()
+
+        // 换段发生了：存在第二段
+        @Expect(exists(Path(walPath + ".1")), true)
+
+        // 全部条目可恢复，且顺序保持
+        let rw = WAL.openForRead(walPath, useMmap: true)
+        let entries = rw.readAll()
+        rw.close()
+        @Expect(entries.size, n)
+        for (i in 0..n) {
+            @Expect(entries[i].key == "key_${i}".toArray(), true)
+        }
+
+        // 关闭后各段都截断到实际写入长度（稀疏回收），总大小远小于 n×capacity
+        var total: Int64 = 0
+        var seg: Int64 = 0
+        while (exists(Path(if (seg == 0) { walPath } else { "${walPath}.${seg}" }))) {
+            let segPath = if (seg == 0) { walPath } else { "${walPath}.${seg}" }
+            let f = File(Path(segPath), Read)
+            total += f.length
+            f.close()
+            seg += 1
+        }
+        @Expect(total < cap * seg, true)
+        @Expect(seg > 1, true)
+
+        remove(testDir, recursive: true)
+    }
+
+    @TestCase
     func testWALReplay() {
         let testDir = Path("./test_wal_replay")
         if (exists(testDir)) {
