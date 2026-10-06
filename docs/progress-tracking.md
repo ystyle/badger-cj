@@ -43,7 +43,7 @@
 | VLog 读 mmap 化 | vlog 读取走映射（可选） | P2 | ⬜ |
 | 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | 🔶 |
 | 三平台 CI（macOS arm64） | GitHub Actions 全平台验证 | P1 | ⬜（设计已论证可行性） |
-| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
+| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 实施中：阶段 A（TableData 抽象）✅ 已完成；B/C/D 待做 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
 
 ### v2.x（后续线，独立规划）
 
@@ -368,6 +368,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 A（`TableData` 抽象，纯重构）**：新增 `TableData` 接口（`read(offset,len)` 复制语义 / `size()` / `close()`）与 `MemoryTableData`；`Table` 的 `data: Array<Byte>` 改为持有 `TableData`，`readBlock` / `onDiskSize` / `uncompressedSize` 三处随之切换——**行为零变化**，全量 385/385 通过。接口刻意按「**读块即复制**」设计：调用方读块后不再持有表数据，使后续「表从 LevelHandler 摘除后即可释放底层资源」**无需引用计数**（阶段 C 生命周期收口的前提）。后续阶段：B 接入 `MmapTableData`（flush/compaction/loadTables 走只读映射 + `TableIndex` 改为按需读文件尾部）、C 生命周期审计（Windows 先 close 后 unlink）、D 性能与内存对照（chronomem 堆曲线） |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0 阶段 4 收口断言 + `Config.MmapVLog` 开关**：新增 `Config.MmapVLog`（默认开，对称于 `MmapWAL`），关闭时 `VLogFile` 回退无缓冲 `File.write`（v1.x 路径）。阶段 4 的验收**不能只断言"关闭后文件小"**——若预分配从未发生，测试会空过；因此新用例先断言**打开期间 WAL/VLog 段确实被预分配到容量上限**，再断言关闭后缩回有效长度，并校验重开数据完好（证明截断回收没截掉有效数据）。新增：`testPreallocThenReclaimOnClose`、`MmapSwitchTest`（两开关同关仍可往返 / mmap 开启下多轮大值写入读回）、`testVLogNonMmapFallback`（未预分配）。**注意**：单测 `memTableSize` 必须按项目约定取小值（64KB）——最初写 8MB，`-j 16` 并发下 `Arena::init` 直接 OOM。全量 **385/385 通过** |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0 阶段 2：VLog 写路径 mmap 化（稀疏预分配 + 段内固定映射）**：`VLogFile` 增加 `useMmap` 路径——段按 `maxFileSize` 稀疏预分配后建立固定映射，`write` 走 memcpy、`sync` 走 `msync`；逻辑大小 `size()` 与物理文件长度**解耦**（预分配后后者恒为 maxFileSize），段写满换段、单条放不下时换段重试并按需放大新段（与 WAL 容量兜底同一策略）。**过程中修掉一个高危既有缺陷**：`VLogManager` 重开时完全不恢复状态（`maxFid=0` / `offset=0` / `files` 只注册 fid 0）→ 重开后写入的 `ValuePointer.offset` 从 0 开始，**读到别的旧 value（静默数据损坏）**；且换段会覆盖已有段、旧段 value 读不到。现改为扫描目录重建段表、逐段恢复有效写偏移。另有两处实现要点：① 恢复扫描**必须流式**（段预分配是 GB 级，整体读入直接 OOM）；② 条目固定开销是 **13** 字节（`keyLen(4)+valueLen(4)+key+value+meta(1)+crc(4)`），误用「最小可解码头部 9」会把有效长度算成 0。新增 3 个用例（预分配 / 重开保持数据与偏移 / 按 maxFileSize 换段读回）；全量 **381/381 通过** |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **修复写管道「同一请求 done 两次」竞态（偶发写入失败）**：`writeRequests` 与 `runBatch` 的 finally 各对每个请求调用一次 `done()`，`SyncCounter` 被多减一次 → `waitUntilZero()` **提前唤醒** → 调用方把请求归还对象池，另一线程取出后 `reset()` 清空 entries，而 `runBatch` 的 finally 仍在遍历同一请求 → **`ConcurrentModificationException`**（`writeRequests` 自身的注释已写明 done 由 runBatch 统一负责，实为重复调用）。影响**所有写入路径**（`batchSet` / `batchSetAsync` / 事务提交），表现为偶发写入失败。修复：删除 `writeRequests` 中多余的 done 循环。新增回归用例 `testBatchSetNoDoubleDoneRace`（单线程高频批量写 4000×32）；该竞态在单元测试规模下**不稳定复现**，故另用新示例压测验证：修复前 400k keys 单线程可复现 `failed≥1`，修复后连续 18 次 rep **全部 failed=0**。**顺带产出**：新增 `batch_commit_perf` 示例对比 `batchSet` 与 `batchSetAsync` —— 8 线程 async 慢 9.2%（t=−0.73）、1 线程 async 快 3.8%（t=0.38），**均不显著**：`batchSetAsync` 内部仍是 `spawn { req.wait() }`，跨线程唤醒次数一次未减，其收益只来自批量。全量 **378/378 通过** |

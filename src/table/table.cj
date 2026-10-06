@@ -10,7 +10,7 @@ import snappy.decode
  * Table - SSTable 读取器
  */
 protected class Table {
-    private let data: Array<Byte>
+    private let tableData: TableData
     public let id: UInt64
     public let isInMemory: Bool
     private let index: TableIndex
@@ -23,7 +23,9 @@ protected class Table {
     
     public init(id: UInt64, data: Array<Byte>, inMemory!: Bool = false) {
         this.id = id
-        this.data = data
+        // 阶段 A：行为与原实现一致（数据仍常驻内存），仅把存放方式抽到 TableData；
+        // 阶段 B 将由 MmapTableData 承接磁盘模式，使表数据离开 GC 堆。
+        this.tableData = MemoryTableData(data)
         this.isInMemory = inMemory
         this.index = TableIndex.decodeFromData(data)
         
@@ -100,7 +102,7 @@ protected class Table {
     
     private func readBlock(idx: Int64): Array<Byte> {
         let bo = index.offsets[idx]
-        let blockData = data[Int64(bo.offset)..Int64(bo.offset + bo.len)]
+        let blockData = tableData.read(Int64(bo.offset), Int64(bo.len))
         
         // 解压 Block
         if (bo.compression == CompressionType.Snappy) {
@@ -168,11 +170,11 @@ protected class Table {
     }
     
     public func onDiskSize(): Int64 {
-        Int64(data.size)
+        tableData.size()
     }
     
     public func uncompressedSize(): Int64 {
-        Int64(data.size)
+        tableData.size()
     }
     
     public func offsetsLength(): Int64 {
