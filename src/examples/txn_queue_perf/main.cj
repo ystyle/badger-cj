@@ -4,6 +4,7 @@ import std.fs.*
 import std.time.*
 import std.collection.*
 import std.sync.*
+import std.convert.*
 import badgercj.db.*
 
 /**
@@ -15,21 +16,25 @@ import badgercj.db.*
  *
  * 输出为 RESULT 行，便于跨实现解析比对。
  */
-main(): Int64 {
-    let threads: Int64 = 8
-    let txnsPerThread: Int64 = 5000
+main(args: Array<String>): Int64 {
+    // 用法: txn_queue_perf [threads] [txnsPerThread] [keysPerTxn]
+    // keysPerTxn 用来量化「一个事务写多个 key」对每 key 同步成本的摊薄效果
+    let threads: Int64 = if (args.size > 0) { Int64.parse(args[0]) } else { 8 }
+    let txnsPerThread: Int64 = if (args.size > 1) { Int64.parse(args[1]) } else { 5000 }
+    let keysPerTxn: Int64 = if (args.size > 2) { Int64.parse(args[2]) } else { 1 }
     let dir = "/tmp/badger_txn_queue_perf"
 
     // 预热一轮：摊掉首次 mmap/文件创建/堆扩张
-    let _ = runOnce(dir + "_warm", 4, 500)
+    let _ = runOnce(dir + "_warm", 4, 500, keysPerTxn)
     for (r in 0..3) {
-        let (ns, ops) = runOnce(dir, threads, txnsPerThread)
-        println("RESULT scenario=txn_queue rep=${r} threads=${threads} txns=${ops} ns=${ns} ns_per_txn=${Float64(ns) / Float64(ops)} txn_per_sec=${Float64(ops) * 1.0e9 / Float64(ns)}")
+        let (ns, ops) = runOnce(dir, threads, txnsPerThread, keysPerTxn)
+        let keys = ops * keysPerTxn
+        println("RESULT scenario=txn_queue rep=${r} threads=${threads} keys_per_txn=${keysPerTxn} txns=${ops} keys=${keys} ns=${ns} ns_per_txn=${Float64(ns) / Float64(ops)} ns_per_key=${Float64(ns) / Float64(keys)} txn_per_sec=${Float64(ops) * 1.0e9 / Float64(ns)}")
     }
     0
 }
 
-func runOnce(dir: String, threads: Int64, txnsPerThread: Int64): (Int64, Int64) {
+func runOnce(dir: String, threads: Int64, txnsPerThread: Int64, keysPerTxn: Int64): (Int64, Int64) {
     if (exists(dir)) {
         remove(dir, recursive: true)
     }
@@ -41,7 +46,9 @@ func runOnce(dir: String, threads: Int64, txnsPerThread: Int64): (Int64, Int64) 
         futures.add(spawn {
             for (i in 0..txnsPerThread) {
                 let txn = db.newTransaction(update: true)
-                txn.set("k${tid}_${i}".toArray(), "v${i}".toArray())
+                for (j in 0..keysPerTxn) {
+                    txn.set("k${tid}_${i}_${j}".toArray(), "v${i}_${j}".toArray())
+                }
                 let _ = txn.commit()
             }
         })
