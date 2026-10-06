@@ -74,6 +74,39 @@ protected class TableIndex {
     }
     
     /**
+     * 从 TableData 按需解析索引：只读取文件尾部的三段（末尾 4B 的 crc 长度、
+     * 其前的 indexSize、以及 index 本体），**不把整张表读进内存**。
+     * 磁盘模式下这正是「表数据移出 GC 堆」的关键——索引很小，数据块不读。
+     */
+    public static func decodeFromTableData(td: TableData): TableIndex {
+        let size = td.size()
+        if (size < 12) {
+            return TableIndex(ArrayList<BlockOffset>(), [], 0, 0, 0, 0, 0)
+        }
+
+        let tail = td.read(size - 4, 4)
+        let checksumSize = u32FromLE(tail, 0)
+
+        let checksumEnd = size - 4
+        let checksumStart = checksumEnd - Int64(checksumSize)
+        if (checksumStart < 4) {
+            return TableIndex(ArrayList<BlockOffset>(), [], 0, 0, 0, 0, 0)
+        }
+
+        let lenBytes = td.read(checksumStart - 4, 4)
+        let indexSize = u32FromLE(lenBytes, 0)
+
+        let indexEnd = checksumStart - 4
+        let indexStart = indexEnd - Int64(indexSize)
+        if (indexStart < 0 || indexEnd > size) {
+            return TableIndex(ArrayList<BlockOffset>(), [], 0, 0, 0, 0, 0)
+        }
+
+        let indexData = td.read(indexStart, Int64(indexSize))
+        return decode(indexData)
+    }
+
+    /**
      * 从字节数组解析 TableIndex
      */
     public static func decode(data: Array<Byte>): TableIndex {

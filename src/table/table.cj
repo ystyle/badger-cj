@@ -27,26 +27,53 @@ protected class Table {
         // 阶段 B 将由 MmapTableData 承接磁盘模式，使表数据离开 GC 堆。
         this.tableData = MemoryTableData(data)
         this.isInMemory = inMemory
-        this.index = TableIndex.decodeFromData(data)
-        
-        if (index.bloomFilter.size > 0) {
-            this.bloomFilter = Some(BloomFilter(index.bloomFilter))
+        let idx = TableIndex.decodeFromData(data)
+        this.index = idx
+        if (idx.bloomFilter.size > 0) {
+            this.bloomFilter = Some(BloomFilter(idx.bloomFilter))
         } else {
             this.bloomFilter = None
         }
-        
-        if (index.tableSmallest.size > 0) {
-            this.smallest = index.tableSmallest
-            this.biggest = index.tableBiggest
-        } else if (index.offsets.size > 0) {
-            this.smallest = index.offsets[0].key
-            this.biggest = index.offsets[index.offsets.size - 1].key
+        if (idx.tableSmallest.size > 0) {
+            this.smallest = idx.tableSmallest
+            this.biggest = idx.tableBiggest
+        } else if (idx.offsets.size > 0) {
+            this.smallest = idx.offsets[0].key
+            this.biggest = idx.offsets[idx.offsets.size - 1].key
         } else {
             this.smallest = []
             this.biggest = []
         }
-        this.keyCount = index.keyCount
-        this.maxVersion = index.maxVersion
+        this.keyCount = idx.keyCount
+        this.maxVersion = idx.maxVersion
+    }
+    
+    /**
+     * 以任意 TableData 构造（磁盘模式传 MmapTableData）：索引按需从数据源读取。
+     */
+    public init(id: UInt64, tableData!: TableData, inMemory!: Bool = false) {
+        this.id = id
+        this.tableData = tableData
+        this.isInMemory = inMemory
+        let idx = TableIndex.decodeFromTableData(tableData)
+        this.index = idx
+        if (idx.bloomFilter.size > 0) {
+            this.bloomFilter = Some(BloomFilter(idx.bloomFilter))
+        } else {
+            this.bloomFilter = None
+        }
+        if (idx.tableSmallest.size > 0) {
+            this.smallest = idx.tableSmallest
+            this.biggest = idx.tableBiggest
+        } else if (idx.offsets.size > 0) {
+            this.smallest = idx.offsets[0].key
+            this.biggest = idx.offsets[idx.offsets.size - 1].key
+        } else {
+            this.smallest = []
+            this.biggest = []
+        }
+        this.keyCount = idx.keyCount
+        this.maxVersion = idx.maxVersion
     }
     
     public func get(key: Array<Byte>): Option<Array<Byte>> {
@@ -167,6 +194,15 @@ protected class Table {
             }
         }
         true
+    }
+    
+    /**
+     * 释放底层数据源（磁盘模式解除映射）。表不可变，关闭后不可再读。
+     * 调用方约定见设计 §5.2：读块是复制语义，因此「表从 LevelHandler 摘除后即可 close」，
+     * 无需引用计数；Windows 上必须先 close 再 unlink 表文件。
+     */
+    public func close(): Unit {
+        tableData.close()
     }
     
     public func onDiskSize(): Int64 {

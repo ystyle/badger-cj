@@ -1,5 +1,8 @@
 package badgercj.table
 
+import std.fs.*
+import mmapcj.*
+
 /**
  * TableData - 表数据的存放抽象。
  *
@@ -40,5 +43,35 @@ protected class MemoryTableData <: TableData {
     /** 直取底层数组（零拷贝），供需要全量视图的内部逻辑使用 */
     public func raw(): Array<Byte> {
         data
+    }
+}
+
+/**
+ * 磁盘表数据：只读映射（数据位于页缓存而非 GC 堆，物理页由 OS 按访问加载、可回收）。
+ *
+ * unlink 后映射依然有效——这让「compaction 删除旧表文件」与「并发读者/迭代器读该表」
+ * 天然安全，无需引用计数。Windows 上被映射文件不能删除，需**先 close 再 unlink**。
+ */
+protected class MmapTableData <: TableData {
+    private let mmap: MmapFile
+
+    /** @param path 表文件路径（调用方保证文件存在且不会被并发改写——表文件不可变） */
+    public init(path: String) {
+        let f = File(Path(path), Read)
+        let size = f.length
+        f.close()
+        this.mmap = MmapFile(path, size, readOnly: true)
+    }
+
+    public func read(offset: Int64, len: Int64): Array<Byte> {
+        mmap.read(offset, len)
+    }
+
+    public func size(): Int64 {
+        mmap.size
+    }
+
+    public func close(): Unit {
+        mmap.close()
     }
 }
