@@ -354,6 +354,11 @@ protected class Compaction {
         for (t in currentTables) {
             if (!toDelete.contains(t.getId())) {
                 handler.addTable(t)
+            } else {
+                // 摘除即释放：读块是复制语义（TableData.read 返回新数组），此处没有并发
+                // 读者持有表数据，因此无需引用计数（设计 §5.2 的免 refcount 方案）。
+                // 磁盘表的映射在此解除，避免虚拟地址只增不减。
+                t.close()
             }
         }
     }

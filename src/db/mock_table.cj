@@ -111,6 +111,8 @@ public class MockTable <: TableInterface {
     public func newIterator(): TableIter {
         MockTableIter(this)
     }
+
+    public func close(): Unit {}
 }
 
 class MockTableIter <: TableIter {

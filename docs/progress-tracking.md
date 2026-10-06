@@ -43,7 +43,7 @@
 | VLog 读 mmap 化 | vlog 读取走映射（可选） | P2 | ⬜ |
 | 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | 🔶 |
 | 三平台 CI（macOS arm64） | GitHub Actions 全平台验证 | P1 | ⬜（设计已论证可行性） |
-| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 实施中：阶段 A（TableData 抽象）✅、阶段 B（MmapTableData 接入 flush/compaction/恢复）✅ 已完成；C（生命周期收口）/D（性能对照）待做 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
+| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 实施中：阶段 A（TableData 抽象）✅、阶段 B（MmapTableData 接入 flush/compaction/恢复）✅ 已完成；C（生命周期收口）✅ 已完成；D（性能对照）待做 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
 
 ### v2.x（后续线，独立规划）
 
@@ -368,6 +368,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 C（生命周期收口）**：`TableInterface` 增加 `close()`（`TableAdapter` 转发到 `Table.close()` 释放映射、`MockTable` 空实现），补两处释放点：① **compaction 摘表即 close**（`deleteTables` 中被替换的表；依据「读块是复制语义 → 摘除时无并发读者持有表数据 → 无需引用计数」的免 refcount 方案）；② **`Badger.close()` 释放全部表**（`LevelsController.closeTables()`），避免进程内反复 open/close 累积虚拟地址。全量 **388/388 通过**。**Windows 约定**：被映射文件不能删除，将来实现表文件 unlink 时必须**先 close 再 unlink**（已写入接口注释）。**另记一个不在本次范围的既有缺口**：生产代码**没有删除 compaction 后的 `.sst` 文件**，磁盘占用会随 compaction 持续增长，需单独处理 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 B 接入完成——表数据正式移出 GC 堆**：新增 `Config.MmapSSTable`（默认开），三条路径全部接入 `MmapTableData`：① **恢复** `loadTables` 不再 `File.readFrom` 全量读盘，改为只读映射 + 按需解析尾部索引；② **flush** 落盘后建表改映射（构建产物 `data` 至此可弃，峰值内存再降一档）；③ **compaction** 产出新表同样改映射。关闭开关则退回整表读入（v1.x 路径）。全量 **388/388 通过**（默认映射路径由全部用例覆盖，另补 SSTable 映射关闭的回退用例）。**至此设计 §1.1 的根因被消除**：稳态堆 = 元数据 + memtable，与数据总量解耦，OOM 退化为页缓存性能波动。**待做**：阶段 C 生命周期收口（摘表 close / Windows 先 close 后 unlink）、阶段 D 性能与内存对照 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 B 基础设施**：新增 `MmapTableData`（`mmap-cj` 只读映射，**unlink 后映射仍有效**）；`TableIndex.decodeFromTableData` **只读文件尾部三段**（末尾 4B 的 crc 长度 → 其前 `indexSize` → index 本体）解析索引，**不把整表读进内存**——这是「表数据移出 GC 堆」的关键；`Table` 新增以 `TableData` 构造（命名参数 `tableData!`，与既有 `Array<Byte>` 构造消歧）与 `close()`（释放映射）。新增用例：**双模式等价**（同一 .sst 经 `MemoryTableData` 与 `MmapTableData` 打开：元信息 + 逐 key 内容 + 块迭代器一致）、**按需读索引**。全量 **387/387 通过**。**待做**：flush/compaction/loadTables 接入 `MmapTableData`——届时表数据才真正离开 GC 堆 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 A（`TableData` 抽象，纯重构）**：新增 `TableData` 接口（`read(offset,len)` 复制语义 / `size()` / `close()`）与 `MemoryTableData`；`Table` 的 `data: Array<Byte>` 改为持有 `TableData`，`readBlock` / `onDiskSize` / `uncompressedSize` 三处随之切换——**行为零变化**，全量 385/385 通过。接口刻意按「**读块即复制**」设计：调用方读块后不再持有表数据，使后续「表从 LevelHandler 摘除后即可释放底层资源」**无需引用计数**（阶段 C 生命周期收口的前提）。后续阶段：B 接入 `MmapTableData`（flush/compaction/loadTables 走只读映射 + `TableIndex` 改为按需读文件尾部）、C 生命周期审计（Windows 先 close 后 unlink）、D 性能与内存对照（chronomem 堆曲线） |

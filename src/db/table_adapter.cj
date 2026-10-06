@@ -78,6 +78,10 @@ public class TableAdapter <: TableInterface {
         table.keySplits(n, prefix)
     }
     
+    public func close(): Unit {
+        table.close()
+    }
+    
     protected func getTable(): Table {
         table
     }

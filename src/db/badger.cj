@@ -308,6 +308,8 @@ public class Badger <: VLogGCDB {
             mt.deleteWAL()
             
             vlog.close()
+            // 释放所有 SST 表的映射：表数据在页缓存，进程内反复 open/close 不应累积虚拟地址
+            lc.closeTables()
             oracle.stop()
             manifestFile.close()
         } finally {

@@ -38,6 +38,15 @@ protected class LevelsController {
         }
     }
     
+    /** 释放所有表的底层资源（磁盘表解除映射）。close() 时调用，避免反复 open/close 累积虚拟地址。 */
+    public func closeTables(): Unit {
+        for (handler in levels) {
+            for (t in handler.getTables()) {
+                t.close()
+            }
+        }
+    }
+    
     public func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct> {
         for (handler in levels) {
             let vs = handler.get(key, readTs)
