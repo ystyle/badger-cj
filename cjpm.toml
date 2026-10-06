@@ -67,3 +67,6 @@ compile-option = "--static -O2 -Woff unused"
 
 [target.aarch64-unknown-linux-gnu]
   link-option = "-luring"
+
+[package.package-configuration."badgercj.examples.txn_queue_perf"]
+output-type = "executable"
