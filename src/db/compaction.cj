@@ -300,7 +300,12 @@ protected class Compaction {
             // 写失败抛异常（由 compactor 外层捕获记录，不杀协程、不留半落盘表）
             writeFile(path, data, useIoUring: db.getOpt().UseIoUring)
             
-            let table = Table(tableId, data)
+            // 已落盘：改用只读映射（构建产物 data 至此可弃）
+            let table = if (db.getOpt().MmapSSTable) {
+                Table(tableId, tableData: MmapTableData(path))
+            } else {
+                Table(tableId, data)
+            }
             result.add(TableAdapter(table))
             manifestChanges.add(ManifestChange(tableId, ManifestChangeOp.Create, level: UInt32(level)))
         }

@@ -15,11 +15,14 @@ protected class LevelsController {
     private let cstatus: compactStatus
     private let inMemory: Bool
     private let memoryTables: HashMap<UInt64, Array<Byte>>
+    private let mmapSSTable: Bool
     
-    public init(manifest!: Manifest = Manifest(), dir!: String = "", inMemory!: Bool = false) {
+    public init(manifest!: Manifest = Manifest(), dir!: String = "", inMemory!: Bool = false,
+        mmapSSTable!: Bool = true) {
         this.manifest = manifest
         this.dir = dir
         this.inMemory = inMemory
+        this.mmapSSTable = mmapSSTable
         this.nextFileID = manifest.nextFileID
         this.levels = ArrayList<LevelHandler>()
         this.cstatus = compactStatus(7)
@@ -91,8 +94,12 @@ protected class LevelsController {
             for (tableInfo in tables) {
                 let path = sstablePath(dir, tableInfo.id)
                 if (exists(Path(path))) {
-                    let data = File.readFrom(Path(path))
-                    let table = Table(tableInfo.id, data)
+                    // 默认映射打开（表数据留在页缓存，不进 GC 堆）；关闭则退回整表读入
+                    let table = if (mmapSSTable) {
+                        Table(tableInfo.id, tableData: MmapTableData(path))
+                    } else {
+                        Table(tableInfo.id, File.readFrom(Path(path)))
+                    }
                     let adapter = TableAdapter(table)
                     levels[level].addTable(adapter)
                 }

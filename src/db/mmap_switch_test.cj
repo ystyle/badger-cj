@@ -54,4 +54,29 @@ class MmapSwitchTest {
         db.close()
         cleanup(dir)
     }
+
+    @TestCase
+    func testSSTableMmapDisabledStillRoundTrips(): Unit {
+        // 关闭 SSTable 映射（整表读入 GC 堆）后，flush 落盘 → 重开 loadTables 两条路径语义不变。
+        // 默认开启（映射）的路径由其余 387 个用例覆盖。
+        let dir = "./test_mmap_switch_sst_off"
+        cleanup(dir)
+        let opt = Config(dir: dir, memTableSize: 64 * 1024u64,
+            valueThreshold: 64u64, mmapWAL: true, mmapVLog: true, mmapSSTable: false)
+        let db = Badger.open(opt)
+        let value = Array<Byte>(512, repeat: 5u8)
+        // 写入量超过 memTableSize，触发 flush 落盘生成 .sst
+        for (i in 0..300) {
+            let _ = db.update({ t => t.set("mk${i}".toArray(), value) })
+        }
+        @Expect(db.get("mk299".toArray()).getOrThrow().value, value)
+        db.close()
+
+        // 重开：loadTables 走非映射路径读回全部
+        let db2 = Badger.open(opt)
+        @Expect(db2.get("mk0".toArray()).getOrThrow().value, value)
+        @Expect(db2.get("mk299".toArray()).getOrThrow().value, value)
+        db2.close()
+        cleanup(dir)
+    }
 }

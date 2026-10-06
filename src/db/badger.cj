@@ -128,7 +128,8 @@ public class Badger <: VLogGCDB {
         
         // LevelsController（构造时已按 manifest 加载磁盘表；此处不再重复 loadTables，
         // 避免 R2：每张表双份驻留内存）
-        let lc = LevelsController(manifest: manifest, dir: opt.Dir, inMemory: opt.InMemory)
+        let lc = LevelsController(manifest: manifest, dir: opt.Dir, inMemory: opt.InMemory,
+            mmapSSTable: opt.MmapSSTable)
         
         // 回收已有的 WAL 文件（.mem 文件）
         var immTables = ArrayList<MemTable>()
@@ -468,7 +469,13 @@ public class Badger <: VLogGCDB {
             if (opt.InMemory) {
                 lc.addMemoryTable(tableID, data)
             } else {
-                let table = Table(tableID, data)
+                // 已落盘：表数据改用只读映射（构建产物 data 至此可弃，不再常驻 GC 堆）
+                let path = sstablePath(opt.Dir, tableID)
+                let table = if (opt.MmapSSTable) {
+                    Table(tableID, tableData: MmapTableData(path))
+                } else {
+                    Table(tableID, data)
+                }
                 lc.addTable(0, TableAdapter(table))
             }
             

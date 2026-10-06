@@ -9,7 +9,7 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 387/387 通过 ✅ |
+| **测试** | 388/388 通过 ✅ |
 | **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 | **版本** | 1.6.16（v1.6.16：reverse seek 编码对齐 + WritePipeline Error 整批失败；v1.6.15：磁盘表正向 seek 跨 block 间隙修复；v1.6.14：reverse seek/迭代修复；v1.6.13：memtable_iterator 掩码修复；v1.6.12：flush 落盘对齐 badger-go + key/value 上限对齐；v1.6.10：写管道 Error 语义） |
@@ -43,7 +43,7 @@
 | VLog 读 mmap 化 | vlog 读取走映射（可选） | P2 | ⬜ |
 | 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | 🔶 |
 | 三平台 CI（macOS arm64） | GitHub Actions 全平台验证 | P1 | ⬜（设计已论证可行性） |
-| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 实施中：阶段 A（TableData 抽象）✅ 已完成；B/C/D 待做 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
+| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 实施中：阶段 A（TableData 抽象）✅、阶段 B（MmapTableData 接入 flush/compaction/恢复）✅ 已完成；C（生命周期收口）/D（性能对照）待做 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
 
 ### v2.x（后续线，独立规划）
 
@@ -368,6 +368,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 B 接入完成——表数据正式移出 GC 堆**：新增 `Config.MmapSSTable`（默认开），三条路径全部接入 `MmapTableData`：① **恢复** `loadTables` 不再 `File.readFrom` 全量读盘，改为只读映射 + 按需解析尾部索引；② **flush** 落盘后建表改映射（构建产物 `data` 至此可弃，峰值内存再降一档）；③ **compaction** 产出新表同样改映射。关闭开关则退回整表读入（v1.x 路径）。全量 **388/388 通过**（默认映射路径由全部用例覆盖，另补 SSTable 映射关闭的回退用例）。**至此设计 §1.1 的根因被消除**：稳态堆 = 元数据 + memtable，与数据总量解耦，OOM 退化为页缓存性能波动。**待做**：阶段 C 生命周期收口（摘表 close / Windows 先 close 后 unlink）、阶段 D 性能与内存对照 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 B 基础设施**：新增 `MmapTableData`（`mmap-cj` 只读映射，**unlink 后映射仍有效**）；`TableIndex.decodeFromTableData` **只读文件尾部三段**（末尾 4B 的 crc 长度 → 其前 `indexSize` → index 本体）解析索引，**不把整表读进内存**——这是「表数据移出 GC 堆」的关键；`Table` 新增以 `TableData` 构造（命名参数 `tableData!`，与既有 `Array<Byte>` 构造消歧）与 `close()`（释放映射）。新增用例：**双模式等价**（同一 .sst 经 `MemoryTableData` 与 `MmapTableData` 打开：元信息 + 逐 key 内容 + 块迭代器一致）、**按需读索引**。全量 **387/387 通过**。**待做**：flush/compaction/loadTables 接入 `MmapTableData`——届时表数据才真正离开 GC 堆 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 A（`TableData` 抽象，纯重构）**：新增 `TableData` 接口（`read(offset,len)` 复制语义 / `size()` / `close()`）与 `MemoryTableData`；`Table` 的 `data: Array<Byte>` 改为持有 `TableData`，`readBlock` / `onDiskSize` / `uncompressedSize` 三处随之切换——**行为零变化**，全量 385/385 通过。接口刻意按「**读块即复制**」设计：调用方读块后不再持有表数据，使后续「表从 LevelHandler 摘除后即可释放底层资源」**无需引用计数**（阶段 C 生命周期收口的前提）。后续阶段：B 接入 `MmapTableData`（flush/compaction/loadTables 走只读映射 + `TableIndex` 改为按需读文件尾部）、C 生命周期审计（Windows 先 close 后 unlink）、D 性能与内存对照（chronomem 堆曲线） |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0 阶段 4 收口断言 + `Config.MmapVLog` 开关**：新增 `Config.MmapVLog`（默认开，对称于 `MmapWAL`），关闭时 `VLogFile` 回退无缓冲 `File.write`（v1.x 路径）。阶段 4 的验收**不能只断言"关闭后文件小"**——若预分配从未发生，测试会空过；因此新用例先断言**打开期间 WAL/VLog 段确实被预分配到容量上限**，再断言关闭后缩回有效长度，并校验重开数据完好（证明截断回收没截掉有效数据）。新增：`testPreallocThenReclaimOnClose`、`MmapSwitchTest`（两开关同关仍可往返 / mmap 开启下多轮大值写入读回）、`testVLogNonMmapFallback`（未预分配）。**注意**：单测 `memTableSize` 必须按项目约定取小值（64KB）——最初写 8MB，`-j 16` 并发下 `Arena::init` 直接 OOM。全量 **385/385 通过** |
