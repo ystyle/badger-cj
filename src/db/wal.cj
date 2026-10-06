@@ -286,11 +286,17 @@ public class WAL {
         var data: Array<Byte>
         if (isCurrent) {
             if (let Some(m) <- mapped) {
-                let limit = m.size
-                if (limit <= 0) {
+                let total = m.size
+                if (total <= 0) {
                     return (ArrayList<LogEntry>(), 0)
                 }
-                data = m.read(0, limit)
+                // 段按 capacity 稀疏预分配，映射大小 = 容量：**不能整段读入**，
+                // 否则分配量随容量走（容量较大时直接 OOM）。先分块扫描出有效长度再读该段。
+                let valid = scanValidLength(m, total)
+                if (valid <= 0) {
+                    return (ArrayList<LogEntry>(), 0)
+                }
+                data = m.read(0, valid)
             } else {
                 return (ArrayList<LogEntry>(), 0)
             }
@@ -306,7 +312,13 @@ public class WAL {
                 return (ArrayList<LogEntry>(), 0)
             }
             let rm = MmapFile(segPath, len, readOnly: true)
-            let d = rm.read(0, len)
+            // 未正常 seal 的段（崩溃残留）文件长度仍是预分配容量，同样只读有效部分
+            let valid = scanValidLength(rm, len)
+            let d = if (valid > 0) {
+                rm.read(0, valid)
+            } else {
+                Array<Byte>()
+            }
             rm.close()
             data = d
         }
@@ -361,6 +373,92 @@ public class WAL {
      *
      * `entrySize <= 0` 的防御用于杜绝解码器返回零长度时可能造成的死循环。
      */
+    /** 从字节数组读小端 u32。 */
+    private func u32At(data: Array<Byte>, offset: Int64): UInt32 {
+        UInt32(data[offset]) | (UInt32(data[offset + 1]) << 8) |
+            (UInt32(data[offset + 2]) << 16) | (UInt32(data[offset + 3]) << 24)
+    }
+
+    /**
+     * 扫描映射段的有效数据长度。
+     *
+     * 段按 capacity 稀疏预分配，后部是 0 填充：全 0 头的条目 CRC 必然不匹配，扫描在该处
+     * 停止——与 `decodeEntries` 的「尾部截断」语义一致。**必须按块读取**：内存占用为
+     * O(块大小 + 单条记录)，不随段容量增长；整段读入会在容量较大时直接 OOM。
+     */
+    private func scanValidLength(m: MmapFile, total: Int64): Int64 {
+        let chunkSize: Int64 = 1 << 20
+        var valid: Int64 = 0
+        var blockStart: Int64 = 0
+        while (blockStart < total) {
+            let remain = total - blockStart
+            let n = if (remain > chunkSize) { chunkSize } else { remain }
+            let block = m.read(blockStart, n)
+            var p: Int64 = 0
+            var stop = false
+            while (true) {
+                let avail = Int64(block.size) - p
+                if (avail < 13) {
+                    break
+                }
+                let keyLen = u32At(block, p)
+                let valLen = u32At(block, p + 4)
+                let entrySize = 13 + Int64(keyLen) + Int64(valLen)
+                if (entrySize <= 13) {
+                    stop = true
+                    break
+                }
+                if (avail < entrySize) {
+                    break
+                }
+                let slice = block[p..(p + entrySize)]
+                try {
+                    let (_, decoded) = LogEntry.decode(slice, 0)
+                    if (decoded != entrySize) {
+                        stop = true
+                        break
+                    }
+                } catch (e: Exception) {
+                    stop = true
+                    break
+                }
+                p += entrySize
+            }
+            if (p > 0) {
+                valid += p
+                blockStart += p
+            }
+            if (stop) {
+                break
+            }
+            if (p > 0) {
+                continue
+            }
+            // 块首条不完整（跨块或单条大于块）：按头部长度单条读取，保证仍能前进
+            if (Int64(block.size) < 13) {
+                break
+            }
+            let keyLen = u32At(block, 0)
+            let valLen = u32At(block, 4)
+            let entrySize = 13 + Int64(keyLen) + Int64(valLen)
+            if (entrySize <= 13 || blockStart + entrySize > total) {
+                break
+            }
+            let one = m.read(blockStart, entrySize)
+            try {
+                let (_, decoded) = LogEntry.decode(one, 0)
+                if (decoded != entrySize) {
+                    break
+                }
+            } catch (e: Exception) {
+                break
+            }
+            valid += entrySize
+            blockStart += entrySize
+        }
+        return valid
+    }
+
     private func decodeEntries(data: Array<Byte>, length: Int64): (ArrayList<LogEntry>, Int64) {
         let entries = ArrayList<LogEntry>()
         var offset: Int64 = 0

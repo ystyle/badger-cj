@@ -9,7 +9,7 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 388/388 通过 ✅ |
+| **测试** | 389/389 通过 ✅ |
 | **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
 | **版本** | 1.6.16（v1.6.16：reverse seek 编码对齐 + WritePipeline Error 整批失败；v1.6.15：磁盘表正向 seek 跨 block 间隙修复；v1.6.14：reverse seek/迭代修复；v1.6.13：memtable_iterator 掩码修复；v1.6.12：flush 落盘对齐 badger-go + key/value 上限对齐；v1.6.10：写管道 Error 语义） |
@@ -368,6 +368,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **修复 v2.0 引入的「WAL 恢复整段读入」（下游集成验证暴露）**：`WAL.decodeSegment` 读的是**映射大小（= 段预分配容量）**而非有效长度——容量多大就分配多大，大 memtable 场景下并行测试直接 OOM。下游 `sunku-cj`（`[replace]` 指向本地 v2.0）`-j 16` 下**每轮 4 个 `OutOfMemoryError`**，栈全部落在 `MmapFile::read ← WAL::decodeSegment ← WAL::readAll`；同一实现下 badger-cj 自身 389 用例因 memTableSize 小而未暴露。修复：新增 `scanValidLength` **按 1MB 块扫描**有效长度（内存 O(块大小 + 单条记录)，不随段容量增长），当前段与历史段都只读有效部分，跨块/超大条目按头部单条读取兜底。新增回归用例 `testMmapWALReplayDoesNotReadWholePreallocatedSegment`（capacity 5GB > 测试堆、只写 3 条；**已验证旧实现下该用例 OOM、新实现通过**）。**验证**：sunku-cj 修复后 8 轮仅 1 次 OOM（位置 `Arena::init`，属并行测试内存压力的既有形态），基线（中心仓 1.6.20）3 轮 0 次。**下游集成验证结论**：storm-cj（bstorm）✅、tsdb-cj ✅、sunku-cj ✅（修复后）、holt-cj 5 个失败用例与基线**逐一致**（既有问题，非本次引入）。**⚠️ 另记一个发版阻塞项**：依赖链中的 `mmap-cj` 用 experimental 的 `[[source-set]]`，**消费侧必须同样声明 `[profile] experimental = true`**，否则报 `path of src directory 'src' ... does not exist`——badger-cj 一旦发布，所有消费者被迫开启 experimental，发版前必须把 mmap-cj 改为单 `src` 布局 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 D（性能对照）**：新增对照示例 `sst_read_mem_perf`（`[totalMB] [mmap:on\|off] [dir]`），1MB 小 memtable 高频 flush 累积多张 L0 表后随机读回。**读延迟对照（128MB 数据 / 堆 1GB / 交替 3 轮，全命中）**：mmap 35199 ns/Get vs 内存 35204 ns/Get，**零回退**（差 0.01%）——符合设计 §5.4 预期，满足「禁止回退」验收。**内存对照未能取得有效数据**：受限堆实验下两种模式**都**先撞 `flusher: flush system error`（flush 自身工作内存需求 > 64MB 堆，与表数据存放无关），故「受限堆 + 大数据量」无法区分二者；仅在 192MB 堆下观察到间接信号——内存模式 `hit=19987/20000`（丢 13 条），mmap 模式 `hit=20000/20000`。**踩坑记录**：`/tmp` 是 **tmpfs**（内存文件系统），页缓存直接吃内存会让本对照**完全失真**（实测 mmap 一侧反而更早失败），示例已加 `dir` 参数并在注释写明必须放真实磁盘。**遗留（独立问题，已记录）**：flush 路径工作内存偏高，在 64MB 堆下即无法完成单表落盘，值得单独排查 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 C（生命周期收口）**：`TableInterface` 增加 `close()`（`TableAdapter` 转发到 `Table.close()` 释放映射、`MockTable` 空实现），补两处释放点：① **compaction 摘表即 close**（`deleteTables` 中被替换的表；依据「读块是复制语义 → 摘除时无并发读者持有表数据 → 无需引用计数」的免 refcount 方案）；② **`Badger.close()` 释放全部表**（`LevelsController.closeTables()`），避免进程内反复 open/close 累积虚拟地址。全量 **388/388 通过**。**Windows 约定**：被映射文件不能删除，将来实现表文件 unlink 时必须**先 close 再 unlink**（已写入接口注释）。**另记一个不在本次范围的既有缺口**：生产代码**没有删除 compaction 后的 `.sst` 文件**，磁盘占用会随 compaction 持续增长，需单独处理 |
 | 2026-10-06 | feat/v2-mmap-wal-vlog（未发版，分支） | **v2.0：SSTable 读按需化 阶段 B 接入完成——表数据正式移出 GC 堆**：新增 `Config.MmapSSTable`（默认开），三条路径全部接入 `MmapTableData`：① **恢复** `loadTables` 不再 `File.readFrom` 全量读盘，改为只读映射 + 按需解析尾部索引；② **flush** 落盘后建表改映射（构建产物 `data` 至此可弃，峰值内存再降一档）；③ **compaction** 产出新表同样改映射。关闭开关则退回整表读入（v1.x 路径）。全量 **388/388 通过**（默认映射路径由全部用例覆盖，另补 SSTable 映射关闭的回退用例）。**至此设计 §1.1 的根因被消除**：稳态堆 = 元数据 + memtable，与数据总量解耦，OOM 退化为页缓存性能波动。**待做**：阶段 C 生命周期收口（摘表 close / Windows 先 close 后 unlink）、阶段 D 性能与内存对照 |

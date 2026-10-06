@@ -62,6 +62,46 @@ class WALTest {
     }
     
     @TestCase
+    func testMmapWALReplayDoesNotReadWholePreallocatedSegment() {
+        // 回归：段按 capacity 稀疏预分配，恢复时若把整段读入，分配量就随容量走——
+        // 容量超过堆上限时必然 OOM（大 memtable + 并行测试即命中该形态）。
+        // 这里给一个远超测试堆的容量、只写少量条目：扫描必须只读有效部分。
+        let testDir = Path("./test_wal_replay_prealloc")
+        if (exists(testDir)) {
+            remove(testDir, recursive: true)
+        }
+        Directory.create(testDir.toString())
+        let walPath = testDir.toString() + "/9.mem"
+        let cap: Int64 = 5 * 1024 * 1024 * 1024
+
+        let wal = WAL.open(walPath, capacity: cap, useMmap: true)
+        for (i in 0..3) {
+            wal.write("k${i}".toArray(), ValueStruct("v${i}".toArray()).encode())
+        }
+        // 不 close：模拟崩溃残留，段保持预分配大小（前提校验，避免用例空过）
+        @Expect(FileInfo(Path(walPath)).size >= cap, true)
+
+        // 只读恢复：整段读入会一次性分配 cap 字节
+        let rw = WAL.openForRead(walPath, useMmap: true)
+        let entries = rw.readAll()
+        rw.close()
+        @Expect(entries.size, 3)
+        for (i in 0..3) {
+            @Expect(entries[i].key == "k${i}".toArray(), true)
+        }
+
+        // 写模式重开同样只扫描有效部分，且写偏移收敛到有效长度（续写后可全部读回）
+        let w2 = WAL.open(walPath, capacity: cap, useMmap: true)
+        w2.write("tail".toArray(), ValueStruct("tv".toArray()).encode())
+        let all = w2.readAll()
+        w2.close()
+        @Expect(all.size, 4)
+        @Expect(all[3].key == "tail".toArray(), true)
+
+        remove(testDir, recursive: true)
+    }
+
+    @TestCase
     func testMmapWALRotatesWhenCapacityExceeded() {
         // 小 capacity 强制换段：写入量远超单段容量 → 应切出多段，且数据一条不少、顺序不变。
         let testDir = Path("./test_wal_rotate")
