@@ -581,23 +581,38 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 
 ## 性能
 
-**并发事务写入（50 并发）：**
+> 2026-10-10 于 v1.6.21 重测（16 核，`cjHeapSize=12gb`，数据目录落在真实盘，
+> 每项 5 轮取中位数）。方法学见 [benchmark-methodology.md](docs/benchmark-methodology.md)，
+> 完整数据与读数注意事项见 [benchmark-report.md](docs/benchmark-report.md)。
 
-| 规模 | 吞吐量 |
-|------|--------|
-| 50 x 100 = 5,000 keys | **459K keys/s** |
-| 50 x 1,000 = 50,000 keys | **450K keys/s** |
-| 50 x 3,000 = 150,000 keys | **396K keys/s** |
+**并发事务写入（50 并发事务，v1.6.21 实测中位数）：**
 
-**单操作延迟：**
+| 规模 | 吞吐量 | 离散度 |
+|------|--------|--------|
+| 50 x 100 = 5,000 keys | **634K keys/s** | ±13.4% |
+| 50 x 1,000 = 50,000 keys | **730K keys/s** | ±5.1% |
+| 50 x 3,000 = 150,000 keys | **567K keys/s** | ±2.1% |
 
-| 操作 | 延迟 |
-|------|------|
-| DB Get | ~2.9 µs |
-| DB Set (事务内) | ~10.8 µs |
-| Skiplist Put | ~2.0 µs |
+**并发跳表（5000 ops / 16 线程）：** 并发写约 **390 ns/op**、并发读约 **330 ns/op**，
+并发吞吐约 **260 万次/秒**。⚠️ 该基准负载仅约 64ms，30 轮实测离散度 ±40%，
+故只宜作"亚微秒级"的定性表述，不可引用点值。
 
-详细基准测试报告请参阅 [benchmark-report.md](docs/benchmark-report.md)。
+**单操作延迟（中位数，注意各自的口径）：**
+
+| 基准 | 操作 | 延迟 | 离散度 |
+|------|------|------|--------|
+| `examples.perf` | DB Set（20 事务 × 200 key/事务，批内摊薄） | 1.43 µs | ±11.0% |
+| `examples.perf` | DB Get（单事务内 4000 次读） | 2.68 µs | ±2.5% |
+| `cjpm bench` | benchDBSet（单次 set） | 15.67 µs | ±9.1% |
+| `cjpm bench` | benchDBGet（单次 get） | 5.54 µs | ⚠️ ±68.5% |
+| `cjpm bench` | benchPut（跳表单次 put） | 1.04 µs | ⚠️ ±45.5% |
+
+> `examples.perf` 与 `cjpm bench` 的口径不同（前者批内摊薄、后者单次调用），
+> 因此数值不可互相比较 —— 引用时必须带上是哪个基准。
+
+**与 Go BadgerDB v4.9.1 的对照**（同机同 N=5000）：纯并发写 Go 约 150 ns/op、
+badger-cj 约 390 ns/op（±40%），**约慢 2.6 倍**。
+此比值强依赖所选的测量规模，详见基准报告 §3。
 
 ## 功能
 
@@ -626,7 +641,7 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 | **链式配置** | Config.withDir().withMemTableSize()... |
 | **数据库信息** | isClosed/sync/size/tables/levels |
 | **BloomFilter** | 读取优化，默认 1% 误判率 |
-| **io_uring** | 异步 I/O，Linux 下默认开启，10-60% 性能提升 |
+| **io_uring** | 异步 I/O，Linux 下默认开启；**收益取决于 workload** —— 大写入量/高并发可快 1.1-1.6x，小文件（4MB）批量写反而慢 2-6x，详见[基准报告](docs/benchmark-report.md) §6/§7 |
 | **Stream API** | 大规模并发数据处理 |
 | **Backup/Restore** | 全量/增量备份，支持 TTL 和 UserMeta |
 | **InMemory 模式** | 纯内存模式，适合测试和临时缓存 |
@@ -645,7 +660,8 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 
 ## 文档
 
-- [基准测试](docs/benchmark-report.md) - 性能测试报告
+- [基准测试](docs/benchmark-report.md) - 性能测试报告（v1.6.21 实测）
+- [基准方法学](docs/benchmark-methodology.md) - 怎么测、哪些数字不能引用
 - [进度跟踪](docs/progress-tracking.md) - 项目进度和实现细节
 - [设计文档](docs/plans/) - 各阶段设计文档
 
