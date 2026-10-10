@@ -279,15 +279,23 @@ protected class Compaction {
         
         let builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
         var lastKey: Array<Byte> = []
+        // 只有合并到**最底层**时，删除标记才可以真正丢弃：更低层若还留着更旧的版本，
+        // 丢掉 tombstone 等于给旧值解禁（生产实测：某次 2MB compaction 之后，删掉的上游
+        // 记录整批复活，连 id 都不变）。非最底层一律把 tombstone 写进新表继续压制。
+        let bottomMost = cd.nextLevel >= db.getOpt().MaxLevels - 1
         
         for ((key, vs) in allEntries) {
-            if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
+            // 同一个 key 的后续条目都是更旧的版本：**无论上一条有没有被写入**都要跳过。
+            // 必须先判重再更新 lastKey —— 反过来的话，「丢弃 tombstone」的同一轮里更旧的
+            // 值会被当成新 key 写进新表，就是删除复活的机制。
+            if (lastKey.size > 0 && sameKey(key, lastKey)) {
                 continue
             }
-            if (lastKey.size == 0 || !sameKey(key, lastKey)) {
-                builder.add(key, vs)
-                lastKey = key
+            lastKey = key
+            if (isDeletedOrExpired(vs.meta, vs.expiresAt) && bottomMost) {
+                continue
             }
+            builder.add(key, vs)
         }
         
         let data = builder.finish()
