@@ -67,7 +67,8 @@ class WritePipelineErrorSemanticsTest {
                 sink.add(huge)
                 let _ = huge[0]
             }
-            for (r in reqs) { r.done() }
+            // done() 由 runBatch 的 finally 统一负责——handler 不得自行 done()，
+            // 否则请求被池复用后迟到的第二次 done 会提前唤醒下一批 commit
         })
         pipe.emit(okReqs)   // 本批必然 OOM
 
