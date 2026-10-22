@@ -19,12 +19,33 @@ func systemFailureMsg(e: Error): String {
     if (e.message != "") { e.message } else { "系统级错误（OOM 等）：" + e.toString() }
 }
 
+/**
+ * 写批次执行管道：调用方 emit 一批 [WriteRequest]，本类在独立协程里串行执行 handler。
+ *
+ * **完成信号契约（handler 必须遵守）**：
+ * - handler **只负责把本批请求写入存储**（例如 `Badger.writeRequests`）；
+ * - 每个请求的 `done()` 由本类的 `runBatch` 在 finally 统一调用一次，**handler 不得自行
+ *   调用 `done()`**；失败标记（`markFailed`）同样由本类按异常统一负责，handler 不得代劳。
+ *
+ * 违反契约的后果不是"多减一次计数器"这么温和：`done()` 会唤醒等待中的 commit 调用方，
+ * 它随即把请求归还 `WriteRequestPool` 并被下一批 `reset()` 复用；迟到的第二次 `done()`
+ * 会把**新一批**的完成计数提前减到 0 → 新 commit 在本批写入前返回成功（写后立即读缺失）、
+ * 请求还可能在本类仍遍历 entries 时被 reset 清空（ConcurrentModificationException / 条目
+ * 永久丢失）。回归见 `write_pipeline_done_once_test.cj`（含一条与调度无关的确定性守卫）。
+ */
 public class WritePipeline {
     private let queue: CloseableBlockingQueue<ArrayList<WriteRequest>>
     private let running: AtomicBool
     private var fut: ?Future<Unit>
     private let handler: (ArrayList<WriteRequest>) -> Unit
     
+    /**
+     * 创建写管道并启动后台执行协程。
+     *
+     * @param handler   批次执行函数。只做写入，不要对请求调用 `done()` / `markFailed()`——
+     *                  完成信号与失败标记由本类统一负责（见类文档的契约说明）。
+     * @param queueSize 队列深度（批次）。
+     */
     public init(handler: (ArrayList<WriteRequest>) -> Unit, queueSize!: Int64 = 1000) {
         this.queue = CloseableBlockingQueue<ArrayList<WriteRequest>>(queueSize)
         this.handler = handler
