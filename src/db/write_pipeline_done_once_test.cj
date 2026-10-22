@@ -57,6 +57,27 @@ class WritePipelineDoneOnceRegressionTest {
         }
     }
 
+    // (c) 确定性守卫：每个请求生命周期内 done() 只能被调用一次。
+    //
+    // 前两条是压力型（竞态窗口取决于调度，空闲机器上可能放过缺陷）。这条不同：
+    // writeRequests 若再 done 一次，**每一次** commit 都会命中 DONE_TWICE_COUNT，
+    // 与调度无关 —— 缺陷代码上必红、修复后必绿。计数与分支只在测试构建里存在
+    // （@When[test]，发布产物无开销），见 write_request.cj 的插桩说明。
+    @TestCase
+    func testDoneCalledAtMostOncePerRequestCycle(): Unit {
+        let db = openDb()
+        let before = DONE_TWICE_COUNT.load()
+        let n: Int64 = 300
+        for (i in 0..n) {
+            db.updateOrThrow({ txn => txn.set("d${i}".toArray(), "v${i}".toArray()) })
+        }
+        db.close()
+        let delta = DONE_TWICE_COUNT.load() - before
+        if (delta != 0) {
+            throw Exception("${n} 次 commit 中出现 ${delta} 次重复 done()（每请求应恰好一次；多减会把对象池复用后的下一批提前唤醒 → 写后读不到 / 丢写）")
+        }
+    }
+
     // (b) 并发：多线程同时 commit，每次返回后立即读；结束后全量扫描 key 数 = 写入数
     @TestCase
     func testConcurrentCommitsNoLostWrite(): Unit {
