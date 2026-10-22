@@ -79,6 +79,9 @@ public class WritePipeline {
     // 否则本批只 done() 不标记 → commit() wait 返回后 errorOf()==None → 误报成功 =
     // 静默丢写（评审 P2；此前该场景仅由 loop() 边界捕获打印，批次对外显示成功）。
     // markFailed 必须先于 finally 的 done()：wait() 唤醒后再补标已无意义。
+    // done() 的唯一所有权在本函数：handler **不得**自行 done()（否则每个请求被 done
+    // 两次）。重复 done 会把已被 WriteRequestPool 复用并 reset() 的请求计数器减到 0，
+    // 让下一批 commit 在写入完成前被提前唤醒（写后读不到 / 请求被并发 reset 清空）。
     // 附带语义：失败部分条目可能已写入（失败≠零写入，badger-go 相同）。
     private func runBatch(reqs: ArrayList<WriteRequest>): Unit {
         try {

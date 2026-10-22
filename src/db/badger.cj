@@ -1064,6 +1064,15 @@ public class Badger <: VLogGCDB {
         }
     }
     
+    // 仅作为 WritePipeline 的 handler 使用（见 open() 的 WritePipeline 构造），
+    // done() 的所有权归 WritePipeline.runBatch() 的 finally——本函数**不得**再 done()。
+    // 理由：SyncCounter.dec() 在计数为 0 时保持不变，重复 done 对未复用请求看似无害；
+    // 但 wait() 返回后请求会立即被调用方归还 WriteRequestPool 并 reset() 复用到下一批，
+    // 此时迟到的第二次 done() 会把新请求计数器 1→0 → 新 commit 在本批写入前被提前
+    // 唤醒（commit 返回 Ok 却读不到数据），甚至请求在管道仍遍历 entries 时被 reset
+    // 清空 → ConcurrentModificationException / 条目永久丢失。
+    // 例外：flushLoop 关闭时的 drain 路径走 writeOneRequest()（无 runBatch 包装，
+    // 自身负责 markFailed + done）。
     private func writeRequests(reqs: ArrayList<WriteRequest>): Unit {
         if (reqs.isEmpty()) {
             return
@@ -1074,10 +1083,6 @@ public class Badger <: VLogGCDB {
         for (req in reqs) {
             let prepared = prepareEntries(req.getEntries(), req.commitTs)
             putPrepared(prepared)
-        }
-        
-        for (req in reqs) {
-            req.done()
         }
     }
     
