@@ -1,0 +1,219 @@
+From dbc707fab0890d4bb0af0ea09f99b6817feacc49 Mon Sep 17 00:00:00 2001
+From: YSTYLE <lxy5266@live.com>
+Date: Tue, 6 Oct 2026 10:16:08 +0800
+Subject: [PATCH] =?UTF-8?q?perf(db):=20WriteRequest=20=E5=AE=8C=E6=88=90?=
+ =?UTF-8?q?=E4=BF=A1=E5=8F=B7=E6=94=B9=E7=94=A8=E5=8F=AF=E5=A4=8D=E7=94=A8?=
+ =?UTF-8?q?=20Semaphore=EF=BC=88=E5=AE=9E=E6=B5=8B=E7=AB=AF=E5=88=B0?=
+ =?UTF-8?q?=E7=AB=AF=E6=97=A0=E6=94=B6=E7=9B=8A=EF=BC=8C=E4=B8=8D=E5=90=88?=
+ =?UTF-8?q?=E5=B9=B6=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+动机：SyncCounter 无 reset，每次提交都要重建对象；chan-bench 微基准显示
+复用信号量可把一次提交往返从 ~1150ns 降到 ~697ns（-39%）。
+
+实测（txn_queue_perf，两版二进制交替 18 轮）：
+均值 4639.6 vs 4669.7 ns/txn（-0.6%）、中位数 -0.5%、逐轮配对 10/18、
+Welch t=-0.26，且方差不降反升（σ 412 vs 267）→ 端到端无显著差异。
+
+结论：微基准收益在真实写路径上被其它开销稀释，不值得为此引入
+「Semaphore 许可钳制 + 必须严格一对一配对」的隐式约束，本分支不合并。
+---
+ src/db/write_request.cj      |  23 +++++--
+ src/db/write_request_test.cj | 119 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 136 insertions(+), 6 deletions(-)
+ create mode 100644 src/db/write_request_test.cj
+
+diff --git a/src/db/write_request.cj b/src/db/write_request.cj
+index 66cf29a..36477fe 100644
+--- a/src/db/write_request.cj
++++ b/src/db/write_request.cj
+@@ -34,7 +34,9 @@ public struct WriteEntry {
+ public class WriteRequest {
+     public var commitTs: UInt64
+     private let entries: ArrayList<WriteEntry>
+-    private var counter: SyncCounter
++    // 可复用完成信号：许可在 0/1 之间摆动，每轮 wait=acquire、done=release，
++    // 不必像 SyncCounter 那样每次提交都重建对象（SyncCounter 无 reset）。
++    private let gate: Semaphore
+     // 写入失败错误（对齐 badger-go request.Err）：pipeline 处理本批时抛异常会标记到每个 req，
+     // commit() wait 后据此返回 TxnStatus.Error——杜绝"写入失败却返回成功"的静默丢数据
+     private var errMsg: ?String = None
+@@ -42,7 +44,9 @@ public class WriteRequest {
+     public init(commitTs: UInt64) {
+         this.commitTs = commitTs
+         this.entries = ArrayList<WriteEntry>()
+-        this.counter = SyncCounter(1)
++        this.gate = Semaphore(1)
++        // 预取初始许可：使第一次 wait 必须等到 done 才返回（对齐 SyncCounter(1) 语义）
++        this.gate.acquire()
+     }
+     
+     public init(
+@@ -57,7 +61,8 @@ public class WriteRequest {
+         this.commitTs = commitTs
+         this.entries = ArrayList<WriteEntry>()
+         this.entries.add(WriteEntry(key, value, isDelete: isDelete, meta: meta, userMeta: userMeta, expiresAt: expiresAt))
+-        this.counter = SyncCounter(1)
++        this.gate = Semaphore(1)
++        this.gate.acquire()
+     }
+     
+     public func addEntry(
+@@ -80,11 +85,17 @@ public class WriteRequest {
+     }
+     
+     public func wait(): Unit {
+-        counter.waitUntilZero()
++        gate.acquire()
+     }
+     
+     public func done(): Unit {
+-        counter.dec()
++        // 许可只应在 0（等待中）时释放；非 0 说明本请求被重复完成，
++        // 重复释放会把"下一次 wait 必须等到 done"的配对破坏掉，故忽略并留痕。
++        if (gate.count != 0) {
++            println("[badger] WriteRequest.done 重复调用（许可计数=${gate.count}），已忽略")
++            return
++        }
++        gate.release()
+     }
+     
+     // 本请求写入失败（首次失败保留，后续失败不覆盖）
+@@ -102,6 +113,6 @@ public class WriteRequest {
+         this.commitTs = newCommitTs
+         entries.clear()
+         this.errMsg = None
+-        counter = SyncCounter(1)
++        // gate 不重建：上一轮 wait 已消耗许可、done 已释放，状态自然回到「待等待」
+     }
+ }
+diff --git a/src/db/write_request_test.cj b/src/db/write_request_test.cj
+new file mode 100644
+index 0000000..00adc98
+--- /dev/null
++++ b/src/db/write_request_test.cj
+@@ -0,0 +1,119 @@
++package badgercj.db
++
++import std.unittest.*
++import std.unittest.testmacro.*
++import std.sync.*
++import std.time.*
++
++/**
++ * WriteRequest 完成信号的语义契约测试。
++ *
++ * 完成信号由「每次提交重建 SyncCounter」改为「复用 Semaphore 许可」后，
++ * 关键不变量是：**每轮 wait 都必须等到本轮的 done**——即上一轮的许可必须已被
++ * wait 消耗干净，否则会出现"提交方提前返回"（等价于静默丢写）。
++ * 这些用例正是围绕该不变量设计的。
++ */
++@Test
++class WriteRequestLatchTest {
++    @TestCase
++    func testWaitBlocksUntilDone() {
++        let req = WriteRequest(1)
++        let returned = AtomicBool(false)
++        let waiter = spawn {
++            req.wait()
++            returned.store(true)
++        }
++        sleep(Duration.millisecond * 20)
++        @Expect(!returned.load())
++        req.done()
++        waiter.get()
++        @Expect(returned.load())
++    }
++
++    @TestCase
++    func testDoneBeforeWaitStillReleases() {
++        // 处理方可能在提交方调用 wait 之前就完成（add 与 wait 之间），
++        // 信号必须被保留而不是丢失
++        let req = WriteRequest(1)
++        req.done()
++        let start = MonoTime.now()
++        req.wait()
++        @Expect((MonoTime.now() - start).toMilliseconds() < 50)
++    }
++
++    @TestCase
++    func testLatchReusableAcrossManyRounds() {
++        // 每轮都必须重新阻塞等待：若许可未复位，wait 会立即返回而使断言失败
++        let req = WriteRequest(1)
++        for (round in 0..100) {
++            let returned = AtomicBool(false)
++            let waiter = spawn {
++                req.wait()
++                returned.store(true)
++            }
++            sleep(Duration.millisecond)
++            @Expect(!returned.load())
++            req.done()
++            waiter.get()
++            req.reset(UInt64(round) + 2)
++        }
++    }
++
++    @TestCase
++    func testDuplicateDoneDoesNotBreakNextRound() {
++        let req = WriteRequest(1)
++        req.done()
++        req.done() // 重复完成：应被忽略，而不是把许可抬到破坏配对的状态
++        req.wait() // 消费掉第一次 done 的信号
++        let returned = AtomicBool(false)
++        let waiter = spawn {
++            req.wait()
++            returned.store(true)
++        }
++        sleep(Duration.millisecond * 20)
++        @Expect(!returned.load())
++        req.done()
++        waiter.get()
++    }
++
++    @TestCase
++    func testPooledRequestsStayPairingCorrect() {
++        // 池化复用是本改动的真实使用路径：连续借还多轮后仍必须严格配对
++        let pool = WriteRequestPool(maxSize: 4)
++        for (round in 0..50) {
++            let req = pool.get(UInt64(round))
++            let returned = AtomicBool(false)
++            let waiter = spawn {
++                req.wait()
++                returned.store(true)
++            }
++            sleep(Duration.millisecond)
++            @Expect(!returned.load())
++            req.done()
++            waiter.get()
++            pool.put(req)
++        }
++    }
++
++    @TestCase
++    func testAlternatingSubmitterAndCompleterAcrossThreads() {
++        // 跨线程交替：提交方每轮 wait 返回后才进入下一轮，完成方每次 done 前先等
++        // 「本轮已提交」信号——与真实 commit/pipeline 的一对一配对一致，
++        // 完成方领先深度不超过 1（否则许可钳制会丢信号，那是调用约定被破坏）。
++        let req = WriteRequest(1)
++        let submitted = Semaphore(1)
++        submitted.acquire()
++        let rounds: Int64 = 200
++        let completer = spawn {
++            for (_ in 0..rounds) {
++                submitted.acquire()
++                req.done()
++            }
++        }
++        for (_ in 0..rounds) {
++            submitted.release()
++            req.wait()
++        }
++        completer.get()
++    }
++}
+-- 
+2.56.0
+
