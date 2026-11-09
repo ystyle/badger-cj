@@ -249,3 +249,16 @@ public interface VLogGCDB {
 | BloomFilterTest | 6 | BloomFilter |
 | TableBloomFilterTest | 3 | Table BloomFilter |
 | **总计** | **252** | |
+
+## 2.0 补齐（2026-11-09）
+
+| 模块 | 新增 API | 状态 |
+|---|---|---|
+| DB | newWriteBatch / newWriteBatchAt / newTransactionAt / isManaged / setDiscardTs / setDiscardSize(未做) / getSequence / getMergeOperator / estimateSize / openManaged | ✅ |
+| WriteBatch | set / delete / setEntry / flush / cancel / getError / isCanceled | ✅ |
+| MergeOperator | add / get / compact / stop | ✅ |
+| Sequence | nextValue / release | ✅ |
+| Transaction | commitAt | ✅ |
+| Config | NumVersionsToKeep / ManagedTxns / MmapWAL / MmapVLog / MmapSSTable / VLogFileSize / NumMemtables | ✅ |
+| Iterator | allVersions（含 tombstone 可见语义修正） | ✅ |
+| 未做（明确延后） | Encryption、Block Cache、Ranges（按需）、分布式/Subscribe | 2.1+ |

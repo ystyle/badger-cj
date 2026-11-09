@@ -363,3 +363,38 @@ go test -run='^$' -bench='^BenchmarkWrite$' -benchtime=5000x -count=30 -cpu=16 .
 
 # ⚠️ 不要单独跑 frac_10：它是空表（§3.2），且不加 -benchtime=Nx 会 OOM
 ```
+
+
+## 2.0 重测（2026-11-09，阶段 7.3 首轮）
+
+> 方法学同前：真实盘（mount namespace 把 /tmp 重定向到 btrfs 数据目录）、cjHeapSize=12gb、
+> **交替 A/B（每轮交换先后）各 9 轮**、报中位数/离散度/配对差/Welch p，禁止引用单轮 best。
+> 工具：scripts/bench/ab-compare.py。
+
+### 2.0.0 vs v1.6.23（txn_queue_perf：8 线程 × 5000 事务 × 1 key，WAL mmap）
+
+| 版本 | median ns/txn | 离散度 |
+|---|---|---|
+| 2.0.0 | **5540** | 11.5% |
+| v1.6.23 | 5181 | 6.6% |
+
+配对均值差 +299 ns（Welch p ≈ 7e-4）：**2.0 的写路径比 1.6.23 慢约 6.9%**。
+
+> 这是阶段 7.3 首轮发现的 2.1x 回退修复后的结果。回退根因：分组提交的 WAL 批写第一版用
+> ArrayList<Byte> 逐字节追加再 toArray；改为「算总长 → 一块连续内存 → 逐字段 copyTo +
+> 增量 CRC → 一次 mmap 写」后收敛到个位数百分比。结论：**2.0 的 mmap/分组提交不是写吞吐
+> 优化**，价值在持久性语义（SyncWrites 下每批一次 msync）与内存上界（表/段数据不进 GC 堆）。
+
+### WAL 后端对照（2.0 内部，同一负载）
+
+| WAL 后端 | median ns/txn | 离散度 |
+|---|---|---|
+| mmap（默认） | **10688** | 166%（受环境干扰，仅作方向性） |
+| buffered（mmap:off） | 90619 | 34% |
+
+mmap 后端约 **8.5x** 快于 buffered（buffered 每条日志一次 File.write）。
+
+### 待补
+
+- run-bench.py 全套（skiplist / txn / perf / flush_impact / sstable_write）在 2.0 上的 5 轮复测；
+- sst_read_mem_perf 的 mmap:on|off 读延迟对照（1.6.x 已测过零回退，2.0 索引 lazy 化后需复测）。
