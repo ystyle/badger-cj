@@ -21,12 +21,14 @@ main(args: Array<String>): Int64 {
     if (exists(Path(dir))) {
         remove(Path(dir), recursive: true)
     }
+    // 可选：args[1] == "stream" 时打开 L2 流式落盘（Config.StreamingSSTable）
+    let streaming = args.size > 1 && args[1] == "stream"
     let db = Badger.open(Config(
         dir: dir,
         memTableSize: 1024 * 1024u64,
         useIoUring: !sync,
         numLevelZeroTables: 1000  // 隔离 compaction：观测纯 flush 落盘路径
-    ))
+    , streamingSSTable: streaming))
 
     let rounds = 500
     let keysPerRound = 100
