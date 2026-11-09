@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     # 2.0 发布口径以 Linux 为准。macOS/Windows 先跑通可见性；失败项逐条登记
     # （见 docs/progress-tracking.md 的「CI 平台矩阵」），不静默忽略。
     continue-on-error: ${{ matrix.os != 'ubuntu-24.04' }}
@@ -27,11 +28,34 @@ jobs:
         shell: bash
         run: sudo apt-get update && sudo apt-get install -y liburing-dev
 
-      - uses: Zxilly/setup-cangjie@v3
+      # setup-cangjie 需要从 GitHub Releases 下载 cjv 引导器；该 CDN 偶发 504，
+      # 故失败后重试两次（步骤级 continue-on-error + outcome 判断），不改变最终语义。
+      - name: Setup Cangjie
+        id: setup-cangjie-1
+        uses: Zxilly/setup-cangjie@v3
+        continue-on-error: true
         with:
           channel: sts
           # auto：从 cjpm.toml 的 cjc-version 读版本（当前 1.2.0，STS 渠道），
           # 避免两处各写一份、升级编译器时漏改一边。
+          version: auto
+          components: stdx
+
+      - name: Setup Cangjie（重试 1）
+        id: setup-cangjie-2
+        if: steps.setup-cangjie-1.outcome == 'failure'
+        uses: Zxilly/setup-cangjie@v3
+        continue-on-error: true
+        with:
+          channel: sts
+          version: auto
+          components: stdx
+
+      - name: Setup Cangjie（重试 2）
+        if: steps.setup-cangjie-1.outcome == 'failure' && steps.setup-cangjie-2.outcome == 'failure'
+        uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
           version: auto
           components: stdx
 
