@@ -508,3 +508,16 @@ arena 上限约 5 x 21MB = 105MB，已超堆上限；流式落盘减少的是「
 不能抵消 memtable 集合本身的占用。低堆部署的正确姿势是同时调小 memTableSize 与 NumMemtables
 （例如 4MB 表 + NumMemtables=2），这块需要后续在 README 给一张对照表；流式落盘的收益
 应在「memtable 集合已能放下、flush 峰值内存成为瓶颈」的场景衡量。
+
+### 低堆矩阵（P0-2，cjHeapSize=128MB，写约 24MB 触发大表 flush）
+
+| memTableSize | NumMemtables | 整表字节（plain） | 流式落盘（stream） |
+|---|---|---|---|
+| 4MB | 2 | **OOM** | **通过（632ms）** |
+| 4MB | 5 | OOM | OOM |
+| 16MB | 2 | OOM | OOM |
+| 16MB | 5 | OOM | OOM |
+
+结论：在「memtable 集合本身放得下」的边界上（4MB 表 + NumMemtables=2），**流式落盘把
+原本 OOM 的场景变成可完成**——这正是 P0-2 想要验证的另一个副本收益；但 memtable 集合超限时
+（16MB 表，或 NumMemtables=5）流式也救不回来，低堆仍需同时约束这两个参数。
