@@ -419,6 +419,18 @@ protected class Compaction {
             // 读者持有表数据，因此无需引用计数（设计 §5.2 的免 refcount 方案）。
             // 磁盘表的映射在此解除，避免虚拟地址只增不减。
             t.close()
+            // 回收磁盘文件：旧实现只解映射不删文件，磁盘随每轮 compaction 单调增长。
+            // 顺序必须是「先 close 再 unlink」——Windows 上被映射的文件不能删除。
+            // 删除失败不阻断 compaction：manifest 已移除该表，文件最迟由 open 时的
+            // 孤儿清理回收（崩溃窗口同理：已建表但 MANIFEST 未记的文件）。
+            let path = sstablePath(db.getOpt().Dir, t.getId())
+            try {
+                if (exists(Path(path))) {
+                    remove(Path(path))
+                }
+            } catch (e: Exception) {
+                // 忽略：文件可能在别的进程/句柄上仍占用
+            }
         }
     }
 }

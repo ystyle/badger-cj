@@ -114,6 +114,52 @@ protected class LevelsController {
                 }
             }
         }
+        
+        // 打开时回收孤儿 .sst：① 崩溃窗口里「已建表但 MANIFEST 未记录」；
+        // ② 旧版本 compaction 只解映射、不 unlink 留下的旧表。只删 manifest 中
+        // 不存在的数字命名文件，非标准命名一律不动。
+        cleanupStaleTables()
+    }
+    
+    private func cleanupStaleTables(): Unit {
+        if (inMemory || dir.isEmpty()) {
+            return
+        }
+        // 目录可以还不存在（例如仅用默认值构造 LevelsController 的场景）
+        if (!exists(Path(dir))) {
+            return
+        }
+        let live = HashSet<UInt64>()
+        for (levelTables in manifest.levels) {
+            for (info in levelTables) {
+                live.add(info.id)
+            }
+        }
+        for (entry in Directory.readFrom(Path(dir))) {
+            let name = entry.name
+            if (!name.endsWith(".sst")) {
+                continue
+            }
+            let stem = name[0..(name.size - 4)]
+            if (stem.size == 0 || stem.size > 20) {
+                continue
+            }
+            var id: UInt64 = 0
+            var digitsOnly = true
+            for (b in stem.toArray()) {
+                if (b < 48 || b > 57) {
+                    digitsOnly = false
+                    break
+                }
+                id = id * 10 + UInt64(b - 48)
+            }
+            if (digitsOnly && !live.contains(id)) {
+                try {
+                    remove(Path(dir + "/" + name))
+                } catch (e: Exception) {
+                }
+            }
+        }
     }
     
 protected func getMaxVersion(): UInt64 {
