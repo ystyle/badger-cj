@@ -37,9 +37,9 @@ protected class Table {
         if (idx.tableSmallest.size > 0) {
             this.smallest = idx.tableSmallest
             this.biggest = idx.tableBiggest
-        } else if (idx.offsets.size > 0) {
-            this.smallest = idx.offsets[0].key
-            this.biggest = idx.offsets[idx.offsets.size - 1].key
+        } else if (idx.blockCount() > 0) {
+            this.smallest = idx.keyAt(0)
+            this.biggest = idx.keyAt(idx.blockCount() - 1)
         } else {
             this.smallest = []
             this.biggest = []
@@ -65,9 +65,9 @@ protected class Table {
         if (idx.tableSmallest.size > 0) {
             this.smallest = idx.tableSmallest
             this.biggest = idx.tableBiggest
-        } else if (idx.offsets.size > 0) {
-            this.smallest = idx.offsets[0].key
-            this.biggest = idx.offsets[idx.offsets.size - 1].key
+        } else if (idx.blockCount() > 0) {
+            this.smallest = idx.keyAt(0)
+            this.biggest = idx.keyAt(idx.blockCount() - 1)
         } else {
             this.smallest = []
             this.biggest = []
@@ -87,7 +87,7 @@ protected class Table {
         }
         
         let block = readBlock(idx)
-        let iter = BlockIterator(block, index.offsets[idx].key)
+        let iter = BlockIterator(block, index.keyAt(idx))
         iter.seek(key)
         
         if (iter.isValid() && keysEqual(iter.key(), key)) {
@@ -129,20 +129,24 @@ protected class Table {
     }
     
     public func numBlocks(): Int64 {
-        return index.offsets.size
+        return index.blockCount()
+    }
+    
+    /** 索引本体堆占用（诊断/测试：raw + 4B/块，不含数据块与 bloom）。 */
+    public func indexHeapBytes(): Int64 {
+        return index.heapBytes()
     }
     
     public func blockIterator(idx: Int64): BlockIterator {
         let block = readBlock(idx)
-        return BlockIterator(block, index.offsets[idx].key)
+        return BlockIterator(block, index.keyAt(idx))
     }
     
     private func readBlock(idx: Int64): Array<Byte> {
-        let bo = index.offsets[idx]
-        let blockData = tableData.read(Int64(bo.offset), Int64(bo.len))
+        let blockData = tableData.read(Int64(index.offsetAt(idx)), Int64(index.lenAt(idx)))
         
         // 解压 Block
-        if (bo.compression == CompressionType.Snappy) {
+        if (index.compressionAt(idx) == CompressionType.Snappy) {
             return decompressBlock(blockData)
         }
         return blockData
@@ -154,25 +158,13 @@ protected class Table {
     }
     
     public func findBlock(key: Array<Byte>): Int64 {
-        if (index.offsets.size == 0) {
+        if (index.blockCount() == 0) {
             return -1
         }
         
-        var left: Int64 = 0
-        var right: Int64 = index.offsets.size - 1
+        let left = index.findBlockPos(key)
         
-        while (left < right) {
-            let mid = (left + right) / 2
-            let cmp = compareKeys(key, index.offsets[mid].key)
-            
-            if (cmp > 0) {
-                left = mid + 1
-            } else {
-                right = mid
-            }
-        }
-        
-        let cmp = compareKeys(key, index.offsets[left].key)
+        let cmp = index.compareKeyWithBlock(left, key)
         if (cmp >= 0 || left == 0) {
             return left
         }
@@ -181,7 +173,7 @@ protected class Table {
         // 此时 key 是「readTs ≥ 组内最大存储版本」的 seek（keyWithTs 编码 ts 取反降序，
         // 更大 ts 排更前）——key 实际仍落在该块的 user key 组内（组首条 ≤ readTs 可命中），
         // 必须返回本块而非回退前一块（回退会在前一块内 seek 到块尾而稳定 miss）。
-        if (sameUserKey(key, index.offsets[left].key)) {
+        if (sameUserKey(key, index.keyAt(left))) {
             return left
         }
         
@@ -224,14 +216,14 @@ protected class Table {
     }
     
     public func offsetsLength(): Int64 {
-        index.offsets.size
+        index.blockCount()
     }
     
     public func getOffsetKey(idx: Int64): Array<Byte> {
-        if (idx < 0 || idx >= index.offsets.size) {
+        if (idx < 0 || idx >= index.blockCount()) {
             return []
         }
-        index.offsets[idx].key
+        index.keyAt(idx)
     }
     
     public func keySplits(n: Int64, prefix: Array<Byte>): ArrayList<Array<Byte>> {
@@ -240,7 +232,7 @@ protected class Table {
             return result
         }
         
-        let oLen = index.offsets.size
+        let oLen = index.blockCount()
         var jump = oLen / n
         if (jump == 0) {
             jump = 1
