@@ -16,13 +16,15 @@ protected class LevelsController {
     private let inMemory: Bool
     private let memoryTables: HashMap<UInt64, Array<Byte>>
     private let mmapSSTable: Bool
+    private let blockCache: ?BlockCache
     
     public init(manifest!: Manifest = Manifest(), dir!: String = "", inMemory!: Bool = false,
-        mmapSSTable!: Bool = true) {
+        mmapSSTable!: Bool = true, blockCache!: ?BlockCache = None) {
         this.manifest = manifest
         this.dir = dir
         this.inMemory = inMemory
         this.mmapSSTable = mmapSSTable
+        this.blockCache = blockCache
         this.nextFileID = manifest.nextFileID
         this.levels = ArrayList<LevelHandler>()
         this.cstatus = compactStatus(7)
@@ -105,9 +107,9 @@ protected class LevelsController {
                 if (exists(Path(path))) {
                     // 默认映射打开（表数据留在页缓存，不进 GC 堆）；关闭则退回整表读入
                     let table = if (mmapSSTable) {
-                        Table(tableInfo.id, tableData: MmapTableData(path))
+                        Table(tableInfo.id, tableData: MmapTableData(path), cache: blockCache)
                     } else {
-                        Table(tableInfo.id, File.readFrom(Path(path)))
+                        Table(tableInfo.id, File.readFrom(Path(path)), cache: blockCache)
                     }
                     let adapter = TableAdapter(table)
                     levels[level].addTable(adapter)

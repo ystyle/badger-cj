@@ -33,6 +33,8 @@ public class Badger <: VLogGCDB {
     private let manifest: Manifest
     private let manifestFile: ManifestFile
     private let lc: LevelsController
+    // 2.1 Block Cache（容量 0 = 关闭，默认；见 Config.BlockCacheSizeMB）
+    private let blockCache: ?BlockCache
     private let lock: ReadWriteLock
     private var mt: MemTable
     private let imm: ArrayList<MemTable>
@@ -87,13 +89,15 @@ public class Badger <: VLogGCDB {
         manifest: Manifest,
         manifestFile: ManifestFile,
         lc: LevelsController,
-        vlog: VLogManager
+        vlog: VLogManager,
+        blockCache: ?BlockCache
     ) {
         this.opt = opt
         this.mt = mt
         this.manifest = manifest
         this.manifestFile = manifestFile
         this.lc = lc
+        this.blockCache = blockCache
         this.lock = ReadWriteLock()
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
@@ -142,8 +146,13 @@ public class Badger <: VLogGCDB {
         
         // LevelsController（构造时已按 manifest 加载磁盘表；此处不再重复 loadTables，
         // 避免 R2：每张表双份驻留内存）
+        let blockCache: ?BlockCache = if (opt.BlockCacheSizeMB > 0) {
+            Some(BlockCache(capacityBytes: opt.BlockCacheSizeMB * 1024u64 * 1024u64))
+        } else {
+            None
+        }
         let lc = LevelsController(manifest: manifest, dir: opt.Dir, inMemory: opt.InMemory,
-            mmapSSTable: opt.MmapSSTable)
+            mmapSSTable: opt.MmapSSTable, blockCache: blockCache)
         
         // 回收已有的 WAL 文件（.mem 文件）
         var immTables = ArrayList<MemTable>()
@@ -197,7 +206,7 @@ public class Badger <: VLogGCDB {
             }
             vlog = VLogManager(Path(opt.Dir), opt: vlogOpt)
         }
-        let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
+        let db = Badger(opt, mt, manifest, manifestFile, lc, vlog, blockCache)
         // 当前 memtable 已占用 fid（未走 reserve），把文件序列推进到该 fid 之后——
         // 否则首次 flush 会 reserve 到同一 id，新 memtable 的 WAL 被 flush 旧表的
         // decrRef 误删（崩溃窗口丢未 flush 数据）。
@@ -568,6 +577,14 @@ public class Badger <: VLogGCDB {
     }
     
     protected func getLevelsController(): LevelsController { lc }
+    
+    /** Block Cache 当前占用字节数（诊断/测试用；关闭时为 0）。 */
+    public func blockCacheUsedBytes(): Int64 {
+        match (blockCache) {
+            case Some(c) => c.used()
+            case None => 0
+        }
+    }
     
     /** 测试/诊断用：L0 各表的存储后端（"mmap" | "memory"）。 */
     protected func getL0BackingKinds(): ArrayList<String> {

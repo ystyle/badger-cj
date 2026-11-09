@@ -15,14 +15,17 @@ protected class Table {
     public let isInMemory: Bool
     private let index: TableIndex
     private let bloomFilter: ?BloomFilter
+    // 2.1 Block Cache：可选，容量 0/未配置时为 None（行为与 2.0.1 一致）
+    private let blockCache: ?BlockCache
     
     public let smallest: Array<Byte>
     public let biggest: Array<Byte>
     public let keyCount: UInt32
     public let maxVersion: UInt64
     
-    public init(id: UInt64, data: Array<Byte>, inMemory!: Bool = false) {
+    public init(id: UInt64, data: Array<Byte>, inMemory!: Bool = false, cache!: ?BlockCache = None) {
         this.id = id
+        this.blockCache = cache
         // 阶段 A：行为与原实现一致（数据仍常驻内存），仅把存放方式抽到 TableData；
         // 阶段 B 将由 MmapTableData 承接磁盘模式，使表数据离开 GC 堆。
         this.tableData = MemoryTableData(data)
@@ -51,8 +54,9 @@ protected class Table {
     /**
      * 以任意 TableData 构造（磁盘模式传 MmapTableData）：索引按需从数据源读取。
      */
-    public init(id: UInt64, tableData!: TableData, inMemory!: Bool = false) {
+    public init(id: UInt64, tableData!: TableData, inMemory!: Bool = false, cache!: ?BlockCache = None) {
         this.id = id
+        this.blockCache = cache
         this.tableData = tableData
         this.isInMemory = inMemory
         let idx = TableIndex.decodeFromTableData(tableData)
@@ -143,6 +147,20 @@ protected class Table {
     }
     
     private func readBlock(idx: Int64): Array<Byte> {
+        // 命中缓存直接返回；未命中读盘后塞入（容量 0 时不缓存）
+        if (let Some(c) <- blockCache) {
+            if (let Some(hit) <- c.get(id, idx)) {
+                return hit
+            }
+        }
+        let data = readBlockUncached(idx)
+        if (let Some(c) <- blockCache) {
+            c.put(id, idx, data)
+        }
+        return data
+    }
+    
+    private func readBlockUncached(idx: Int64): Array<Byte> {
         let blockData = tableData.read(Int64(index.offsetAt(idx)), Int64(index.lenAt(idx)))
         
         // 解压 Block
@@ -204,6 +222,10 @@ protected class Table {
      * 无需引用计数；Windows 上必须先 close 再 unlink 表文件。
      */
     public func close(): Unit {
+        // 摘表先失效该表的缓存条目：compaction 替换后同 blockIdx 可能是另一份内容
+        if (let Some(c) <- blockCache) {
+            c.invalidateTable(id)
+        }
         tableData.close()
     }
     

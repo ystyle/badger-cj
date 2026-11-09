@@ -35,6 +35,9 @@ public struct Config {
     // compaction 每个 key 至少保留的版本数（对齐 badger-go NumVersionsToKeep，默认 1）。
     // managed DB 必须调大（旧 readTs 要能读到旧版本），否则旧快照会丢数据。
     public var NumVersionsToKeep: Int
+    // Block Cache 容量（MB，2.1）。默认 0 = 关闭，行为与 2.0.1 完全一致；
+    // 建议 64-256，用于把 mmap 模式随机读延迟拉回「整表驻留堆」水平。
+    public var BlockCacheSizeMB: UInt64
     // managed 模式（对齐 badger-go OpenManaged）：提交/读取时间戳完全由调用方指定，
     // 不做冲突检测；必须配合 SetDiscardTs 才能回收旧版本（NumVersionsToKeep 需调大）。
     public var ManagedTxns: Bool
@@ -59,7 +62,8 @@ public struct Config {
         mmapSSTable!: Bool = true,
         vlogFileSize!: UInt64 = 1024 * 1024 * 1024u64,
         numVersionsToKeep!: Int = 1,
-        managedTxns!: Bool = false
+        managedTxns!: Bool = false,
+        blockCacheSizeMB!: UInt64 = 0
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -76,6 +80,7 @@ public struct Config {
         this.VLogFileSize = vlogFileSize
         this.NumVersionsToKeep = if (numVersionsToKeep < 1) { 1 } else { numVersionsToKeep }
         this.ManagedTxns = managedTxns
+        this.BlockCacheSizeMB = blockCacheSizeMB
         this.MmapWAL = mmapWAL
         this.MmapVLog = mmapVLog
         this.MmapSSTable = mmapSSTable
