@@ -616,47 +616,175 @@ public class VLogFile {
         }
     }
     
+    /**
+     * 顺序遍历段内全部条目（阶段 6.2 流式化）。
+     *
+     * 旧实现把整个有效区间 `m.read(0, writeOffset)` 复制进堆再逐条解码——GC/重写遍历 1GB
+     * 段时会瞬间多出一份段大小的分配。现在按条目流式读取：峰值内存 = 单条条目 + 64KB 读缓冲。
+     */
     public func iterate(callback: (LogEntry, UInt32) -> Bool): Unit {
-        let data: Array<Byte>
-        let totalSize: Int64
-        
-        if (!inMemory) {
-            if (let Some(m) <- mmap) {
-                // 只遍历有效区间：预分配尾部是 0 填充，解不出条目
-                totalSize = Int64(writeOffset)
-                if (totalSize == 0) {
-                    return
+        if (inMemory) {
+            let data = buf.toArray()
+            var off: Int64 = 0
+            while (off < Int64(data.size)) {
+                let (entry, bytesRead) = LogEntry.decode(data, off)
+                if (!callback(entry, UInt32(off))) {
+                    break
                 }
-                data = m.read(0, totalSize)
-            } else if (let Some(f) <- file) {
-                f.seek(SeekPosition.Begin(0))
-                let fileLen = Int64(writeOffset)
-                if (fileLen == 0) {
-                    return
-                }
-                data = Array<Byte>(fileLen, repeat: 0)
-                let bytesRead = f.read(data)
-                if (bytesRead != fileLen) {
-                    throw Exception("VLogFile.iterate: read incomplete")
-                }
-                totalSize = fileLen
-            } else {
-                return
+                off += bytesRead
             }
-        } else {
-            data = buf.toArray()
-            totalSize = Int64(data.size)
+            return
         }
         
-        var offset: UInt32 = 0
-        while (Int64(offset) < totalSize) {
-            let (entry, bytesRead) = LogEntry.decode(data, Int64(offset))
-            if (!callback(entry, offset)) {
+        let limit = Int64(writeOffset)
+        if (limit <= 0) {
+            return
+        }
+        if (mmap.isNone() && file.isNone()) {
+            return
+        }
+        if (let Some(f) <- file) {
+            f.seek(SeekPosition.Begin(0))
+        }
+        let reader = VLogSegmentReader(mmap, file, limit)
+        var off: Int64 = 0
+        while (off < limit) {
+            let header = reader.readNext(8)
+            if (header.size < 8) {
                 break
             }
-            offset += UInt32(bytesRead)
+            let keyLen = Int64(readU32LE(header, 0))
+            let valLen = Int64(readU32LE(header, 4))
+            let entryLen = 13 + keyLen + valLen
+            let rest = reader.readNext(entryLen - 8)
+            if (rest.size < entryLen - 8) {
+                break
+            }
+            let entryBytes = Array<Byte>(entryLen, repeat: 0)
+            for (i in 0..8) {
+                entryBytes[i] = header[i]
+            }
+            for (i in 0..rest.size) {
+                entryBytes[8 + i] = rest[i]
+            }
+            let (entry, _) = LogEntry.decode(entryBytes, 0)
+            if (!callback(entry, UInt32(off))) {
+                break
+            }
+            off += entryLen
         }
     }
+}
+
+/**
+ * VLog 段顺序读取器：按需读、不整段驻留。
+ * - mmap 后端：直接映射读（无额外缓冲，物理页由 OS 管理）；
+ * - file 后端：64KB 滑动缓冲合并小读（每条两次逻辑读 → 缓冲命中），大条目直读。
+ */
+private class VLogSegmentReader {
+    private let mmap: ?MmapFile
+    private let file: ?File
+    private let limit: Int64
+    private var pos: Int64
+    private let buf: Array<Byte>
+    private let tmp: Array<Byte>
+    private var bufPos: Int64
+    private var bufLen: Int64
+    
+    public init(mmap: ?MmapFile, file: ?File, limit: Int64) {
+        this.mmap = mmap
+        this.file = file
+        this.limit = limit
+        this.pos = 0
+        this.buf = Array<Byte>(128 * 1024, repeat: 0)
+        this.tmp = Array<Byte>(64 * 1024, repeat: 0)
+        this.bufPos = 0
+        this.bufLen = 0
+    }
+    
+    /** 顺序读 n 字节（到段尾为止）；返回实际读到的字节（可能短读）。 */
+    public func readNext(n: Int64): Array<Byte> {
+        if (n <= 0 || pos >= limit) {
+            return []
+        }
+        let want = if (pos + n > limit) { limit - pos } else { n }
+        if (let Some(m) <- mmap) {
+            let out = m.read(pos, want)
+            pos += Int64(out.size)
+            return out
+        }
+        if (let Some(f) <- file) {
+            if (want > Int64(buf.size)) {
+                let out = readExact(f, want)
+                pos += Int64(out.size)
+                return out
+            }
+            if (bufPos + want > bufLen) {
+                refill(f, want)
+            }
+            let available = bufLen - bufPos
+            if (available <= 0) {
+                return []
+            }
+            let take = if (available < want) { available } else { want }
+            let out = buf[bufPos..(bufPos + take)]
+            bufPos += take
+            pos += take
+            return out
+        }
+        []
+    }
+    
+    private func refill(f: File, need: Int64): Unit {
+        // 剩余字节移到缓冲区头部，再从文件补读（File.read 只能从数组 0 开始写，故经 tmp 转发）
+        let keep = bufLen - bufPos
+        if (bufPos > 0) {
+            for (i in 0..keep) {
+                buf[i] = buf[bufPos + i]
+            }
+            bufPos = 0
+            bufLen = keep
+        }
+        while (bufLen - bufPos < need && bufLen + Int64(tmp.size) <= Int64(buf.size)) {
+            let got = f.read(tmp)
+            if (got <= 0) {
+                break
+            }
+            for (i in 0..got) {
+                buf[bufLen + i] = tmp[i]
+            }
+            bufLen += got
+        }
+    }
+    
+    private func readExact(f: File, n: Int64): Array<Byte> {
+        let out = ArrayList<Byte>()
+        var remaining = n
+        while (remaining > 0) {
+            let chunkSize = if (remaining < Int64(tmp.size)) { remaining } else { Int64(tmp.size) }
+            let got = f.read(tmp)
+            if (got <= 0) {
+                break
+            }
+            var i: Int64 = 0
+            while (i < got && Int64(out.size) < n) {
+                out.add(tmp[i])
+                i++
+            }
+            remaining = n - Int64(out.size)
+            if (got < chunkSize) {
+                break
+            }
+        }
+        out.toArray()
+    }
+}
+
+private func readU32LE(data: Array<Byte>, off: Int64): UInt32 {
+    UInt32(data[off]) |
+        (UInt32(data[off + 1]) << 8) |
+        (UInt32(data[off + 2]) << 16) |
+        (UInt32(data[off + 3]) << 24)
 }
 
 /**
