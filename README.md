@@ -408,6 +408,15 @@ db.view({ txn =>
 })
 ```
 
+## 键的限制
+
+- **user key 不应互为前缀**（如同时使用 key-1 与 key-10、user 与 user:name）。
+  存储键是「user key + 8 字节倒序时间戳」，并按原始字节比较；user key 互为前缀时，
+  追加的时间戳字节会与更长 key 的下一个字符混排，导致 seek 定位歧义、部分 get 落空
+  （数据仍在，allVersions 迭代器可见）。这是 Go badger 同款编码的固有限制，不是本移植
+  引入；实测等宽零填充 key 无此问题（详见 docs/issue/2026-11-09-read-miss-after-compaction.md）。
+  需要层级命名时，可用固定长度前缀或分隔符保证「不存在前缀关系」（如 user:0001）。
+
 ## 迭代器
 
 ### 遍历所有 key
