@@ -628,6 +628,19 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 **嵌入式 / 低内存 / 多库场景建议：**
 
 - 调小 `memTableSize`：`Config().withMemTableSize(16 * 1024 * 1024u64)`（16MB，arena 目标约 21MB；首张表从 256KB 渐进）或 `4 * 1024 * 1024u64`（4MB，arena 目标约 5.3MB）
+
+**低堆 / 大表场景：流式落盘（2.1，建议开启）**
+
+Config(streamingSSTable: true) 让 flush/compaction 边构建边写文件（io_uring 分段提交，失败回退同步写），不再在内存里多留一份整表副本。低堆下这是决定性的（实测 128MB 堆、写 24MB）：
+
+| memTableSize | NumMemtables | 整表字节（默认） | 流式落盘 |
+|---|---|---|---|
+| 4MB | 2 | OOM | 通过（632ms） |
+| 4MB | 5 | OOM | OOM |
+| 16MB | 2 | OOM | OOM |
+| 16MB | 5 | OOM | OOM |
+
+注意：流式落盘解决的是「单次 flush 的整表副本」，memtable 集合本身超堆仍需调小 memTableSize / NumMemtables（上表后三行即为此）。
 - 同时打开多个库时，总内存 ≈ 每个库各一份 arena，请按库数量折算
 - 降低 `cjHeapSize` 可以让 GC 更早回收，但会提高 GC 频率，需按写入负载权衡
 - 纯缓存场景可用 `inMemory: true` 关闭磁盘持久化，但 arena 占用不变
