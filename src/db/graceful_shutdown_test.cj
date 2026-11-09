@@ -19,10 +19,20 @@ class GracefulShutdownTest {
 
     private static let DIR = "/tmp/badger_graceful_shutdown_test"
 
+    // 关闭是异步的：写路径开始失败（running=false）只说明 close() 已启动，
+    // 它随后还要 flush memtable → 创建 .sst / 删 .mem。此时递归删目录会与「正在创建的
+    // 文件」打架（实测：FSException "... return -39: Directory not empty"），
+    // 所以清理必须重试到目录真的消失为止。
     private func cleanup(dir: String): Unit {
         let path = Path(dir)
-        if (exists(path)) {
-            remove(path, recursive: true)
+        var attempts = 0
+        while (exists(path) && attempts < 60) {
+            try {
+                remove(path, recursive: true)
+            } catch (e: Exception) {
+                sleep(Duration.millisecond * 50)
+            }
+            attempts += 1
         }
     }
 

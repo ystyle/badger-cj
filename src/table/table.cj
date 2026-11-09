@@ -271,9 +271,44 @@ protected class Table {
         shutdown()
     }
 
-    /** 标记表文件在最后一个引用释放时删除（compaction 换表时调用）。 */
+    /**
+     * 标记表文件待回收（compaction 换表时调用）。
+     *
+     * POSIX：**立刻** unlink —— 映射建立后文件页已在映射里，删目录项不影响读者继续读，
+     * 磁盘可以马上回收；同时避免「延迟到最后一个读者释放」的删除跨越到文件 id 被复用
+     * 之后（那样会误删同 id 的新表文件）。
+     * Windows：被映射的文件不能删除，只能等最后一个引用释放后再 unlink（见 shutdown）。
+     */
     public func markForDeletion(path: String): Unit {
-        deletePath = Some(path)
+        if (unlinkEager(path)) {
+            deletePath = None
+        } else {
+            deletePath = Some(path)
+        }
+    }
+
+    // POSIX：unlink 与映射共存 → 立即删除，返回 true 表示已处理（不需要延迟删除）
+    @When[os != "Windows"]
+    private func unlinkEager(path: String): Bool {
+        removeFileQuietly(path)
+        true
+    }
+
+    // Windows：被映射文件不能删除 → 留给最后一个引用释放时处理
+    @When[os == "Windows"]
+    private func unlinkEager(_: String): Bool {
+        false
+    }
+
+    // 删除表文件；失败不阻断回收：MANIFEST 已移除该表，文件最迟由 open 时的孤儿清理回收
+    private func removeFileQuietly(path: String): Unit {
+        try {
+            if (exists(Path(path))) {
+                remove(Path(path))
+            }
+        } catch (e: Exception) {
+            // 忽略：文件可能仍被别的句柄占用
+        }
     }
 
     /** 当前引用计数（诊断/测试用）。 */
@@ -292,15 +327,9 @@ protected class Table {
             c.invalidateTable(id)
         }
         tableData.close()
+        // 仅 Windows 会走到这里（POSIX 在 markForDeletion 时已删）
         if (let Some(p) <- deletePath) {
-            // 删除失败不阻断：MANIFEST 已移除该表，文件最迟由 open 时的孤儿清理回收
-            try {
-                if (exists(Path(p))) {
-                    remove(Path(p))
-                }
-            } catch (e: Exception) {
-                // 忽略：文件可能仍被别的句柄占用
-            }
+            removeFileQuietly(p)
         }
     }
     

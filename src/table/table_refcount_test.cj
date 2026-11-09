@@ -60,12 +60,12 @@ class TableRefCountTest {
         // 持有者 1 + 迭代器 1
         @Assert(table.refCount(), 2)
 
-        // 模拟 compaction：标记文件待删 + 释放持有者引用（表已从层里摘除）
+        // 模拟 compaction：标记文件待删 + 释放持有者引用（表已从层里摘除）。
+        // POSIX 上标记即 unlink（目录项没了、映射还在，读者继续读上一份数据）；
+        // Windows 上文件要等最后一个引用释放才能删——两种平台下「迭代器读得完」都一样。
         table.markForDeletion(path)
         table.close()
         @Assert(table.refCount(), 1)
-        // 迭代器可能还在读这块数据 —— 映射与文件都必须还在
-        @Assert(exists(Path(path)), true)
 
         var count: Int64 = 0
         iter.seekFirst()
@@ -76,7 +76,7 @@ class TableRefCountTest {
         }
         @Assert(count, 64)
 
-        // 最后一个引用释放：解映射 + 删文件
+        // 最后一个引用释放：解映射（文件在两种平台上此时都已删除）
         iter.close()
         @Assert(table.refCount(), 0)
         @Assert(exists(Path(path)), false)

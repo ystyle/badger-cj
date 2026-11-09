@@ -50,9 +50,10 @@ protected class MemoryTableData <: TableData {
 /**
  * 磁盘表数据：只读映射（数据位于页缓存而非 GC 堆，物理页由 OS 按访问加载、可回收）。
  *
- * unlink 后映射依然有效——所以文件删除时机可以比「最后一个读者释放」更早（POSIX）；
- * 但反过来不行：映射不能早于最后一个读者释放，故仍按引用计数关闭（Table.decrRef）。
- * 本实现统一把 unlink 推迟到最后一个引用释放之后，同时满足 Windows「先 close 再 unlink」。
+ * unlink 后映射依然有效——所以 POSIX 上文件可以**先删**（目录项没了，映射里的页照旧可读），
+ * 磁盘立即回收；反过来不行：映射不能早于最后一个读者释放，故仍按引用计数关闭
+ *（Table.decrRef）。Windows 上被映射文件不能删除，只能等最后一个引用释放后再 unlink——
+ * 平台差异由 Table.markForDeletion 内的条件编译承载。
  */
 protected class MmapTableData <: TableData {
     private let mmap: MmapFile
