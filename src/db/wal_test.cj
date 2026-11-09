@@ -10,7 +10,7 @@ import badgercj.table.*
 class WALTest {
     @TestCase
     func testWALWriteAndRead() {
-        let testDir = Path("./test_wal_write")
+        let testDir = Path("/tmp/test_wal_write")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -66,7 +66,7 @@ class WALTest {
         // 回归：段按 capacity 稀疏预分配，恢复时若把整段读入，分配量就随容量走——
         // 容量超过堆上限时必然 OOM（大 memtable + 并行测试即命中该形态）。
         // 这里给一个远超测试堆的容量、只写少量条目：扫描必须只读有效部分。
-        let testDir = Path("./test_wal_replay_prealloc")
+        let testDir = Path("/tmp/test_wal_replay_prealloc")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -104,7 +104,7 @@ class WALTest {
     @TestCase
     func testMmapWALRotatesWhenCapacityExceeded() {
         // 小 capacity 强制换段：写入量远超单段容量 → 应切出多段，且数据一条不少、顺序不变。
-        let testDir = Path("./test_wal_rotate")
+        let testDir = Path("/tmp/test_wal_rotate")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -154,7 +154,7 @@ class WALTest {
         // 完成计数被多减一次 → wait() 提前唤醒 → 调用方把请求归还对象池、另一线程取出后
         // reset() 清空 entries，而管道仍在遍历同一请求 → ConcurrentModificationException。
         // 该竞态在真实负载下偶发（单线程连续批量写即可触发），这里用高频批量写覆盖。
-        let testDir = Path("./test_batchset_double_done")
+        let testDir = Path("/tmp/test_batchset_double_done")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -174,7 +174,7 @@ class WALTest {
 
     @TestCase
     func testWALReplay() {
-        let testDir = Path("./test_wal_replay")
+        let testDir = Path("/tmp/test_wal_replay")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -224,7 +224,7 @@ class WALTest {
     
     @TestCase
     func testWALDelete() {
-        let testDir = Path("./test_wal_delete")
+        let testDir = Path("/tmp/test_wal_delete")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -250,7 +250,7 @@ class WALTest {
     
     @TestCase
     func testWALEmptyFile() {
-        let testDir = Path("./test_wal_empty")
+        let testDir = Path("/tmp/test_wal_empty")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }
@@ -271,7 +271,7 @@ class WALTest {
     
     @TestCase
     func testMemTableCrashRecovery() {
-        let testDir = Path("./test_wal_crash_recovery")
+        let testDir = Path("/tmp/test_wal_crash_recovery")
         if (exists(testDir)) {
             remove(testDir, recursive: true)
         }

@@ -11,7 +11,7 @@ class VLogGCTest {
     
     @TestCase
     func testDiscardStatsBasic() {
-        let stats = DiscardStats(Path("./test_discard_stats"))
+        let stats = DiscardStats(Path("/tmp/test_discard_stats"))
         
         let val1 = stats.update(1u32, 100)
         @Assert(val1, 100)
@@ -29,7 +29,7 @@ class VLogGCTest {
     
     @TestCase
     func testDiscardStatsMultipleFiles() {
-        let stats = DiscardStats(Path("./test_discard_multi"))
+        let stats = DiscardStats(Path("/tmp/test_discard_multi"))
         
         stats.update(1u32, 100)
         stats.update(2u32, 200)
@@ -115,7 +115,7 @@ class VLogManagerGCTest {
     
     @TestCase
     func testIterateEmpty() {
-        let dir = Path("./test_vlog_iterate")
+        let dir = Path("/tmp/test_vlog_iterate")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -139,7 +139,7 @@ class VLogManagerGCTest {
     
     @TestCase
     func testIterateWithEntries() {
-        let dir = Path("./test_vlog_iterate_entries")
+        let dir = Path("/tmp/test_vlog_iterate_entries")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -168,7 +168,7 @@ class VLogManagerGCTest {
     
     @TestCase
     func testPickLogNoFiles() {
-        let dir = Path("./test_vlog_picklog")
+        let dir = Path("/tmp/test_vlog_picklog")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -187,7 +187,7 @@ class VLogManagerGCTest {
     
     @TestCase
     func testAddDiscard() {
-        let dir = Path("./test_vlog_add_discard")
+        let dir = Path("/tmp/test_vlog_add_discard")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -211,7 +211,7 @@ class VLogManagerGCTest {
     
     @TestCase
     func testRewriteWithoutDB() {
-        let dir = Path("./test_vlog_rewrite_no_db")
+        let dir = Path("/tmp/test_vlog_rewrite_no_db")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -233,7 +233,7 @@ class VLogManagerGCTest {
     
     @TestCase
     func testRewriteWithMockDB() {
-        let dir = Path("./test_vlog_rewrite_mock")
+        let dir = Path("/tmp/test_vlog_rewrite_mock")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }

@@ -103,8 +103,15 @@ func vlogGcValue(tag: String, size: Int64): Array<Byte> {
 func vlogGcSegments(dir: String): ArrayList<String> {
     let out = ArrayList<String>()
     for (e in Directory.readFrom(Path(dir))) {
-        if (!e.isDirectory() && e.name.endsWith(".vlog")) {
-            out.add(e.name)
+        // 目录是快照、stat 是实时：列出条目后文件可能已被并发删除（GC / 换段），
+        // 此时 isDirectory() 报 ENOENT（"Native function error return -1"）。
+        // 统计口径只关心「此刻还在的段」，消失的条目跳过即可。
+        try {
+            if (!e.isDirectory() && e.name.endsWith(".vlog")) {
+                out.add(e.name)
+            }
+        } catch (err: Exception) {
+            // 条目在遍历期间被删除：忽略
         }
     }
     out

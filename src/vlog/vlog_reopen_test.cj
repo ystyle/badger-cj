@@ -47,7 +47,7 @@ class VLogReopenSegmentTest {
     // 新写入的 ValuePointer.offset 必须指向末段已有数据之后，旧指针与新指针都可读回原值。
     @TestCase
     func testReopenRestoresSegmentsAndWriteOffset() {
-        let dir = Path("./test_vlog_reopen_segments")
+        let dir = Path("/tmp/test_vlog_reopen_segments")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 
@@ -95,7 +95,7 @@ class VLogReopenSegmentTest {
     // 段长恰好等于 maxFileSize：有效长度不能丢，也不能把下一条续写进已满的段。
     @TestCase
     func testReopenSegmentExactlyAtMaxFileSize() {
-        let dir = Path("./test_vlog_reopen_exact_max")
+        let dir = Path("/tmp/test_vlog_reopen_exact_max")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 
@@ -134,7 +134,7 @@ class VLogReopenSegmentTest {
     // 崩溃残留尾部（凑不出完整条目的垃圾字节）：重开截断到最后一个完整条目，之后继续读写正常。
     @TestCase
     func testReopenTruncatesCorruptTail() {
-        let dir = Path("./test_vlog_reopen_corrupt_tail")
+        let dir = Path("/tmp/test_vlog_reopen_corrupt_tail")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 
@@ -175,7 +175,7 @@ class VLogReopenSegmentTest {
     // 尾部是"结构完整但 CRC 不匹配"的记录：同样按崩溃尾部截断，不能当成有效数据。
     @TestCase
     func testReopenStopsAtChecksumMismatch() {
-        let dir = Path("./test_vlog_reopen_bad_crc")
+        let dir = Path("/tmp/test_vlog_reopen_bad_crc")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 
@@ -207,7 +207,7 @@ class VLogReopenSegmentTest {
     // 目录里夹带的非段文件 / 非法段名 / 同名目录必须忽略，不能被当成段打开。
     @TestCase
     func testReopenIgnoresNonSegmentFiles() {
-        let dir = Path("./test_vlog_reopen_junk")
+        let dir = Path("/tmp/test_vlog_reopen_junk")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 
@@ -238,7 +238,7 @@ class VLogReopenSegmentTest {
     // 空目录（首次打开）仍要创建 0.vlog，写偏移从 0 开始。
     @TestCase
     func testReopenEmptyDirCreatesFirstSegment() {
-        let dir = Path("./test_vlog_reopen_empty")
+        let dir = Path("/tmp/test_vlog_reopen_empty")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 
@@ -257,7 +257,7 @@ class VLogReopenSegmentTest {
     // currentFile 指向它，换段到 4294967295 时不得溢出。
     @TestCase
     func testReopenWithLargeFidAndEmptySegment() {
-        let dir = Path("./test_vlog_reopen_large_fid")
+        let dir = Path("/tmp/test_vlog_reopen_large_fid")
         vlogReopenCleanup(dir)
         Directory.create(dir.toString())
 

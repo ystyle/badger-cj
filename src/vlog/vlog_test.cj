@@ -61,7 +61,7 @@ class LogEntryTest {
 class VLogManagerTest {
     @TestCase
     func testVLogWriteRead() {
-        let dir = Path("./test_vlog_write_read")
+        let dir = Path("/tmp/test_vlog_write_read")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -87,7 +87,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogMultipleWrites() {
-        let dir = Path("./test_vlog_multi")
+        let dir = Path("/tmp/test_vlog_multi")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -116,7 +116,7 @@ class VLogManagerTest {
         // 阶段 2：VLog 段改 mmap 后按 maxFileSize 稀疏预分配。
         // 物理文件大小 == maxFileSize（稀疏，不占实际磁盘），
         // 而逻辑大小 size() 只能是实际写入量——若沿用文件长度会被撑到 maxFileSize。
-        let dir = Path("./test_vlog_mmap_prealloc")
+        let dir = Path("/tmp/test_vlog_mmap_prealloc")
         if (exists(dir)) { remove(dir, recursive: true) }
         Directory.create(dir.toString())
 
@@ -140,7 +140,7 @@ class VLogManagerTest {
     func testVLogReopenPreservesData() {
         // VLog 是长期文件：重开后写偏移必须恢复到已有数据的有效长度——
         // 既不能从 0 开始（会覆盖旧 value），也不能用预分配后的文件长度（会写出空洞）。
-        let dir = Path("./test_vlog_reopen")
+        let dir = Path("/tmp/test_vlog_reopen")
         if (exists(dir)) { remove(dir, recursive: true) }
         Directory.create(dir.toString())
 
@@ -163,7 +163,7 @@ class VLogManagerTest {
     @TestCase
     func testVLogRotatesOnMaxFileSize() {
         // 小 maxFileSize 强制换段：每个 value 都要能按指针读回。
-        let dir = Path("./test_vlog_rotate")
+        let dir = Path("/tmp/test_vlog_rotate")
         if (exists(dir)) { remove(dir, recursive: true) }
         Directory.create(dir.toString())
 
@@ -191,7 +191,7 @@ class VLogManagerTest {
     @TestCase
     func testVLogNonMmapFallback() {
         // useMmap=false 走无缓冲 File.write（v1.x 路径）：不预分配，物理长度 = 实际写入量。
-        let dir = Path("./test_vlog_no_mmap")
+        let dir = Path("/tmp/test_vlog_no_mmap")
         if (exists(dir)) { remove(dir, recursive: true) }
         Directory.create(dir.toString())
 
@@ -212,7 +212,7 @@ class VLogManagerTest {
 
     @TestCase
     func testVLogGCBasic() {
-        let dir = Path("./test_vlog_gc")
+        let dir = Path("/tmp/test_vlog_gc")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -240,7 +240,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogGCNoCurrentFile() {
-        let dir = Path("./test_vlog_gc_current")
+        let dir = Path("/tmp/test_vlog_gc_current")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -264,7 +264,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogGetFileCount() {
-        let dir = Path("./test_vlog_filecount")
+        let dir = Path("/tmp/test_vlog_filecount")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -287,7 +287,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogGetDiscardRatioInvalidFid() {
-        let dir = Path("./test_vlog_ratio_invalid")
+        let dir = Path("/tmp/test_vlog_ratio_invalid")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -306,7 +306,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogFileOnDisk() {
-        let dir = Path("./test_vlog_file_on_disk")
+        let dir = Path("/tmp/test_vlog_file_on_disk")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -335,7 +335,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogCloseReopenRead() {
-        let dir = Path("./test_vlog_close_reopen")
+        let dir = Path("/tmp/test_vlog_close_reopen")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
@@ -366,7 +366,7 @@ class VLogManagerTest {
     
     @TestCase
     func testVLogCloseReopenReadMultipleEntries() {
-        let dir = Path("./test_vlog_multi_reopen")
+        let dir = Path("/tmp/test_vlog_multi_reopen")
         if (exists(dir)) {
             remove(dir, recursive: true)
         }
