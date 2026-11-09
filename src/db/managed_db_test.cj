@@ -57,7 +57,10 @@ class ManagedDbTest {
         // 后台 compactor 可能已把 3 张 L0 表合并进 L1（此时 discardTs 还是 0，什么都不会丢），
         // 之后手动 compact 不会再动 L1。写一条触发数据 + flush，让新一轮压缩合并
         // 「L0 + 重叠 L1」，才会按新 discardTs 回收。
-        db.updateOrThrow({ t => t.set("__managed_trigger".toArray(), "1".toArray()) })
+        // managed 库不能走 updateOrThrow（内部会取自动 readTs 并抛错），触发写也要显式指定 ts
+        let trig = db.newTransactionAt(40, update: true)
+        trig.set("__managed_trigger".toArray(), "1".toArray())
+        @Assert(trig.commitAt(40).isOk(), true)
         db.flushMemTable()
         for (_ in 0..10) {
             db.compact()
