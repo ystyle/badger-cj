@@ -493,3 +493,18 @@ flush_impact_perf（sync 路径，500 轮 x 100 key x 1KB 约 48.8MB，交替 5 
 差异约 1.5%，在轮间波动范围内 -> 流式落盘在 sync 路径没有可测量的吞吐代价，收益是
 flush 峰值内存与表大小解耦（P0-2）。io_uring 分段提交尚未实现：当前流式路径用 File 顺序写，
 默认 io_uring 路径仍走旧的整表字节写。
+
+### 低堆 flush 验证（P0-2，2026-11-09）
+
+新增 examples/flush_low_heap（memTableSize=16MB，写约 24MB 触发大表 flush），在 cjHeapSize=64MB 下：
+
+| 模式 | 结果 |
+|---|---|
+| 整表字节（plain） | OOM（flusher 先报 flush system error，imm 滞留后写路径 OOM） |
+| 流式落盘（stream） | OOM（写路径 OutOfMemoryError） |
+
+结论：**64MB 堆配 16MB memTableSize 本身就不成立**——NumMemtables=5 时在途 memtable 的
+arena 上限约 5 x 21MB = 105MB，已超堆上限；流式落盘减少的是「单次 flush 的额外整表副本」，
+不能抵消 memtable 集合本身的占用。低堆部署的正确姿势是同时调小 memTableSize 与 NumMemtables
+（例如 4MB 表 + NumMemtables=2），这块需要后续在 README 给一张对照表；流式落盘的收益
+应在「memtable 集合已能放下、flush 峰值内存成为瓶颈」的场景衡量。
