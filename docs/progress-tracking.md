@@ -368,6 +368,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 6（6.1/6.2）**：① 表索引 lazy 化（raw + 4B/块位置表，查找在 raw 上直接比较、key 按需复制，索引堆占用常数显著下降）；② VLog 段遍历流式化（mmap 直读 / file 64KB 滑动缓冲，峰值 = 单条 + 64KB，不再整段复制）。6.3 Block Cache 延后 2.1。新增 4 例；全量 **452/452**。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.2-5.4**：① `MergeOperator`（merge 位增量 + allVersions 折叠 + 后台折叠回写 discard 位；compaction 首版本 discard 位即丢弃旧链）；② Managed DB（`openManaged`/`newTransactionAt`/`commitAt`/`setDiscardTs`/`newWriteBatchAt`，时间戳全由调用方指定）；③ `Sequence`（租约式单调递增，release 退回未用区间）；④ `estimateSize`（此前已完成）。新增 14 例；全量 **448/448**（-j 4）。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.1：compaction 版本保留策略**：① `Oracle.discardAtOrBelow()`（非 managed = 活跃读最小 readTs；managed = `setDiscardTs`）+ `Config.NumVersionsToKeep`（默认 1）；② compaction 按 go addKeys 语义保留（merge 条目必留、>discardTs 必留、<=discardTs 每 key 留 N、tombstone 非最底层保留/最底层可丢）；③ **修掉既有 watermark 并发缺陷**：pending 由 Set 改计数，避免同 readTs 多事务 `done` 互相抵消导致保留水位提前（读事务读到 None）。新增 5 个用例，VLog GC 用例适配保留语义；全量 **434/434**。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.4（部分）**：`DB.estimateSize(prefix)` 按前缀统计左右边界都命中的 SSTable（parseKey 剥 ts），返回 (on-disk, 解压后)；未落盘 memtable 不计入（go 同语义）。`TableInterface.dataSize()` 补齐。全量 **429/429**。 |
