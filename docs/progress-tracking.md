@@ -22,8 +22,8 @@
 
 | 平台 | 工作流 | 状态 | 说明 |
 |---|---|---|---|
-| linux（ubuntu-24.04） | `ci.yml` | ✅ 必跑（发布口径） | 安装 `liburing-dev`；`cjpm build/test -j 4`；全量 452 例 |
-| windows-latest | `ci.yml` | 🔶 可见性（continue-on-error） | 构建通过；测试约 441 例中 2 类 ERROR，均为**测试清理阶段 Windows 文件占用**（mmap 表/日志尚未释放即 `remove(recursive)`），见下 |
+| linux（ubuntu-24.04） | `ci.yml` | ✅ **绿**（发布口径） | run 42572928822：452/452 通过（安装 `liburing-dev`，`cjpm build/test -j 4`） |
+| windows-latest | `ci.yml` | 🔶 可见性（continue-on-error，不阻断 run 结论） | 构建通过；测试约 441 例中若干 ERROR，均为**测试清理阶段 Windows 文件占用**（mmap 表/日志尚未释放即 `remove(recursive)`），见下 |
 | macOS（macos-14） | `ci-macos.yml`（手动/每周） | ⏸ 暂不进门禁 | 公开仓 macos runner 偶发「排队即 cancelled」（无 runner 分配、无 step），放进必跑矩阵会把 run 结论拖成 cancelled |
 
 **已知平台问题（逐条登记，不忽略）**：
