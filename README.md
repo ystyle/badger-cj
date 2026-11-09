@@ -604,12 +604,14 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 
 ## 内存使用
 
-**每个库的常驻内存 ≈ arena（2 × memTableSize）+ 仓颉 GC 堆开销：**
+**每个库的常驻内存 ≈ arena（约 1.3 × memTableSize）+ 仓颉 GC 堆开销：**
 
 | 项 | 默认值 | 说明 |
 |------|--------|------|
 | `memTableSize` | 64 MB | 单个 MemTable 上限 |
-| arena | **2 × memTableSize（默认 128 MB/库）** | MemTable 内部分配器（skiplist 节点 + 数据），见 `memtable.cj: arenaSize = MemTableSize * 2` |
+| arena 目标值 | **memTableSize + 15% 批次预留（约 1.3 × memTableSize；默认 64MB 表约 84MB/库）** | 对齐 badger-go 的 arenaSize()；每张 memtable 用满即轮换 |
+| `arenaGrowthStartBytes` | 256 KB | 2.1 起 arena **渐进扩容**：首张 memtable 用该值，每轮换翻倍、封顶目标值；**0 = 关闭渐进** |
+| `blockCacheSizeMB` | 0（关闭） | 2.1 块缓存：LRU 缓存热 block，把 mmap 随机读拉回堆内水平（128MB 数据 113 → 37 µs/Get）；生产建议 64–256 |
 | 仓颉 GC 堆上限 | **256 MB（默认）** | 仓颉运行时默认堆上限，arena 等原生内存之外的 GC 托管对象均在此配额内 |
 
 **仓颉 GC 堆调参（进程级环境变量）：**
@@ -625,7 +627,7 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 
 **嵌入式 / 低内存 / 多库场景建议：**
 
-- 调小 `memTableSize`：`Config().withMemTableSize(16 * 1024 * 1024u64)`（16MB，arena 32MB）或 `4 * 1024 * 1024u64`（4MB，arena 8MB）
+- 调小 `memTableSize`：`Config().withMemTableSize(16 * 1024 * 1024u64)`（16MB，arena 目标约 21MB；首张表从 256KB 渐进）或 `4 * 1024 * 1024u64`（4MB，arena 目标约 5.3MB）
 - 同时打开多个库时，总内存 ≈ 每个库各一份 arena，请按库数量折算
 - 降低 `cjHeapSize` 可以让 GC 更早回收，但会提高 GC 频率，需按写入负载权衡
 - 纯缓存场景可用 `inMemory: true` 关闭磁盘持久化，但 arena 占用不变
