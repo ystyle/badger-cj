@@ -1,0 +1,48 @@
+name: CI
+
+# 触发：master / v2 开发分支推送与所有 PR
+on:
+  push:
+    branches: [master, feat/v2-mmap-wal-vlog]
+  pull_request:
+
+# 依赖全部来自仓颉中心仓（cjpm.toml 写版本号），无需 checkout 兄弟仓库。
+jobs:
+  build-test:
+    name: 构建 · 单测（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # 2.0 发布口径以 Linux 为准。macOS/Windows 先跑通可见性；失败项逐条登记
+    # （见 docs/progress-tracking.md 的「CI 平台矩阵」），不静默忽略。
+    continue-on-error: ${{ matrix.os != 'ubuntu-24.04' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装构建依赖（liburing：io_uring 链接）
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y liburing-dev
+
+      - uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
+          # auto：从 cjpm.toml 的 cjc-version 读版本（当前 1.2.0，STS 渠道），
+          # 避免两处各写一份、升级编译器时漏改一边。
+          version: auto
+          components: stdx
+
+      - name: Build
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        shell: bash
+        run: cjpm build -j 4
+
+      - name: Unit tests
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        shell: bash
+        run: cjpm test -j 4 --no-progress
