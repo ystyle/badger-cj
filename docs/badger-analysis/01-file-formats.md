@@ -516,3 +516,20 @@ func verifyCompatibility() {
 
 **相关论文：**
 - [WiscKey: Separating Keys from Values in SSD-conscious Storage](https://www.usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf)
+
+
+## 2.0 的文件布局与格式基线
+
+2.0 保持 SSTable/MANIFEST/LogEntry 的**字节语法**与 v1.6.x 一致（可读旧库），但文件布局与
+物理大小语义有变化：
+
+| 文件 | v1.6.x | 2.0 |
+|---|---|---|
+| WAL | 单文件 fid.mem，无预分配 | **多段** fid.mem / fid.mem.N；mmap 稀疏预分配（2×MemTableSize），段满换段、封口截断；崩溃恢复按段扫描、按条目边界截断残尾 |
+| VLog | 单文件按需增长 | 段内**固定映射 + 稀疏预分配**（vlogFileSize，默认 1GB），段满换段；遍历/GC 用流式按条读，不再整段驻留 |
+| SSTable | 整表读入 GC 堆 | **只读映射**（mmapSSTable 默认开）；索引只读文件尾部三段，堆内表示 = 索引原始字节 + 每块 4B 位置表，块 key 按需解析（lazy index） |
+| 目录 | 无格式声明 | **新增 FORMAT**：format=1 + features=（缺失视为 v1.6.x，首次打开补写；更高格式/未知 feature 拒绝打开） |
+
+格式号语义：format=1 = 当前字节语法；后续引入改变字节语义的能力（如加密、merge 标记版本化）
+时递增，并在 features 里声明。**不把版本写进 MANIFEST**：ManifestChangeSet 解码器遇未知顶层
+tag 不推进 offset，旧版本读到新 MANIFEST 会死循环。
