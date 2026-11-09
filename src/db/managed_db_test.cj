@@ -3,6 +3,8 @@ package badgercj.db
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.collection.*
+import std.sync.*
+import std.time.*
 
 // Managed DB（阶段 5.3）：提交/读取时间戳完全由调用方指定（对齐 go OpenManaged /
 // NewTransactionAt / CommitAt / SetDiscardTs / NewWriteBatchAt）；不自动分配 ts、不做冲突检测。
@@ -52,7 +54,18 @@ class ManagedDbTest {
             db.flushMemTable()
         }
         db.setDiscardTs(30)
-        db.compact()
+        // 后台 compactor 可能已把 3 张 L0 表合并进 L1（此时 discardTs 还是 0，什么都不会丢），
+        // 之后手动 compact 不会再动 L1。写一条触发数据 + flush，让新一轮压缩合并
+        // 「L0 + 重叠 L1」，才会按新 discardTs 回收。
+        db.updateOrThrow({ t => t.set("__managed_trigger".toArray(), "1".toArray()) })
+        db.flushMemTable()
+        for (_ in 0..10) {
+            db.compact()
+            if (countVersionsAt(db, "k", 30) == 2) {
+                break
+            }
+            sleep(Duration.millisecond * 50)
+        }
 
         // 保留 <= 30 的最新 2 个版本（v30、v20），v10 被回收
         @Assert(countVersionsAt(db, "k", 30), 2)
