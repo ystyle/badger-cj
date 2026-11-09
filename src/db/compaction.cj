@@ -278,6 +278,7 @@ protected class Compaction {
         }
         
         cstatus.delete(cd)
+        db.recordCompaction()
         return true
     }
     

@@ -28,7 +28,9 @@ protected class MemTable {
     // 的出队，会提前返回）。
     private let flushDone: AtomicBool
     
-    protected init(opt: Config, fid: Int64, walExists: Bool) {
+    // arenaBytes：可选的 arena 容量覆盖（Pebble 式渐进扩容用）。0 = 用 go 公式的目标值；
+    // 传入更小值时按传入值分配（memtable 用满后靠 shouldFlush 轮换，见下）。
+    protected init(opt: Config, fid: Int64, walExists: Bool, arenaBytes!: Int64 = 0) {
         this.opt = opt
         this.fid = fid
         this.walExists = walExists
@@ -47,7 +49,12 @@ protected class MemTable {
         if (maxBatchCount < 1) {
             maxBatchCount = 1
         }
-        let arenaSize = Int64(opt.MemTableSize) + maxBatchSize + maxBatchCount * MAX_NODE_SIZE
+        let targetArenaSize = Int64(opt.MemTableSize) + maxBatchSize + maxBatchCount * MAX_NODE_SIZE
+        let arenaSize = if (arenaBytes > 0 && arenaBytes < targetArenaSize) {
+            arenaBytes
+        } else {
+            targetArenaSize
+        }
         this.arena = Arena(arenaSize)
         
         let estimatedEntries = arenaSize / 256
@@ -245,7 +252,13 @@ protected class MemTable {
     // 时节点开销可与数据本身相当甚至更大；只有按 arena 用量判断，arena 的
     // 「MemTableSize + 一批预留」公式才成立（按数据判断会在 arena 耗尽后才触发）。
     public func shouldFlush(): Bool {
-        return UInt64(arena.usedSize()) >= opt.MemTableSize
+        // 主判据对齐 go：arena 已用 >= MemTableSize；
+        // 兜底：渐进扩容的小 arena 可能小于 MemTableSize（前几张表），用满即轮换，
+        // 否则剩余空间不足以容纳下一批 worst-case 预留，写入会停摆。
+        if (UInt64(arena.usedSize()) >= opt.MemTableSize) {
+            return true
+        }
+        return Int64(arena.usedSize()) >= Int64(arena.size) * 95 / 100
     }
     
     public func incrRef(): Unit {

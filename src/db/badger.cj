@@ -11,6 +11,7 @@ import std.env.{atExit, exit}
 // （官方文档标注"不支持 Windows"；macOS 如需支持可放宽为 os != "Windows"）
 @When[os == "Linux"]
 import std.runtime.*
+import badgercj.arena.*
 import badgercj.table.*
 import badgercj.manifest.*
 import badgercj.vlog.*
@@ -35,6 +36,11 @@ public class Badger <: VLogGCDB {
     private let lc: LevelsController
     // 2.1 Block Cache（容量 0 = 关闭，默认；见 Config.BlockCacheSizeMB）
     private let blockCache: ?BlockCache
+    // 2.1 Pebble 式 arena 渐进扩容：当前/下一张 memtable 的 arena 容量（写锁内推进）
+    private var memtableArenaBytes: Int64
+    private let getCount: AtomicInt64
+    private let flushCount: AtomicInt64
+    private let compactCount: AtomicInt64
     private let lock: ReadWriteLock
     private var mt: MemTable
     private let imm: ArrayList<MemTable>
@@ -98,6 +104,10 @@ public class Badger <: VLogGCDB {
         this.manifestFile = manifestFile
         this.lc = lc
         this.blockCache = blockCache
+        this.memtableArenaBytes = Badger.initialArenaBytes(opt)
+        this.getCount = AtomicInt64(0)
+        this.flushCount = AtomicInt64(0)
+        this.compactCount = AtomicInt64(0)
         this.lock = ReadWriteLock()
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
@@ -117,6 +127,29 @@ public class Badger <: VLogGCDB {
             this.flushCond = this.flushCondMutex.condition()
         }
         this.flusherFut = None
+    }
+    
+    // arena 目标容量（与 MemTable 内部公式一致：MemTableSize + 15% 批次预留）
+    private static func targetArenaBytes(opt: Config): Int64 {
+        var maxBatchSize = Int64(opt.MemTableSize) * 15 / 100
+        if (maxBatchSize < 1024) {
+            maxBatchSize = 1024
+        }
+        var maxBatchCount = maxBatchSize / 96
+        if (maxBatchCount < 1) {
+            maxBatchCount = 1
+        }
+        Int64(opt.MemTableSize) + maxBatchSize + maxBatchCount * MAX_NODE_SIZE
+    }
+
+    // 渐进扩容起点：min(256KB, 目标值)。小表（目标 < 256KB）等于目标值，无渐进过程。
+    private static func initialArenaBytes(opt: Config): Int64 {
+        let target = targetArenaBytes(opt)
+        if (target < 256 * 1024) {
+            target
+        } else {
+            256 * 1024
+        }
     }
     
     public static func open(opt: Config): Badger {
@@ -186,7 +219,7 @@ public class Badger <: VLogGCDB {
         } else {
             Int64(manifest.nextFileID)
         }
-        let mt = MemTable(opt, fid, !opt.InMemory)
+        let mt = MemTable(opt, fid, !opt.InMemory, arenaBytes: Badger.initialArenaBytes(opt))
         
         // VLog（InMemory 模式不需要）
         var vlog: VLogManager
@@ -579,6 +612,26 @@ public class Badger <: VLogGCDB {
     protected func getLevelsController(): LevelsController { lc }
     
     protected func getBlockCache(): ?BlockCache { blockCache }
+
+    protected func recordCompaction(): Unit {
+        compactCount.fetchAdd(1)
+    }
+
+    public func getStats(): Stats {
+        let levelStats = lc.getLevelStats()
+        var tables: Int64 = 0
+        var tableBytes: Int64 = 0
+        for (ls in levelStats) {
+            tables += ls.TableCount
+            tableBytes += ls.Bytes
+        }
+        let cacheStats: BlockCacheStats = match (blockCache) {
+            case Some(c) => BlockCacheStats(c.hits(), c.misses(), c.used())
+            case None => BlockCacheStats(0, 0, 0)
+        }
+        Stats(getCount.load(), flushCount.load(), compactCount.load(),
+            Int64(mt.sizeInBytes()), immCount.load(), levelStats, tables, tableBytes, cacheStats)
+    }
     
     /** Block Cache 当前占用字节数（诊断/测试用；关闭时为 0）。 */
     public func blockCacheUsedBytes(): Int64 {
@@ -599,6 +652,7 @@ public class Badger <: VLogGCDB {
     protected func getManifestFile(): ManifestFile { manifestFile }
     
     public func get(key: Array<Byte>, readTsOpt!: ?UInt64 = None): Option<ValueStruct> {
+        getCount.fetchAdd(1)
         lock.readLock.lock()
         try {
             let readTs = readTsOpt ?? oracle.currentTs()
@@ -972,7 +1026,11 @@ public class Badger <: VLogGCDB {
     private func rotateAndEnqueueLocked(): MemTable {
         // 阶段 1（可抛）：新表构造完成前不触碰任何共享状态
         let fid = Int64(reserveFileID())
-        let newMt = MemTable(opt, fid, false)
+        let newMt = MemTable(opt, fid, false, arenaBytes: memtableArenaBytes)
+        // Pebble 式渐进扩容：每新建一张 memtable 翻倍，封顶目标值
+        let target = Badger.targetArenaBytes(opt)
+        let doubled = if (memtableArenaBytes > target / 2) { target } else { memtableArenaBytes * 2 }
+        memtableArenaBytes = doubled
         // 阶段 2（不可抛的引用移动 + 入队）：同锁段原子完成
         let old = mt
         imm.add(old)
@@ -989,6 +1047,7 @@ public class Badger <: VLogGCDB {
     // 无数据可持久，imm 出队由调用方统一完成）。
     // 失败抛异常：表保持 imm/WAL 状态不变（重试 / close / 下次 open 兜底恢复）。
     private func persistMemTable(mt: MemTable): Unit {
+        flushCount.fetchAdd(1)
         let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
         let iter = mt.iterator()
         while (iter.hasNext()) {

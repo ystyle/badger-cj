@@ -175,6 +175,20 @@ protected func getMaxVersion(): UInt64 {
         return maxVer
     }
     
+    public func getLevelStats(): ArrayList<LevelStats> {
+        let out = ArrayList<LevelStats>()
+        for (i in 0..levels.size) {
+            var count: Int64 = 0
+            var bytes: Int64 = 0
+            for (t in levels[i].getTables()) {
+                count++
+                bytes += t.dataSize()
+            }
+            out.add(LevelStats(i, count, bytes))
+        }
+        out
+    }
+
     public func getTableInfo(): ArrayList<SSTableInfo> {
         let result = ArrayList<SSTableInfo>()
         for (level in 0..levels.size) {
