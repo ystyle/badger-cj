@@ -22,4 +22,6 @@ public interface TableInterface {
      * 无需引用计数；Windows 上必须先 close 再 unlink 表文件。
      */
     func close(): Unit
+    /** 表数据是否由只读映射承载（诊断/测试用） */
+    func isMmapBacked(): Bool
 }

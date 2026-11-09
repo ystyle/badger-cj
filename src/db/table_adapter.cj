@@ -82,6 +82,10 @@ public class TableAdapter <: TableInterface {
         table.close()
     }
     
+    public func isMmapBacked(): Bool {
+        table.isMmapBacked()
+    }
+    
     protected func getTable(): Table {
         table
     }

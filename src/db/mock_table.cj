@@ -113,6 +113,10 @@ public class MockTable <: TableInterface {
     }
 
     public func close(): Unit {}
+
+    public func isMmapBacked(): Bool {
+        false
+    }
 }
 
 class MockTableIter <: TableIter {

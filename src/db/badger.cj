@@ -516,7 +516,12 @@ public class Badger <: VLogGCDB {
         if (opt.InMemory) {
             lc.addMemoryTable(tableID, data)
         } else {
-            let table = Table(tableID, data)
+            // 已落盘：默认改用只读映射，让表数据离开 GC 堆（数据唯一持久副本已在盘上）
+            let table = if (opt.MmapSSTable) {
+                Table(tableID, tableData: MmapTableData(path))
+            } else {
+                Table(tableID, data)
+            }
             lc.addTable(0, TableAdapter(table))
         }
         
@@ -536,6 +541,15 @@ public class Badger <: VLogGCDB {
     }
     
     protected func getLevelsController(): LevelsController { lc }
+    
+    /** 测试/诊断用：L0 各表的存储后端（"mmap" | "memory"）。 */
+    protected func getL0BackingKinds(): ArrayList<String> {
+        let result = ArrayList<String>()
+        for (t in lc.getLevelHandler(0).getTables()) {
+            result.add(if (t.isMmapBacked()) { "mmap" } else { "memory" })
+        }
+        result
+    }
     protected func getManifestFile(): ManifestFile { manifestFile }
     
     public func get(key: Array<Byte>, readTsOpt!: ?UInt64 = None): Option<ValueStruct> {
@@ -829,7 +843,12 @@ public class Badger <: VLogGCDB {
         if (opt.InMemory) {
             lc.addMemoryTable(tableID, data)
         } else {
-            let table = Table(tableID, data)
+            // 已落盘：默认改用只读映射（与 flushMemTablesBatch 保持一致）
+            let table = if (opt.MmapSSTable) {
+                Table(tableID, tableData: MmapTableData(path))
+            } else {
+                Table(tableID, data)
+            }
             lc.addTable(0, TableAdapter(table))
         }
     }

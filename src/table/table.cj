@@ -96,6 +96,11 @@ protected class Table {
         return None
     }
     
+    /** 表数据是否由只读映射承载（false = 常驻 GC 堆的 Array<Byte>）。 */
+    public func isMmapBacked(): Bool {
+        tableData is MmapTableData
+    }
+    
     public func mayContain(key: Array<Byte>): Bool {
         match (bloomFilter) {
             case Some(bf) => bf.mayContain(key)
