@@ -48,6 +48,34 @@ protected class DiscardStats {
         }
     }
     
+    /**
+     * 批量累加（compaction 一轮丢弃的所有条目）。
+     * 逐条调用 update 会每条写一次 DISCARD 文件——按批更新只在末尾落盘一次。
+     */
+    public func updateBatch(updates: HashMap<UInt32, Int64>): Unit {
+        synchronized (lock) {
+            for ((fid, delta) in updates) {
+                if (delta <= 0) {
+                    continue
+                }
+                let current: Int64 = if (stats.contains(fid)) { stats[fid] } else { 0 }
+                stats[fid] = current + delta
+            }
+            flush()
+        }
+    }
+    
+    /** 所有段累计的垃圾字节（测试/诊断用）。 */
+    public func total(): Int64 {
+        synchronized (lock) {
+            var sum: Int64 = 0
+            for ((_, v) in stats) {
+                sum += v
+            }
+            sum
+        }
+    }
+    
     public func maxDiscard(): (UInt32, Int64) {
         synchronized (lock) {
             var maxFid: UInt32 = 0

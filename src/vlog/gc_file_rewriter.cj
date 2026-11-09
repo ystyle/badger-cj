@@ -14,7 +14,9 @@ protected class GCFileRewriter {
     private let db: VLogGCDB
     private let targetFid: UInt32
     private let shouldDiscard: DiscardChecker
-    private var entries: ArrayList<(Array<Byte>, LogEntry)>
+    // (key, value, userMeta, expiresAt)：活条目按正常写路径重新落 vlog/更新指针，
+    // 不能 setRaw 内联——那会把大值搬进 LSM，且 vlog 条目不保存 version/expiresAt。
+    private var entries: ArrayList<(Array<Byte>, Array<Byte>, Byte, UInt64)>
     private var totalSize: Int64
     private var discardSize: Int64
     private let maxBatchSize: Int64 = 10 * 1024 * 1024
@@ -24,7 +26,7 @@ protected class GCFileRewriter {
         this.db = db
         this.targetFid = targetFid
         this.shouldDiscard = shouldDiscard
-        this.entries = ArrayList<(Array<Byte>, LogEntry)>()
+        this.entries = ArrayList<(Array<Byte>, Array<Byte>, Byte, UInt64)>()
         this.totalSize = 0
         this.discardSize = 0
     }
@@ -33,16 +35,13 @@ protected class GCFileRewriter {
         let entrySize = entry.size()
         
         if (let Some(vs) <- db.getVS(entry.key)) {
-            if (shouldDiscard(entry.key, vs)) {
-                discardSize += entrySize
-                return true
-            }
-            
-            if (vs.isValuePointer()) {
+            if (!shouldDiscard(entry.key, vs) && vs.isValuePointer()) {
                 let vp = ValuePointer.decode(vs.value)
                 
+                // 只有「当前 LSM 值正好指向本段本偏移」的条目才是活的
                 if (vp.fid == targetFid && vp.offset == offset) {
-                    entries.add((entry.key, entry))
+                    // expiresAt 从当前 LSM 值取：vlog 条目编码里不保存它
+                    entries.add((entry.key, entry.value, vs.userMeta, vs.expiresAt))
                     totalSize += entrySize
                     
                     if (entries.size >= maxBatchCount || totalSize >= maxBatchSize) {
@@ -62,11 +61,9 @@ protected class GCFileRewriter {
             return
         }
         
-        for ((key, entry) in entries) {
-            db.setRaw(key, entry.value, entry.meta, entry.version, entry.expiresAt)
-        }
+        db.rewriteBatch(entries)
         
-        entries = ArrayList<(Array<Byte>, LogEntry)>()
+        entries = ArrayList<(Array<Byte>, Array<Byte>, Byte, UInt64)>()
         totalSize = 0
     }
     

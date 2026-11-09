@@ -29,6 +29,9 @@ public struct Config {
     // 超过后写路径停顿等待 flusher（背压），约束 flush 峰值内存
     // ≈ NumMemtables × 2 × MemTableSize。
     public var NumMemtables: Int
+    // VLog 单段容量（对齐 badger-go ValueLogFileSize，默认 1GB）。
+    // GC 只能回收非当前段：段越小、垃圾越容易集中，便于测试与低容量设备。
+    public var VLogFileSize: UInt64
     
     public init(
         dir!: String = "",
@@ -47,7 +50,8 @@ public struct Config {
         numMemtables!: Int = 5,
         mmapWAL!: Bool = true,
         mmapVLog!: Bool = true,
-        mmapSSTable!: Bool = true
+        mmapSSTable!: Bool = true,
+        vlogFileSize!: UInt64 = 1024 * 1024 * 1024u64
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -61,6 +65,7 @@ public struct Config {
         this.AutoCloseOnExit = autoCloseOnExit
         this.SyncWrites = syncWrites
         this.NumMemtables = numMemtables
+        this.VLogFileSize = vlogFileSize
         this.MmapWAL = mmapWAL
         this.MmapVLog = mmapVLog
         this.MmapSSTable = mmapSSTable
@@ -155,6 +160,12 @@ public struct Config {
     public func withSyncWrites(sync: Bool): Config {
         var conf = this
         conf.SyncWrites = sync
+        conf
+    }
+    
+    public func withVLogFileSize(size: UInt64): Config {
+        var conf = this
+        conf.VLogFileSize = size
         conf
     }
     

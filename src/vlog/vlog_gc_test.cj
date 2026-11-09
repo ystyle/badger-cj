@@ -85,6 +85,12 @@ class MockVLogGCDB <: VLogGCDB {
     
     public func getValueThreshold(): UInt64 { 1024 }
     
+    public func rewriteBatch(entries: ArrayList<(Array<Byte>, Array<Byte>, Byte, UInt64)>): Unit {
+        setCount += entries.size
+    }
+    
+    public func isClosed(): Bool { false }
+    
     public func getSetCount(): Int64 { setCount }
 }
 
@@ -234,17 +240,23 @@ class VLogManagerGCTest {
         Directory.create(dir.toString())
         
         let mockDb = MockVLogGCDB()
-        let vlog = VLogManager(dir)
+        // 段容量调小以产生多段：rewrite 拒绝当前段（对齐 go：fid 必须 < maxFid）
+        var opt = VLogOptions()
+        opt.maxFileSize = 64u32
+        let vlog = VLogManager(dir, opt: opt)
         vlog.setDB(mockDb)
         
-        let entry1 = LogEntry("key1".toArray(), "value1".toArray())
-        let vp1 = vlog.write(entry1)
-        
-        let entry2 = LogEntry("key2".toArray(), "value2".toArray())
-        vlog.write(entry2)
+        for (i in 0..6) {
+            let entry = LogEntry("key${i}".toArray(), "value${i}".toArray())
+            vlog.write(entry)
+        }
+        @Assert(vlog.getCurrentFid() > 0u32, true)
         
         let result = vlog.rewrite(0u32)
         @Assert(result, true)
+        
+        // mock 的 getVS 恒 None：所有条目都被判为垃圾，不会写回活值
+        @Assert(mockDb.getSetCount(), 0)
         
         vlog.close()
         if (exists(dir)) {

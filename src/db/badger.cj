@@ -71,6 +71,12 @@ public class Badger <: VLogGCDB {
     // shutdownLoop（后台线程）中、close() 之前按注册顺序依次执行（信号上下文安全）。
     private let shutdownHooks: ArrayList<() -> Unit> = ArrayList<() -> Unit>()
     private let shutdownHooksLock: Mutex = Mutex()
+    // —— VLog GC 延迟删除（对齐 go filesToBeDeleted + numActiveIterators）——
+    // GC 重写后的旧段不能立刻删：仍在迭代的 Iterator 可能持有旧版本的值指针。
+    // 活跃迭代器归零时才真正 unlink（Windows 还必须先 close 再 unlink）。
+    private let activeIterators: AtomicInt64 = AtomicInt64(0)
+    private let pendingVLogDeletes: ArrayList<UInt32> = ArrayList<UInt32>()
+    private let pendingVLogLock: Mutex = Mutex()
     
     protected init(
         opt: Config,
@@ -173,6 +179,14 @@ public class Badger <: VLogGCDB {
             // Config.MmapVLog 控制段写路径（mmap 稀疏预分配 vs 无缓冲 File.write）
             var vlogOpt = VLogOptions()
             vlogOpt.useMmap = opt.MmapVLog
+            // VLog 段容量：Config 是 UInt64，VLogOptions 是 UInt32（>4GB 段按上限截断）
+            vlogOpt.maxFileSize = if (opt.VLogFileSize > UInt64(UInt32.Max)) {
+                UInt32.Max
+            } else if (opt.VLogFileSize < 4096u64) {
+                4096u32
+            } else {
+                UInt32(opt.VLogFileSize)
+            }
             vlog = VLogManager(Path(opt.Dir), opt: vlogOpt)
         }
         let db = Badger(opt, mt, manifest, manifestFile, lc, vlog)
@@ -307,6 +321,8 @@ public class Badger <: VLogGCDB {
             
             mt.deleteWAL()
             
+            // close 时已无活跃迭代器：把延迟删除的旧段清掉
+            flushPendingVLogDeletes()
             vlog.close()
             // 释放所有 SST 表的映射：表数据在页缓存，进程内反复 open/close 不应累积虚拟地址
             lc.closeTables()
@@ -1168,7 +1184,9 @@ public class Badger <: VLogGCDB {
                 
                 gcCounter++
                 if (gcCounter >= 600) {
-                    vlog.runGC(0.5)
+                    if (let Some(fid) <- vlog.runGCEx(0.5)) {
+                        scheduleVLogDelete(fid)
+                    }
                     gcCounter = 0
                 }
             }
@@ -1181,7 +1199,58 @@ public class Badger <: VLogGCDB {
         if (opt.InMemory) {
             return false
         }
-        vlog.runGC(discardRatio)
+        if (let Some(fid) <- vlog.runGCEx(discardRatio)) {
+            scheduleVLogDelete(fid)
+            return true
+        }
+        false
+    }
+    
+    // —— VLog GC 延迟删除 ——
+    protected func incrIteratorCount(): Unit {
+        activeIterators.fetchAdd(1)
+    }
+    
+    protected func decrIteratorCount(): Unit {
+        if (activeIterators.fetchAdd(-1) == 1) {
+            flushPendingVLogDeletes()
+        }
+    }
+    
+    /** 重写完成的旧段：无活跃迭代器则立即删除，否则挂起等最后一个迭代器关闭。 */
+    private func scheduleVLogDelete(fid: UInt32): Unit {
+        if (activeIterators.load() == 0) {
+            vlog.deleteFile(fid)
+            return
+        }
+        synchronized (pendingVLogLock) {
+            pendingVLogDeletes.add(fid)
+        }
+    }
+    
+    private func flushPendingVLogDeletes(): Unit {
+        let fids = ArrayList<UInt32>()
+        synchronized (pendingVLogLock) {
+            for (fid in pendingVLogDeletes) {
+                fids.add(fid)
+            }
+            pendingVLogDeletes.clear()
+        }
+        for (fid in fids) {
+            vlog.deleteFile(fid)
+        }
+    }
+    
+    /** GC 把活值写回数据库：走正常提交路径（大值重新落 vlog 段并更新指针）。 */
+    public func rewriteBatch(entries: ArrayList<(Array<Byte>, Array<Byte>, Byte, UInt64)>): Unit {
+        if (entries.isEmpty()) {
+            return
+        }
+        updateOrThrow { txn =>
+            for ((key, value, userMeta, expiresAt) in entries) {
+                txn.setEntry(Entry(key, value, userMeta: userMeta, expiresAt: expiresAt))
+            }
+        }
     }
     
     public func compact(): Unit {
@@ -1231,6 +1300,18 @@ public class Badger <: VLogGCDB {
         } finally {
             lock.readLock.unlock()
         }
+    }
+    
+    /** compaction 丢弃旧版本时累计的 vlog 垃圾字节（按 fid）——VLog GC 的选段依据。 */
+    protected func updateVLogDiscardStats(stats: HashMap<UInt32, Int64>): Unit {
+        if (!stats.isEmpty() && !opt.InMemory) {
+            vlog.updateDiscardStats(stats)
+        }
+    }
+    
+    /** 测试/诊断：所有段累计垃圾字节。 */
+    protected func getVLogDiscardTotal(): Int64 {
+        vlog.totalDiscard()
     }
     
     public func setRaw(key: Array<Byte>, value: Array<Byte>, meta: Byte, version: UInt64, expiresAt: UInt64): Unit {

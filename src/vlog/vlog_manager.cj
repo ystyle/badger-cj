@@ -40,6 +40,8 @@ protected class VLogManager {
     private var db: ?VLogGCDB
     private var discardChecker: ?DiscardChecker
     private let discardStats: DiscardStats
+    // 已重写、等待删除的段（等活跃迭代器归零后删；Windows 必须先 close 再 unlink）
+    private var pendingDelete: ArrayList<UInt32>
     
     public init() {
         this.dir = Path("")
@@ -52,6 +54,7 @@ protected class VLogManager {
         this.db = None
         this.discardChecker = None
         this.discardStats = DiscardStats()
+        this.pendingDelete = ArrayList<UInt32>()
         
         // InMemory 模式下不创建实际文件
         this.currentFile = VLogFile.memory(0)
@@ -69,6 +72,7 @@ protected class VLogManager {
         this.db = None
         this.discardChecker = None
         this.discardStats = DiscardStats(dir)
+        this.pendingDelete = ArrayList<UInt32>()
         
         // 恢复已有段：VLog 是长期文件，重开时必须重建段表与写偏移——
         // 否则新写入的 ValuePointer.offset 会从 0 开始（读到别的旧值 = 静默数据损坏），
@@ -256,7 +260,7 @@ protected class VLogManager {
             var maxRatio: Float64 = 0.0
             
             for ((fid, _) in files) {
-                if (fid == currentFile.fid) {
+                if (fid == currentFile.fid || pendingDelete.contains(fid)) {
                     continue
                 }
                 
@@ -274,28 +278,71 @@ protected class VLogManager {
     public func rewrite(fid: UInt32): Bool {
         match ((db, discardChecker)) {
             case (Some(gcDb), Some(checker)) =>
+                if (gcDb.isClosed()) {
+                    return false
+                }
+                // 取段引用后**不持锁**迭代：目标段不是当前段（无并发写），而写回活值要
+                // 走正常写路径（会再次进入 vlog 锁），持锁迭代必然死锁。
+                var fileOpt: ?VLogFile = None
+                synchronized (lock) {
+                    if (files.contains(fid) && fid != currentFile.fid && !pendingDelete.contains(fid)) {
+                        fileOpt = Some(files[fid])
+                    }
+                }
+                let file = match (fileOpt) {
+                    case Some(f) => f
+                    case None => return false
+                }
                 let rewriter = GCFileRewriter(gcDb, fid, shouldDiscard: checker)
-                synchronized (lock) {
-                    if (!files.contains(fid)) {
-                        return false
-                    }
-                    let file = files[fid]
-                    file.iterate({ entry, offset =>
-                        rewriter.process(entry, offset)
-                    })
-                }
+                file.iterate({ entry, offset =>
+                    rewriter.process(entry, offset)
+                })
                 rewriter.flush()
-                
-                synchronized (lock) {
-                    if (files.contains(fid)) {
-                        files.remove(fid)
-                        discardStats.clear(fid)
-                    }
-                }
                 return true
             case _ =>
                 return false
         }
+    }
+    
+    /** 标记段为「已重写、待删除」：pickLog 不再选中它，等活跃迭代器归零后真正删除。 */
+    public func markPendingDelete(fid: UInt32): Unit {
+        synchronized (lock) {
+            if (!pendingDelete.contains(fid)) {
+                pendingDelete.add(fid)
+            }
+        }
+    }
+    
+    /** 删除一个已被重写的段（调用方保证无活跃迭代器）。 */
+    public func deleteFile(fid: UInt32): Bool {
+        var fileOpt: ?VLogFile = None
+        synchronized (lock) {
+            if (files.contains(fid) && fid != currentFile.fid) {
+                fileOpt = Some(files[fid])
+            }
+        }
+        let file = match (fileOpt) {
+            case Some(f) => f
+            case None => return false
+        }
+        // Windows：被映射文件不能删除 → 先 close 释放映射，再 unlink
+        file.close()
+        let p = file.getPath()
+        if (exists(p)) {
+            remove(p)
+        }
+        synchronized (lock) {
+            files.remove(fid)
+            discardStats.clear(fid)
+            let remaining = ArrayList<UInt32>()
+            for (x in pendingDelete) {
+                if (x != fid) {
+                    remaining.add(x)
+                }
+            }
+            pendingDelete = remaining
+        }
+        return true
     }
     
     private func batchRewrite(gcDb: VLogGCDB, entries: ArrayList<(Array<Byte>, LogEntry)>): Unit {
@@ -304,16 +351,34 @@ protected class VLogManager {
         }
     }
     
-    public func runGC(discardRatio: Float64): Bool {
+    /** 跑一轮 GC；返回被重写的段 fid（调用方负责在无活跃迭代器后调用 deleteFile）。 */
+    public func runGCEx(discardRatio: Float64): ?UInt32 {
         let fidOpt = pickLog(discardRatio)
         if (let Some(fid) <- fidOpt) {
-            return rewrite(fid)
+            if (rewrite(fid)) {
+                markPendingDelete(fid)
+                return Some(fid)
+            }
         }
-        return false
+        None
+    }
+    
+    public func runGC(discardRatio: Float64): Bool {
+        runGCEx(discardRatio).isSome()
     }
     
     public func addDiscard(fid: UInt32, size: Int64): Unit {
         discardStats.update(fid, size)
+    }
+    
+    /** compaction 丢弃旧版本后，按 fid 批量累计垃圾字节（一次落盘）。 */
+    public func updateDiscardStats(updates: HashMap<UInt32, Int64>): Unit {
+        discardStats.updateBatch(updates)
+    }
+    
+    /** 所有段累计垃圾字节（测试/诊断用）。 */
+    public func totalDiscard(): Int64 {
+        discardStats.total()
     }
     
     public func getCurrentFid(): UInt32 {
@@ -506,6 +571,11 @@ public class VLogFile {
         let data = buf.toArray()[start..end]
         let (entry, _) = LogEntry.decode(data, 0)
         return entry
+    }
+    
+    /** 段文件路径（GC 删除时用：先 close 再 unlink）。 */
+    public func getPath(): Path {
+        path
     }
     
     /** 逻辑大小：已写入的有效字节数（不是物理文件长度——预分配后后者是 maxFileSize）。 */

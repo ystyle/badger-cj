@@ -64,6 +64,8 @@ public class Iterator {
         // 合并迭代器
         this.iitr = MergeIterator(iters, reverse: opt.reverse)
         this.item_ = Item([], [])
+        // VLog GC 延迟删除依赖活跃迭代器计数（旧段的值指针可能被本迭代器读到）
+        db.incrIteratorCount()
     }
     
     public func rewind(): Unit {
@@ -152,6 +154,8 @@ public class Iterator {
             return
         }
         closed = true
+        // 最后一个迭代器关闭时，VLog GC 挂起的旧段才会真正删除
+        txn.getDB().decrIteratorCount()
     }
     
     private func parseItem(): Unit {

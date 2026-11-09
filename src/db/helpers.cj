@@ -178,8 +178,11 @@ protected func isDeletedOrExpired(meta: Byte, expiresAt: UInt64): Bool {
 /**
  * discardEntry - 检查 VLog GC 时是否应该丢弃该条目
  */
-protected func discardEntry(entryKey: Array<Byte>, vs: ValueStruct): Bool {
-    if (vs.version != parseTs(entryKey)) { return true }
+protected func discardEntry(_: Array<Byte>, vs: ValueStruct): Bool {
+    // 注意：vlog 条目里的 key 是 **user key**（不含 ts 后缀），不能 parseTs 取版本——
+    // 旧实现用 parseTs(entryKey) 与 vs.version 比较，恒不相等 → 把所有活数据都判成可丢弃。
+    // 本函数只回答「当前 LSM 值是否还是一个活的值指针」；指针是否正好指向本段本偏移，
+    // 由 GCFileRewriter 比对（fid + offset）。
     if (isDeletedOrExpired(vs.meta, vs.expiresAt)) { return true }
     if ((vs.meta & Meta.bitValuePointer) == 0) { return true }
     return false

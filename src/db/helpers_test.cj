@@ -5,6 +5,7 @@ import std.unittest.testmacro.*
 import std.time.*
 import badgercj.table.Meta
 import badgercj.table.ValueStruct
+import badgercj.table.ValuePointer
 
 @Test
 class HelpersTest {
@@ -77,9 +78,19 @@ class HelpersTest {
     }
     
     @TestCase
-    func testDiscardEntryVersionMismatch() {
-        let key = keyWithTs("test".toArray(), 100u64)
-        let vs = ValueStruct("value".toArray(), version: 200u64)
+    func testDiscardEntryKeepsLiveValuePointer() {
+        // vlog 条目的 key 是 user key（无 ts 后缀）；活值指针不得被判为可丢弃
+        let key = "test".toArray()
+        let vp = ValuePointer(1u32, 100u32, 0u32)
+        let vs = ValueStruct(vp.encode(), meta: Meta.bitValuePointer, version: 100u64)
+        @Assert(!discardEntry(key, vs))
+    }
+    
+    @TestCase
+    func testDiscardEntryDropsDeletedPointer() {
+        let key = "test".toArray()
+        let vp = ValuePointer(1u32, 100u32, 0u32)
+        let vs = ValueStruct(vp.encode(), meta: Meta.bitValuePointer | Meta.bitDelete, version: 100u64)
         @Assert(discardEntry(key, vs))
     }
     

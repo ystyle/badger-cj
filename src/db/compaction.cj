@@ -279,6 +279,8 @@ protected class Compaction {
         
         let builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
         var lastKey: Array<Byte> = []
+        // 本轮丢弃的旧版本里，值在 vlog 中的字节数按 fid 累计——VLog GC 靠它判断哪段垃圾多。
+        let discardStats = HashMap<UInt32, Int64>()
         // 只有合并到**最底层**时，删除标记才可以真正丢弃：更低层若还留着更旧的版本，
         // 丢掉 tombstone 等于给旧值解禁（生产实测：某次 2MB compaction 之后，删掉的上游
         // 记录整批复活，连 id 都不变）。非最底层一律把 tombstone 写进新表继续压制。
@@ -289,10 +291,12 @@ protected class Compaction {
             // 必须先判重再更新 lastKey —— 反过来的话，「丢弃 tombstone」的同一轮里更旧的
             // 值会被当成新 key 写进新表，就是删除复活的机制。
             if (lastKey.size > 0 && sameKey(key, lastKey)) {
+                Compaction.accumulateDiscard(discardStats, vs)
                 continue
             }
             lastKey = key
             if (isDeletedOrExpired(vs.meta, vs.expiresAt) && bottomMost) {
+                Compaction.accumulateDiscard(discardStats, vs)
                 continue
             }
             builder.add(key, vs)
@@ -318,7 +322,20 @@ protected class Compaction {
             manifestChanges.add(ManifestChange(tableId, ManifestChangeOp.Create, level: UInt32(level)))
         }
         
+        // 统计必须在本轮结束前交给 VLogManager（Go 同位置：compactBuildTables 末尾 updateDiscardStats）
+        db.updateVLogDiscardStats(discardStats)
+        
         (result, manifestChanges)
+    }
+    
+    /** 丢弃条目时累计其 vlog 占用（仅值指针条目有 vlog 字节）。 */
+    private static func accumulateDiscard(stats: HashMap<UInt32, Int64>, vs: ValueStruct): Unit {
+        if (!vs.isValuePointer()) {
+            return
+        }
+        let vp = ValuePointer.decode(vs.value)
+        let current: Int64 = if (stats.contains(vp.fid)) { stats[vp.fid] } else { 0 }
+        stats[vp.fid] = current + Int64(vp.len)
     }
     
     private func collectEntriesFromTable(table: TableInterface, entries: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
