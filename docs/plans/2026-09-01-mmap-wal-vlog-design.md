@@ -214,20 +214,20 @@ io_uring 不再承担 WAL/vlog；v2.0 后 io_uring 仅作 Linux 下 SSTable 批�
 |------|------|------|
 | 1 | WAL mmap 化（WAL 类内部替换）+ **换段** | wal/large_batch/graceful_shutdown 测试过；换段用例过 |
 | 2 | VLog 写 mmap 化 + 稀疏预分配 | vlog/integration/atomicity 测试过 |
-| 3 | VLog 读 mmap 化（可选） | vlog 读取路径测试过 |
+| 3 | VLog 读 mmap 化（可选） | ✅ 已实现：VLog 流式遍历（mmap 段直读；文件模式 128KB 缓冲 + 64KB 临时缓冲），见阶段 6.2 |
 | 4 | 截断回收（换段已提前至阶段 1） | 文件大小断言 + 多段测试 |
-| 5 | 三平台 CI 接入（macOS arm64） | GitHub Actions 全绿 |
-| 6 | 性能复测（对比 v1.6.9） | DB Set 目标减半，更新 benchmark-report |
+| 5 | 三平台 CI 接入（macOS arm64） | Linux 为 required（452/452 绿）；Windows 为 continue-on-error（已知测试清理文件锁 ERROR）；macOS 拆为独立手动 workflow（无 runner 时 instant-cancel 已规避） |
+| 6 | 性能复测（对比 v1.6.23） | 实测写吞吐持平（A/B 交替 9 轮 +6.9%）；收益体现在内存上界（表/段数据不进 GC 堆）与 SyncWrites 每批一次 msync，见 benchmark-report 2.0 章节 |
 
-### 后续版本（v2.x，独立规划，不在 v2.0 内）
+### 后续版本与已并入项（2026-11-09 校准，v2.0.0 发布后）
 
-| 版本 | 内容 | 来源 |
+| 项 | 原计划 | 现状 |
 |------|------|------|
-| v2.1 | WAL batch write + group commit | benchmark P1 |
-| v2.2 | Block/Index Cache | 需求文档 P1 |
-| v2.3 | Merge Operator | 需求文档 P2 / 下一阶段 P2 |
-| v2.4 | Managed DB（补全） | 下一阶段 P3（oracle isManaged 已预留） |
-| v2.5 | Encryption | 下一阶段 P4 |
+| WAL batch write + group commit | v2.1 | **已并入 2.0.0**（WriteBatch + 同批一次 WAL 映射写/一次 msync） |
+| Merge Operator | v2.3 | **已并入 2.0.0**（add/get/compact/stop + compaction 回收旧链） |
+| Managed DB | v2.4 | **已并入 2.0.0**（openManaged/newTransactionAt/commitAt/setDiscardTs） |
+| Block/Index Cache | v2.2 | **2.1 候选**（2.0 默认无压缩、索引已 lazy，收益待量化） |
+| Encryption | v2.5 | **2.1 候选**（需先定 SM4-CTR vs AES 口径） |
 
 > 分布式特性不在路线（嵌入式库定位）；Backup/Restore、Stream API 已完成（v1.7）。
 

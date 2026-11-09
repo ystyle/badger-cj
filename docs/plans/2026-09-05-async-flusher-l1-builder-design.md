@@ -1,5 +1,13 @@
 # 异步 Flusher + TableBuilder 单拷贝（L1）设计
 
+> 状态：**主体已实现**（v1.6.17，分支 feat/async-flusher；实现记录见 progress-tracking
+> 的 v1.6.17 行与 v1.6.17-fix2 行）。本设计两件事都已合入：① flush 移出全局写锁、单 flusher
+> 协程锁外执行（实现于 src/db/badger.cj 的 flushQueue/rotateAndEnqueueLocked/waitForFlushRoom/
+> persistMemTable，测试 src/db/async_flusher_test.cj）；② TableBuilder L1 单拷贝（分块持有 +
+> finish 一次拼接，见 src/table/builder.cj）。**L2（块完成即写文件的真流式落盘）未做**，
+> 即「背景与动机」注释里说的另行排期项；2.0 的 compaction 输出/备份已改为流式，但普通
+> flush 的 builder 仍是整表驻留。
+
 > 2026-09-05 · 对应分支 `feat/async-flusher`（异步化）+ 同一分支内 L1 builder 改造
 > 关联：v1.6.12 flush 落盘语义（#520）、评审 P2-2 遗留（#518「flush 同步 SSTable 构建仍在
 > 全局写锁内」）、chronomem OOM 事故链（#524）、go 锚点 `~/Projects/badger`。

@@ -166,7 +166,10 @@ interface TableData {                    // 新增内部抽象（table 包内）
 3. 生命周期：compaction 替换表后映射释放（迭代器/读经摘表后 close 的并发用例）；
 4. 恢复路径：close→reopen、崩溃重开（现有 crash/persist 测试族）；
 5. 平台：Linux 全量；macOS/Windows 由三平台 CI（v2.0 阶段 5）覆盖关键用例；
-6. 性能：flush_impact 专项 + DB Get 延迟（对比 v1.6.17 基线，禁止回退）。
+6. 性能：flush_impact 专项 + DB Get 延迟。**口径更新（2026-11-09）**：2.0 的对照是
+   「mmap 读」vs「整表驻留堆」两种模式，而不是 v1.6.x 的同模式前后——v1.6.x 两种模式都整表
+   预读（实测 35.2 vs 35.2 µs/Get），2.0 的 mmap 模式按需映射（每块 memcpy + 分配）故比堆内慢
+   2.7-3.2x，属「用读延迟换内存上界」的有意取舍；数据见 benchmark-report 2.0 章节。
 
 ## 7. 实施阶段（并入 v2.0 排期）
 
@@ -175,7 +178,7 @@ interface TableData {                    // 新增内部抽象（table 包内）
 | A | TableData 抽象 + MemoryTableData 提取（纯重构，行为零变化） | 361 全绿 |
 | B | MmapTableData + flush/compaction/loadTables 接入映射 | 等价测试 + 361 全绿 |
 | C | 生命周期审计与收口（摘表 close / Windows 顺序） | 并发/恢复测试 |
-| D | 性能复测 + 内存对照（chronomem 场景堆曲线） | benchmark-report 更新 |
+| D | 性能复测 + 内存对照（chronomem 场景堆曲线） | ✅ benchmark-report 已更新：全套 5 轮复测 + SSTable 读 mmap vs 整表驻留堆对照（128MB：112.3 vs 35.5 µs/Get；16MB：20.8 vs 7.6 µs/Get，以读延迟换内存上界，取舍已记录） |
 
 > 依赖：mmap-cj 只读映射 API（含文件大小/长度查询）确认；与 WAL/VLog mmap 化
 > （2026-09-01 文档）共用 mmap-cj，实施顺序可在阶段 1（WAL/VLog）后或并行。
