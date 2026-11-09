@@ -19,8 +19,8 @@ class GracefulShutdownTest {
 
     private static let DIR = "/tmp/badger_graceful_shutdown_test"
 
-    private func cleanup(): Unit {
-        let path = Path(DIR)
+    private func cleanup(dir: String): Unit {
+        let path = Path(dir)
         if (exists(path)) {
             remove(path, recursive: true)
         }
@@ -28,8 +28,9 @@ class GracefulShutdownTest {
 
     @TestCase
     func testSigtermTriggersGracefulClose(): Unit {
-        cleanup()
-        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+        let dir = DIR + "_testSigtermTriggersGracefulClose"
+        cleanup(dir)
+        let db = Badger.open(Config(dir: dir, memTableSize: 64 * 1024u64))
         // 写入一条数据，确保关闭前有可 flush 的内容
         let ok = db.update({ t => t.set("k".toArray(), "v".toArray()) })
         @Assert(ok.isSuccess(), true)
@@ -62,13 +63,14 @@ class GracefulShutdownTest {
             }
         }
         @Assert(closed, true)
-        cleanup()
+        cleanup(dir)
     }
 
     @TestCase
     func testRegisterTwiceIsIdempotent(): Unit {
-        cleanup()
-        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+        let dir = DIR + "_testRegisterTwiceIsIdempotent"
+        cleanup(dir)
+        let db = Badger.open(Config(dir: dir, memTableSize: 64 * 1024u64))
         db.registerSignalShutdown(exitAfterClose: false)
         db.registerSignalShutdown(exitAfterClose: false)
         // 二次注册不重复 spawn 后台线程；close 后信号 handler 已注销，update 返回 Error
@@ -93,15 +95,16 @@ class GracefulShutdownTest {
             }
         }
         @Assert(closed, true)
-        cleanup()
+        cleanup(dir)
     }
 
     // 优雅关闭钩子：SIGTERM 优雅关闭时，close() 之前按注册顺序执行（方案 B——宿主把
     // 清理逻辑注册进 badger，无信号注册顺序依赖）。
     @TestCase
     func testShutdownHookExecutedOnSigterm(): Unit {
-        cleanup()
-        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+        let dir = DIR + "_testShutdownHookExecutedOnSigterm"
+        cleanup(dir)
+        let db = Badger.open(Config(dir: dir, memTableSize: 64 * 1024u64))
         let hookRan = AtomicBool(false)
         db.registerShutdownHook({ => hookRan.store(true) })
         db.registerSignalShutdown(exitAfterClose: false)
@@ -128,15 +131,16 @@ class GracefulShutdownTest {
         }
         @Assert(closed, true)
         @Assert(hookRan.load(), true)
-        cleanup()
+        cleanup(dir)
     }
 
     // 钩子按注册顺序执行：钩子1 store(1) → 钩子2 store(2)，最终值为 2 说明顺序正确
     // （若乱序，钩子2 先执行再被钩子1 覆盖，最终为 1）。
     @TestCase
     func testShutdownHooksRunInOrder(): Unit {
-        cleanup()
-        let db = Badger.open(Config(dir: DIR, memTableSize: 64 * 1024u64))
+        let dir = DIR + "_testShutdownHooksRunInOrder"
+        cleanup(dir)
+        let db = Badger.open(Config(dir: dir, memTableSize: 64 * 1024u64))
         let lastRun = AtomicInt64(0)
         db.registerShutdownHook({ => lastRun.store(1) })
         db.registerShutdownHook({ => lastRun.store(2) })
@@ -164,7 +168,7 @@ class GracefulShutdownTest {
         }
         @Assert(closed, true)
         @Assert(lastRun.load() == 2, true)
-        cleanup()
+        cleanup(dir)
     }
     // 宿主钩子抛异常**不能**吃掉落盘。
     //
