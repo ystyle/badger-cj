@@ -1393,6 +1393,11 @@ public class Badger <: VLogGCDB {
         }
     }
     
+    /** compaction 可安全丢弃的版本水位（见 Oracle.discardAtOrBelow）。 */
+    internal func getDiscardTs(): UInt64 {
+        oracle.discardAtOrBelow()
+    }
+    
     /** compaction 丢弃旧版本时累计的 vlog 垃圾字节（按 fid）——VLog GC 的选段依据。 */
     protected func updateVLogDiscardStats(stats: HashMap<UInt32, Int64>): Unit {
         if (!stats.isEmpty() && !opt.InMemory) {

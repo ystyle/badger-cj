@@ -285,26 +285,60 @@ protected class Compaction {
         // 丢掉 tombstone 等于给旧值解禁（生产实测：某次 2MB compaction 之后，删掉的上游
         // 记录整批复活，连 id 都不变）。非最底层一律把 tombstone 写进新表继续压制。
         let bottomMost = cd.nextLevel >= db.getOpt().MaxLevels - 1
+        // 保留策略（对齐 badger-go levels.go addKeys）：
+        // - merge 条目永不丢弃（要等折叠后才能回收）；
+        // - 版本号 > discardTs 的版本必须保留（活跃读者 / managed 旧 readTs 可能要读）；
+        // - 版本号 <= discardTs 的版本，每个 key 至少保留 NumVersionsToKeep 个；
+        //   discardTs = 活跃读事务最小 readTs（非 managed）或用户 setDiscardTs（managed）；
+        // - 删除/过期条目：非最底层保留以压制低层；最底层可丢。两者都屏蔽更旧版本，一并丢。
+        let discardTs = db.getDiscardTs()
+        let numVersionsToKeep = Int64(db.getOpt().NumVersionsToKeep)
+        var belowDiscardCount: Int64 = 0
+        var skipRemainingVersions = false
         
         while (merger.valid()) {
             let key = merger.key()
             let vs = ValueStruct.decode(merger.value())
-            // 同一个 key 的后续条目都是更旧的版本：**无论上一条有没有被写入**都要跳过。
-            // 必须先判重再更新 lastKey —— 反过来的话，「丢弃 tombstone」的同一轮里更旧的
-            // 值会被当成新 key 写进新表，就是删除复活的机制。
-            if (lastKey.size > 0 && sameKey(key, lastKey)) {
+            // 换 key：重置版本保留计数（merger 可能复用 key 缓冲，lastKey 必须独立副本）
+            if (lastKey.size == 0 || !sameKey(key, lastKey)) {
+                lastKey = key.clone()
+                belowDiscardCount = 0
+                skipRemainingVersions = false
+            }
+            if (skipRemainingVersions) {
                 Compaction.accumulateDiscard(discardStats, vs)
                 merger.next()
                 continue
             }
-            // merger 可能复用 key 缓冲，lastKey 必须持有独立副本
-            lastKey = key.clone()
-            if (isDeletedOrExpired(vs.meta, vs.expiresAt) && bottomMost) {
-                Compaction.accumulateDiscard(discardStats, vs)
+            let mergeEntry = (vs.meta & Meta.bitMergeEntry) != 0
+            let eligible = vs.version <= discardTs && !mergeEntry
+            if (!eligible) {
+                // 活跃读者可能还要读 / merge 位条目要留给折叠：无条件保留
+                builder.add(key, vs)
                 merger.next()
                 continue
             }
-            builder.add(key, vs)
+            if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
+                if (!bottomMost) {
+                    // 非最底层：保留 tombstone 压制低层旧值（删数据复活事故的修复点）
+                    builder.add(key, vs)
+                } else {
+                    Compaction.accumulateDiscard(discardStats, vs)
+                }
+                // 它屏蔽了同 key 的所有更旧版本
+                skipRemainingVersions = true
+                merger.next()
+                continue
+            }
+            belowDiscardCount++
+            if (belowDiscardCount <= numVersionsToKeep) {
+                builder.add(key, vs)
+                if ((vs.meta & Meta.bitDiscardEarlierVersions) != 0) {
+                    skipRemainingVersions = true
+                }
+            } else {
+                Compaction.accumulateDiscard(discardStats, vs)
+            }
             merger.next()
         }
         

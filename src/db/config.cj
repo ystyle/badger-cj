@@ -32,6 +32,9 @@ public struct Config {
     // VLog 单段容量（对齐 badger-go ValueLogFileSize，默认 1GB）。
     // GC 只能回收非当前段：段越小、垃圾越容易集中，便于测试与低容量设备。
     public var VLogFileSize: UInt64
+    // compaction 每个 key 至少保留的版本数（对齐 badger-go NumVersionsToKeep，默认 1）。
+    // managed DB 必须调大（旧 readTs 要能读到旧版本），否则旧快照会丢数据。
+    public var NumVersionsToKeep: Int
     
     public init(
         dir!: String = "",
@@ -51,7 +54,8 @@ public struct Config {
         mmapWAL!: Bool = true,
         mmapVLog!: Bool = true,
         mmapSSTable!: Bool = true,
-        vlogFileSize!: UInt64 = 1024 * 1024 * 1024u64
+        vlogFileSize!: UInt64 = 1024 * 1024 * 1024u64,
+        numVersionsToKeep!: Int = 1
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -66,6 +70,7 @@ public struct Config {
         this.SyncWrites = syncWrites
         this.NumMemtables = numMemtables
         this.VLogFileSize = vlogFileSize
+        this.NumVersionsToKeep = if (numVersionsToKeep < 1) { 1 } else { numVersionsToKeep }
         this.MmapWAL = mmapWAL
         this.MmapVLog = mmapVLog
         this.MmapSSTable = mmapSSTable
@@ -160,6 +165,12 @@ public struct Config {
     public func withSyncWrites(sync: Bool): Config {
         var conf = this
         conf.SyncWrites = sync
+        conf
+    }
+    
+    public func withNumVersionsToKeep(n: Int): Config {
+        var conf = this
+        conf.NumVersionsToKeep = if (n < 1) { 1 } else { n }
         conf
     }
     

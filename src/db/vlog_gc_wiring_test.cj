@@ -44,7 +44,7 @@ class VLogGcWiringTest {
         })
         db.flushMemTable()
 
-        db.compact()
+        compactWithFreshWatermark(db)
         @Assert(db.getVLogDiscardTotal() > 0, true)
 
         let before = vlogGcSegments(dir)
@@ -109,3 +109,4 @@ func vlogGcSegments(dir: String): ArrayList<String> {
     }
     out
 }
+

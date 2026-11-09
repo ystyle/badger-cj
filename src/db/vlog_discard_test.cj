@@ -42,7 +42,7 @@ class VLogDiscardTest {
         })
         db.flushMemTable()
 
-        db.compact()
+        compactWithFreshWatermark(db)
         @Assert(db.getVLogDiscardTotal() > 0, true)
 
         // 合并后读到的必须是新值（旧值指针被丢弃，但活值不能被误伤）
@@ -105,4 +105,15 @@ func vlogDiscardValue(tag: String, size: Int64): Array<Byte> {
     let n = if (tagBytes.size < buf.size) { tagBytes.size } else { buf.size }
     tagBytes.copyTo(buf, 0, 0, n)
     buf
+}
+
+// 先推进 read watermark 再触发一轮「L0 + 重叠 L1」压缩：
+// 保留策略按 discardTs（活跃读者最小 readTs）决定丢弃，若不推进水位，
+// 最新版本 > discardTs 会连同其上一版一起保留，compaction 不产生垃圾。
+func compactWithFreshWatermark(db: Badger): Unit {
+    let txn = db.newTransaction(update: false)
+    txn.discard()
+    db.updateOrThrow({ txn2 => txn2.set("__compact_trigger".toArray(), "1".toArray()) })
+    db.flushMemTable()
+    db.compact()
 }

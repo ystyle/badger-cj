@@ -49,6 +49,9 @@ protected class Oracle {
     private var lastCleanupTs: UInt64
     
     private let running: AtomicBool
+    // managed DB：用户显式设置的 discard 水位（低于等于它的版本可在 compaction 丢弃）。
+    // 非 managed 水位取活跃读事务的最小 readTs（readMark.doneUntil）。
+    private let discardTs: AtomicUInt64
     
     public init(isManaged!: Bool = false, detectConflicts!: Bool = true) {
         this.isManaged = isManaged
@@ -64,6 +67,31 @@ protected class Oracle {
         this.lastCleanupTs = 0
         
         this.running = AtomicBool(true)
+        this.discardTs = AtomicUInt64(0)
+    }
+    
+    /**
+     * compaction 可安全丢弃的版本水位：版本号 <= 它的旧版本对**所有活跃读者**都不可见。
+     * - 非 managed：活跃读事务的最小 readTs（没有活跃读者时 = 最新已提交 ts）
+     * - managed：用户 SetDiscardTs 设定的水位（默认 0 = 不额外丢弃）
+     */
+    public func discardAtOrBelow(): UInt64 {
+        if (isManaged) {
+            return discardTs.load()
+        }
+        readMark.doneUntil()
+    }
+    
+    /** 仅 managed DB：设置 discard 水位（<= ts 的版本可被 compaction 丢弃）。 */
+    public func setDiscardTs(ts: UInt64): Unit {
+        if (!isManaged) {
+            throw IllegalStateException("SetDiscardTs is only allowed for managed DB")
+        }
+        discardTs.store(ts)
+    }
+    
+    public func managed(): Bool {
+        isManaged
     }
     
     public func initTs(ts: UInt64): Unit {
