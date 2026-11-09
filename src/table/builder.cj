@@ -42,11 +42,14 @@ protected class TableBuilder {
     private var maxVersion: UInt64
     private var uncompressedSize: UInt32
     private var compressedSize: UInt32
+    // 2.1 L2 流式构建：可选 sink（块完成即回调），设置后构建期不再持有 blocks
+    private let sink: ?(Array<Byte>) -> Unit
+    private let streamCrc: ?CRC32C
     private var finished: Bool
     private var tableSmallest: Array<Byte>
     private var tableBiggest: Array<Byte>
     
-    public init(blockSize!: Int64 = 4 * 1024, bloomFalsePositive!: Float64 = 0.01, compression!: CompressionType = CompressionType.None) {
+    public init(blockSize!: Int64 = 4 * 1024, bloomFalsePositive!: Float64 = 0.01, compression!: CompressionType = CompressionType.None, sink!: ?(Array<Byte>) -> Unit = None) {
         this.blockSize = blockSize
         this.bloomFalsePositive = bloomFalsePositive
         this.compression = compression
@@ -59,6 +62,11 @@ protected class TableBuilder {
         this.maxVersion = 0
         this.uncompressedSize = 0
         this.compressedSize = 0
+        this.sink = sink
+        this.streamCrc = match (sink) {
+            case Some(_) => Some(CRC32C())
+            case None => None
+        }
         this.finished = false
         this.tableSmallest = []
         this.tableBiggest = []
@@ -116,8 +124,15 @@ protected class TableBuilder {
         let blockOffset = BlockOffset(currentBlock.getBaseKey(), offset, UInt32(finalData.size), compression: compressionType)
         blockOffsets.add(blockOffset)
         
-        // L1：整块引用持有，零逐字节累积/扩容搬运
-        blocks.add(finalData)
+        // L1：整块引用持有；L2（sink 模式）块完成即交给调用方写盘，不在内存累积
+        if (let Some(fn) <- sink) {
+            if (let Some(crc) <- streamCrc) {
+                crc.write(finalData)
+            }
+            fn(finalData)
+        } else {
+            blocks.add(finalData)
+        }
         writtenSize += Int64(finalData.size)
         
         compressedSize += UInt32(finalData.size)
@@ -173,6 +188,28 @@ protected class TableBuilder {
         
         let indexData = buildTableIndex()
         let indexSize = UInt32(indexData.size)
+        
+        // L2 sink 模式：块已全部写出；这里写出 index + 尾部（[indexSize][crc][crcSize]）
+        if (let Some(fn) <- sink) {
+            if (let Some(crc) <- streamCrc) {
+                crc.write(indexData)
+                let iszBytes = [UInt8(indexSize & 0xFF), UInt8((indexSize >> 8) & 0xFF),
+                    UInt8((indexSize >> 16) & 0xFF), UInt8((indexSize >> 24) & 0xFF)]
+                crc.write(iszBytes)
+                let checksum = crc.sum32()
+                fn(indexData)
+                let tail = Array<Byte>(12, repeat: 0)
+                for (k in 0..4) {
+                    tail[k] = iszBytes[k]
+                }
+                for (k in 0..4) {
+                    tail[4 + k] = UInt8((checksum >> (k * 8)) & 0xFF)
+                }
+                tail[8] = 4
+                fn(tail)
+            }
+            return []
+        }
         
         // 尾部 8B 追加：[crc 4B][crcSize 4B=4]，crc 覆盖 blocks+index+indexSize
         let bodyLen = writtenSize + Int64(indexData.size) + 4
