@@ -1051,8 +1051,51 @@ public class Badger <: VLogGCDB {
     // 空表（无条目）直接返回：不建表不落盘（与旧实现落盘空表相比的行为修正——空表
     // 无数据可持久，imm 出队由调用方统一完成）。
     // 失败抛异常：表保持 imm/WAL 状态不变（重试 / close / 下次 open 兜底恢复）。
+    // [flusher 协程 / open 恢复期] L2 流式落盘：块完成即写文件，构建期不持有整表字节。
+    // 只用于磁盘 + mmap 模式（非 mmap 模式需要整表字节构造堆内表）。
+    private func persistMemTableStreaming(mt: MemTable): Unit {
+        let tableID = reserveFileID()
+        let path = sstablePath(opt.Dir, tableID)
+        if (exists(Path(path))) {
+            remove(Path(path))
+        }
+        let f = File(Path(path), ReadWrite)
+        let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive,
+            compression: opt.Compression, sink: { data => f.write(data) })
+        let iter = mt.iterator()
+        var any: Bool = false
+        while (iter.hasNext()) {
+            if (let Some((key, vs)) <- iter.next()) {
+                if (vs.isFinTxn()) {
+                    continue
+                }
+                builder.add(key, vs.clearTxnMarks())
+                any = true
+            }
+        }
+        let rest = builder.finish()
+        f.close()
+        if (!any || rest.size != 0) {
+            // 空表 / 契约异常：不落盘（删半成品），由调用方出队
+            if (exists(Path(path))) {
+                remove(Path(path))
+            }
+            return
+        }
+        let changes = ManifestChangeSet()
+        changes.add(ManifestChange(tableID, ManifestChangeOp.Create, level: 0))
+        manifestFile.saveChanges(changes)
+        let table = Table(tableID, tableData: MmapTableData(path), cache: blockCache)
+        lc.addTable(0, TableAdapter(table))
+    }
+
     private func persistMemTable(mt: MemTable): Unit {
         flushCount.fetchAdd(1)
+        let useStreaming = opt.StreamingSSTable && opt.MmapSSTable && !opt.InMemory
+        if (useStreaming) {
+            persistMemTableStreaming(mt)
+            return
+        }
         let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive, compression: opt.Compression)
         let iter = mt.iterator()
         while (iter.hasNext()) {
