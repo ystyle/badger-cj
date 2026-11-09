@@ -123,6 +123,11 @@ public class Badger <: VLogGCDB {
             Directory.create(Path(opt.Dir), recursive: true)
         }
         
+        // 格式基线：缺失 = v1.6.x（format 1）并补写；更高版本/未知 feature 拒绝打开
+        if (!opt.InMemory) {
+            ensureFormat(opt.Dir)
+        }
+        
         // MANIFEST
         var manifestFile: ManifestFile
         if (opt.InMemory) {
