@@ -9,6 +9,8 @@ public interface TableInterface {
     func biggest(): Array<Byte>
     func get(key: Array<Byte>, readTs: UInt64): Option<ValueStruct>
     func size(): Int64
+    /** 表数据字节数（on-disk 大小） */
+    func dataSize(): Int64
     func getMaxVersion(): UInt64
     func keyCount(): UInt32
     func uncompressedSize(): Int64

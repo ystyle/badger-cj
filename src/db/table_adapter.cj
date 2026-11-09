@@ -54,6 +54,10 @@ public class TableAdapter <: TableInterface {
         Int64(table.keyCount)
     }
     
+    public func dataSize(): Int64 {
+        table.dataSize()
+    }
+    
     public func getMaxVersion(): UInt64 {
         table.maxVersion
     }

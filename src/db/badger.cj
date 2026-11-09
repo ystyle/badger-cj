@@ -671,6 +671,27 @@ public class Badger <: VLogGCDB {
         }
     }
     
+    /**
+     * 估算某前缀的数据量（对齐 badger-go EstimateSize）：只统计**左右边界都命中前缀**
+     * 的 SSTable，返回 (onDisk 字节, 解压后字节)；未落盘的 memtable 不计入（go 同语义）。
+     */
+    public func estimateSize(prefix: Array<Byte>): (UInt64, UInt64) {
+        var onDisk: UInt64 = 0
+        var uncompressed: UInt64 = 0
+        for (level in 0..lc.numLevels()) {
+            for (t in lc.getLevelHandler(level).getTables()) {
+                // 表边界是 keyWithTs，比较前缀前先剥掉时间戳后缀
+                let left = parseKey(t.smallest())
+                let right = parseKey(t.biggest())
+                if (hasPrefix(left, prefix) && hasPrefix(right, prefix)) {
+                    onDisk += UInt64(t.dataSize())
+                    uncompressed += UInt64(t.uncompressedSize())
+                }
+            }
+        }
+        (onDisk, uncompressed)
+    }
+    
     /** 创建用户侧批量写入对象（自动按单事务上限切分；见 WriteBatch 文档）。 */
     public func newWriteBatch(): WriteBatch {
         WriteBatch(this)

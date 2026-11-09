@@ -58,6 +58,10 @@ public class MockTable <: TableInterface {
         return entries
     }
     
+    public func dataSize(): Int64 {
+        size()
+    }
+    
     public func getMaxVersion(): UInt64 {
         var maxVer: UInt64 = 0
         for (entry in entries) {
