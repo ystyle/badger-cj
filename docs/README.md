@@ -274,9 +274,9 @@ docs/
 
 ---
 
-**最后更新：** 2026-04-01  
-**文档版本：** v1.3  
+**最后更新：** 2026-10-10  
+**文档版本：** v1.4  
 **新增：**
-- 事务 ACID 评审报告（07-transaction-acid-review.md）
-- 发现原子性和持久性重大缺陷
-- Phase 3 补充计划（5.5 天 ACID 修复）
+- [基准方法学](benchmark-methodology.md) —— 怎么测、哪些数字不能引用
+- [基准报告](benchmark-report.md) 重写为 v1.6.21 实测（去掉无法与 tag 对应的版本演进表）
+- 标准化基准流程 `scripts/bench/run-bench.py`（真实盘数据目录 + 多轮中位数 + 环境指纹）

@@ -1,581 +1,365 @@
 # Badger-cj 性能基准测试报告
 
-**测试日期：** 2026-09-02（v1.6.12 复测）/ 2026-07-17（v1.6.1+opt 历史数据，保留）  
-**版本：** v1.6.12（flush 落盘语义对齐 badger-go + key/value 上限对齐 + 崩溃恢复测试收紧；本版起运行期 memtable flush 同步落盘 SSTable + MANIFEST）  
-**测试环境：** Linux x86_64, AMD Ryzen 7 7840HS (16 核), cjHeapSize=12GB  
-**仓颉编译器：** cjc 1.1.0 (cjnative), target x86_64-unknown-linux-gnu  
-**编译选项：** `-O2`
+**测试日期：** 2026-10-10
+**被测版本：** v1.6.21（commit `d9bf136`，中心仓已发布）
+**测试环境：** Linux x86_64 · AMD Ryzen 7 7840HS（16 核）· 29 GiB 内存 · 内核 7.2.6
+**仓颉编译器：** cjc 1.1.3 (cjnative)，`-O2`，`cjHeapSize=12gb`
+**数据目录：** btrfs 真实盘（**非** tmpfs）· 每项连跑 5 轮取中位数
+
+> **测量方法见 [`benchmark-methodology.md`](benchmark-methodology.md)。**
+> 本报告只包含两类数据：① 当前 revision 的绝对值；② 同一二进制内的开关对照。
+> **不做跨版本对比**（原因见方法学 §2.1）。
+> 可复现入口：`python3 scripts/bench/run-bench.py --runs 5`
 
 ---
 
-## 运行方式
+## 0. 读数前必看：哪些数字可信
+
+| 标记 | 含义 |
+|---|---|
+| ✅ | 离散度 ≤ 15%，点值可引用 |
+| ⚠️ | 离散度 > 15%，**只宜作定性描述**，不可引用点值 |
+
+历史报告中那些精确到个位数的 ns/op 大多属于 ⚠️ 一类。
+典型例子：`skiplist_perf` 全部 4 项总耗时仅约 **64ms**，30 轮复测的并发写中位数
+387 ns/op、**离散度 ±39.8%**（范围 352–506）。在这个负载规模下，
+"330"与"380"没有统计差异。
+
+---
+
+## 1. 环境指纹
+
+| 项 | 值 |
+|---|---|
+| commit | `d9bf136`（tag `v1.6.21`） |
+| 版本 | 1.6.21 |
+| cjc / cjpm | 1.1.3 (cjnative) / 1.1.3 |
+| CPU | AMD Ryzen 7 7840HS w/ Radeon 780M Graphics |
+| 核数 | 16 |
+| 内存 | 29 GiB |
+| 内核 | 7.2.6-arch2-1 |
+| 数据目录文件系统 | **btrfs**（真实盘） |
+| 运行约定 | `cjHeapSize=12gb`、`-j 16`、每项 5 轮取中位数 |
+
+> ⚠️ 所有 `src/examples/*_perf` 都把数据目录**硬编码为 `/tmp`**（共 9 处）。
+> 本机 `/tmp` 是 **tmpfs**。为在不改动被测源码的前提下取得真实 I/O 数字，
+> 测量时用 `unshare -rm` + `mount --bind` 把数据目录重定向到 btrfs。
+> 详见方法学 §一 缺陷 1。
+
+---
+
+## 2. Skiplist（5000 ops / 16 线程）
+
+来源：`badgercj.examples.skiplist_perf`（30 轮）
+
+| 指标 | 中位数 | 离散度 | 范围 |
+|---|---|---|---|
+| 并发写 (ns/op) | 387 | ⚠️ ±39.8% | 352 – 506 |
+| 并发写吞吐 (ops/sec) | 2,581,370 | ⚠️ ±33.4% | 1,974,520 – 2,835,701 |
+| 并发读 (ns/op) | 332.5 | ⚠️ ±39.1% | 256 – 386 |
+| 并发读吞吐 (ops/sec) | 3,003,479 | ⚠️ ±43.4% | 2,590,324 – 3,893,147 |
+| 顺序写 (ns/op) | 554.5 | ⚠️ ±39.1% | 519 – 736 |
+| 顺序写吞吐 (ops/sec) | 1,802,082 | ⚠️ ±31.5% | 1,356,876 – 1,924,595 |
+| 顺序读 (ns/op) | 1,227 | ⚠️ ±27.1% | 1,110 – 1,442 |
+| 顺序读吞吐 (ops/sec) | 814,430 | ⚠️ ±25.4% | 693,085 – 900,208 |
+
+**结论：** 并发写中位数约 **390 ns/op**、并发读约 **330 ns/op**，
+并发吞吐约 **260 万次/秒**。**但两项离散度都在 ±40% 量级** —— 该基准负载
+（5000 次操作、约 64ms）不足以给出稳定点值，对外只应表述为"亚微秒级"。
+历史报告写的"330 / 318 ns/op"精度是虚假的。
+
+---
+
+## 3. Go BadgerDB v4.9.1 对照
+
+**Go 环境：** go1.27.1 linux/amd64 · 同一台机器 · `-cpu=16`（`GOMAXPROCS`=16）
+**Go 源码：** `github.com/dgraph-io/badger/v4` tag `v4.9.1`（commit `3290a60`）
+
+### 3.1 纯并发写（唯一语义对齐的一组）
+
+| 实现 | 基准 | 规模 | 中位数 ns/op | 离散度 |
+|---|---|---|---|---|
+| Go | `BenchmarkWrite` | `-benchtime=5000x`（30 轮） | **149.9** | ±2% ✅ |
+| badger-cj | `skiplist_perf` 并发写 | 5000 ops（30 轮） | 387 | ±39.8% ⚠️ |
+
+**比值 ≈ 2.6x**（仓颉更慢）。两侧都已固定 N=5000。
+
+> ⚠️ 这个比值**强依赖**所选的 N —— 见 §3.3。任何跨语言比值都必须同时声明 N。
+
+### 3.2 Go 侧两个 benchmark 的缺陷（已实测确认）
+
+| 基准 | 问题 |
+|---|---|
+| `BenchmarkReadWrite/frac_10` | **读的是永久空表** —— `NewSkiplist` 在 `b.Run` 闭包内（`skl/skl_test.go:456`），每个 frac 各建新空表；`frac_10` 只 Get 从不 Put |
+| `BenchmarkDbGrowth` | 单线程、2000 key/事务、1024B value，与并发事务写无关 |
+
+`frac_10` 实测对照（同一次运行、`-benchtime=5000x`）：
+
+| 子基准 | 数据状态 | ns/op |
+|---|---|---|
+| `frac_9`（90% 读 + 10% 写） | 有真实数据 | 55.6 |
+| `frac_10`（100% 读） | **表为空** | 10.5 – 17.7 |
+
+**因此本报告不引用"Go 100% 读 3.7 ns/op"** —— 那不是读基准。
+仓颉的并发读是"预写满 5000 条再读、命中率 100%"，与它**不可比**。
+
+### 3.3 规模敏感性：为什么"1.3x"不成立
+
+Go 的 arena 随 `b.N` **线性增长**（`skl/skl_test.go:511`），而仓颉用**固定** `Arena(32MB)`。
+同一份 Go 二进制、同一台机器，仅改变规模：
+
+| Go `BenchmarkWrite` 规模 | ns/op |
+|---|---|
+| `-benchtime=5000x` | 148 |
+| `-benchtime=50000x` | 154 |
+| `-benchtime=500000x` | 177 |
+| `-benchtime=5000000x` | 227 |
+| 默认 `-benchtime=1s`（约 640 万次） | 232 |
+
+历史报告写的 Go 侧 **252.8 ns/op** 对应默认 `-benchtime=1s`（约 640 万次迭代），
+而仓颉侧写的是 **330 ns/op**（5000 次操作）。**两者规模差约 1300 倍**，
+相除得到的"1.3x"是把两个不同规模的数字放进了同一个比值里，不成立。
+
+**正确表述：** 在 N=5000 的对齐条件下，纯并发写 Go 约 **150 ns/op**、
+badger-cj 约 **390 ns/op**（离散度 ±40%），**仓颉版约慢 2.6 倍**。
+
+### 3.4 并发事务写：Go 侧没有可对照的基准
+
+Go v4.9.1 中**不存在**与仓颉 `txn_perf` 语义对齐的基准：
+
+- 根包 22 个 `*_test.go`：零写基准（唯一 `BenchmarkDbGrowth` 是单线程）；
+- `badger bank test`：并发事务，但每事务仅 2 个 key，且其**唯一的周期统计输出被注释掉**
+  （`badger/cmd/bank.go:427-431`）→ 不产出任何吞吐数字；
+- `badger benchmark write`：走 `OpenManaged` 单线程顺序 Set，语义不同。
+
+**故本报告不给出并发事务写的跨语言比值。**
+
+### 3.5 已知不可消除的偏差
+
+| 偏差 | 说明 |
+|---|---|
+| key 长度 | Go 16B（8B key + 8B 时间戳，`y.KeyWithTs`）vs 仓颉 8B |
+| arena 策略 | Go 随 N 缩放 vs 仓颉固定 32MB/256MB |
+| 读访问模式 | Go 随机 key vs 仓颉连续切片 |
+| jemalloc | 本机未安装，Go 走堆分配（与上游 CI 不同） |
+
+---
+
+## 4. 并发事务写（badger-cj 绝对值）
+
+来源：`badgercj.examples.txn_perf`（50 并发事务，5 轮）
+
+| 规模 | keys/s | ns/op | 离散度 |
+|---|---|---|---|
+| 50 × 100 | 634,365 | 1,576 | ±13.4% ✅ |
+| 50 × 500 | 703,785 | 1,420 | ±10.0% ✅ |
+| 50 × 1,000 | **730,396** | **1,369** | ±5.1% ✅ |
+| 50 × 2,000 | 691,171 | 1,446 | ±4.6% ✅ |
+| 50 × 3,000 | 567,458 | 1,762 | ±2.1% ✅ |
+
+**结论：** 并发事务写在 **57–73 万 keys/s** 区间，事务成功率 100%。
+最有代表性的是 1000 key/事务档（离散度最小）：**约 73 万 keys/s、1369 ns/op**。
+
+长事务（500 事务 × 3000 key = 150 万 key）：**382,194 keys/s**（±11.9%，耗时约 3.9s）。
+
+### 相关：单键 vs 批量事务（同一写路径的开关对照）
+
+批量写对每 key 成本的摊薄已实测（见 `docs/progress-tracking.md` 2026-10-02 条）：
+同一 40 万 key / 8 线程下，单键事务 **6778–6857 ns/key**，
+8 key/事务 **2216–2494 ns/key**（快 2.7–3.1x），64 key/事务 **1715–1969 ns/key**（快 3.5–4.0x）。
+
+---
+
+## 5. flush 落盘影响（同一二进制开关对照）
+
+来源：`badgercj.examples.flush_impact_perf`（小 memtable 1MB、500 轮 × 100 key、数据 48.8MB）
+
+| 写路径 | 写吞吐 (keys/s) | 写耗时 (ms) | close (ms) |
+|---|---|---|---|
+| io_uring | 97,370 | 513 | 54 |
+| sync（降级） | 99,348 | 503 | 50 |
+| 离散度 | ±4.8% / ±2.4% ✅ | ±4.9% / ±2.4% ✅ | ±9.3% / ±4.0% ✅ |
+
+**这是同一份二进制、仅切换 `useIoUring` 参数**，因此差异只归因于写路径本身。
+
+**结论：** 两条路径**持平**（sync 甚至略快，但差异在离散度内）。
+按 `docs/progress-tracking.md` 的记录，异步 flusher 带来的运行期写吞吐提升
+（约 4.6 万 → 9.5 万 keys/s）是 v1.6.17 的改动，**早于 v1.6.21，当前无法重跑旧值对照**；
+本表只说明：在 v1.6.21 上，io_uring 与 sync 两条落盘路径的运行期表现相当
+（close 均在 **50–54ms** 量级）。
+
+---
+
+## 6. SSTable 批量写：io_uring 明显更慢（同一进程内对照）
+
+来源：`badgercj.examples.sstable_write_perf`（同进程交替跑两侧，取 5 轮最大值）
+
+### 批量写（writeFilesBatch）
+
+| 文件数 | 文件大小 | Sync (ms) | io_uring (ms) | 加速比 |
+|---|---|---|---|---|
+| 4 | 4 MB | 1 | 6 | **0.16x** ⚠️ |
+| 8 | 4 MB | 2 | 11 | **0.18x** ✅ |
+| 16 | 4 MB | 5 | 23 | **0.21x** ⚠️ |
+| 32 | 4 MB | 9 | 46 | **0.19x** ⚠️ |
+
+### 顺序写（单文件逐个写，baseline）
+
+| 文件数 | 文件大小 | Sync (ms) | io_uring (ms) | 加速比 |
+|---|---|---|---|---|
+| 4 | 4 MB | 1 | 2 | **0.5x** ✅ |
+| 8 | 4 MB | 2 | 5 | **0.4x** ⚠️ |
+| 16 | 4 MB | 5 | 9 | **0.55x** ⚠️ |
+| 32 | 4 MB | 10 | 17 | **0.58x** ⚠️ |
+
+**结论：** 4MB 小文件的批量写场景下 io_uring **明显慢于** sync write
+（批量 **0.16–0.21x**、顺序 **0.4–0.58x**），即慢 2–6 倍。
+原因是小文件的提交/完成开销占比过高。
+这与 `README.md` 里"io_uring 10-60% 性能提升"的表述**直接矛盾**，该行已修正。
+
+---
+
+## 7. io_uring 的真实边界：不是"总是更慢"
+
+来源：`badgercj.examples.iouring_integration_test` / `iouring_batch_test`（5 轮）
+
+§6 是 4MB 小文件、低并发的场景。换成更大写入量 / 更高并发时，io_uring 会翻盘：
+
+| 场景 | MemTable | 写入量 | Speedup (sync/io_uring) | 方向 |
+|---|---|---|---|---|
+| 集成 | 2 MB | 100K | **1.6** ⚠️ | io_uring 更快 |
+| 集成 | 64 MB | 500K | **1.6** ⚠️ | io_uring 更快 |
+| 集成 | 256 MB | 2M | 1.13 ⚠️ | 略快 |
+| 集成 | 2 MB | 50K | 0.94 ⚠️ | 持平 |
+| 集成 | 1 MB | 50K | 0.71 ⚠️ | io_uring 更慢 |
+| 批量 | 1 MB / 16 线程 | 200K | 1.3 ⚠️ | io_uring 略快 |
+| 批量 | 1 MB / 8 线程 | 100K | 0.95 ⚠️ | 持平 |
+| 批量 | 2 MB / 8 线程 | 100K | 1.19 ⚠️ | io_uring 略快 |
+
+**结论（修正后的完整表述）：** io_uring 的收益**取决于 workload**——
+
+- **小文件、低并发**（4MB SSTable × 4~32 个）：io_uring **慢 2–6 倍**（0.16–0.58x），
+  提交/完成开销占主导；
+- **大写入量、高并发**（2MB memtable 下 10 万~50 万写、多 imm 表并发 flush）：
+  io_uring **可快 1.1–1.6x**。
+
+⚠️ 上表所有 Speedup 的**离散度都在 ±26%~102%**，故只宜作"哪个方向更快"的定性判断，
+**不宜引用具体倍数**。
+
+---
+
+## 8. Key 比较：FFI memcmp 实际更慢
+
+来源：`badgercj.examples.key_compare_perf`（100 万次/档，5 轮）
+
+| key 大小 | 逐字节 (ns/op) | FFI memcmp (ns/op) | 倍数 |
+|---|---|---|---|
+| 16 B | 4 | 72 | **逐字节快 18x** |
+| 64 B | 4 | 72 | **逐字节快 18x** |
+| 256 B | 4 | 72 | **逐字节快 18x** |
+| 1024 B | 4 | 72 | **逐字节快 18x** |
+
+（FFI 侧离散度 ±1.4~2.8% ✅；逐字节侧 3–4 ns/op、离散度 ±25% ⚠️ —— 已接近计时精度。）
+
+**结论：** 仓颉逐字节比较比 FFI `memcmp` **快约 18 倍** ——
+FFI 跨语言调用开销（约 70 ns）远大于 `memcmp` 本身节省的 CPU 周期。
+这与本报告历史结论一致（历史记为 18–26x）。
+
+> ⚠️ **注意**：本基准测的是"调用开销"，**不能**直接推出"长 key 走 FFI 是负优化"。
+> `Node.compareKey` 对 `minLen >= 64` 走 FFI 的分流（`src/skiplist/node.cj`）
+> 是否有利，需以跳表端到端延迟为准，本基准不构成证据。
+
+---
+
+## 9. DB 与内存路径微基准
+
+### 9.1 `cjpm bench` 四套件（5 轮中位数）
+
+| 套件 | Case | 中位数 | 离散度 |
+|---|---|---|---|
+| BufferBench | benchArrayListAddAll | 569.0 us | ±3.7% ✅ |
+| BufferBench | benchArrayListAdd | 1,233.0 us | ±9.2% ✅ |
+| BufferBench | **benchArrayDirect** | **235.7 us** | ±12.0% ✅ |
+| BufferBench | benchByteBufferWrite | 1,227.0 us | ±2.0% ✅ |
+| BufferBench | benchByteBufferWriteBytes | 990.0 us | ±3.0% ✅ |
+| DBBench | benchDBSet | 15.67 us | ±9.1% ✅ |
+| DBBench | benchDBGet | 5.54 us | ⚠️ ±68.5% |
+| SkiplistBench | benchPut | 1.044 us | ⚠️ ±45.5% |
+| SkiplistBench | benchGet | 1.873 us | ⚠️ ±68.3% |
+| TxnBench | benchTxnWrite100 | 508.0 us | ±11.5% ✅ |
+| TxnBench | benchTxnWrite500 | 3,022.0 us | ±4.1% ✅ |
+| TxnBench | benchTxnWrite1000 | 7,995.0 us | ⚠️ ±15.6% |
+
+**结论：** `Array` 直接索引比 `ArrayList + toArray()` 快 **2.4–5.2x**、
+比 `ByteBuffer` 快 **4.2–5.2x**。
+
+> ⚠️ `benchDBGet`（±68%）、`benchPut`（±46%）、`benchGet`（±68%）三项离散度极大，
+> **不可引用点值**。历史报告对它们给出的精确数字（如 `benchDBGet 4.834 / 3.447 us`）
+> 落在本次实测范围（3.78–7.57 us）之内 —— 说明那不是"版本差异"，而是同一基准的噪声。
+
+### 9.2 端到端小基准
+
+| 基准 | 指标 | 中位数 | 离散度 |
+|---|---|---|---|
+| `perf`（4000 写 / 4000 读） | DB 写 (ns/op) | 1,431 | ±11.0% ✅ |
+| `perf` | DB 读 (ns/op) | 2,681 | ±2.5% ✅ |
+| `raw_write_perf`（MemTable 直写 50 万 key） | 写吞吐 (keys/s) | 554,084 | ±4.4% ✅ |
+
+---
+
+## 10. 已废弃的历史数字（不可复现）
+
+以下数字来自"改造前 vs 改造后"对照，而改造早已进入 HEAD，**无法直接重跑旧值**。
+按不做跨版本对比的原则，**不应继续对外引用**：
+
+| 历史数字 | 问题 |
+|---|---|
+| CRC32C 占比 17% → 0.04% | 剖析占比，依赖当时 workload，无独立入口 |
+| WAL 性能 +92% | 需旧 `LogEntry::encode` 实现 |
+| 写入性能 2–3 倍（移除 updateDiscardStats） | 需带回 `updateDiscardStats` 的构建 |
+| 初始化 12% → <1%（AtomicStorage） | 需旧预分配实现 |
+| 大事务延迟 100ms → 1ms（Condition） | 需 `Condition` 改造前的构建 |
+| close 720ms → 16ms | 指 v1.6.10 之前的集中落盘 |
+| **"并发写 330 ns/op = Go 的 1.3x"** | 两侧测量规模差约 1300 倍，比值不成立（§3.3） |
+| **"Go 100% 读 3.7 ns/op"** | 该基准读的是空表，不是读基准（§3.2） |
+| **版本演进表**（v1.3.1 / v1.6.1+ 各行） | **`v1.3.1` 这个 tag 在仓库中不存在**（最早 tag 是 `v1.2.0`），相关优化提交也早于所有 tag → 对照关系无版本学依据，已删除 |
+
+**替代写法**：去掉数字，用定性描述。例如"把轮询等待改成条件通知后，
+大事务等待从轮询周期量级降到即时唤醒"。
+
+---
+
+## 11. 复现方法
 
 ```bash
-# cjpm bench（4个基准测试套件）
-cjHeapSize=12gb cjpm bench -j 16
+cd ~/Projects/Cangjie/badger-cj
+eval "$(cjvs env zsh)" && eval "$(cjvs stdx-env zsh)"
 
-# 并发事务写入性能
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.txn_perf
+# 全量 5 轮（含环境指纹，数据落在真实盘）
+python3 scripts/bench/run-bench.py --runs 5
 
-# 长事务写入性能
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.txn_perf_long
-
-# 直接写入性能
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.raw_write_perf
-
-# Skiplist 并发性能
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.skiplist_perf
-
-# SSTable 写入性能
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.sstable_write_perf
-
-# Key 比较性能
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.key_compare_perf
-
-# flush 落盘语义影响专项（新/旧版本对比用；传 sync 走降级同步写路径）
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.flush_impact_perf
-cjHeapSize=12gb ./target/release/bin/badgercj.examples.flush_impact_perf sync
-
-# Go benchmark
-cd ~/Projects/badger
-go test -run='^$' -bench='BenchmarkReadWrite' -benchmem ./skl/
+# 只跑部分项
+python3 scripts/bench/run-bench.py --only skiplist,txn,flush_impact
 ```
 
----
+产出 `bench-report-<时间戳>.txt`（人读）+ `.json`（机读）。
 
-## 1. cjpm bench 基准测试结果
+**测已发布 tag**（保持二进制与发布 revision 一致）：
 
-### 1.1 BufferBench (10000 iterations, 模拟 keyWithTs 编码)
+```bash
+git worktree add ../badger-cj-1.6 v1.6.21
+cd ../badger-cj-1.6 && cjpm build -j 16
+python3 scripts/bench/run-bench.py --repo . --no-build --runs 5
+```
 
-| Case | Median | Err | Mean | 说明 |
-|------|--------|-----|------|------|
-| benchArrayListAddAll | 0.574 ms | ±2.6% | 0.537 ms | 逐个 add + toArray |
-| benchArrayListAdd | 1.148 ms | ±5.1% | 0.836 ms | add(all:) + toArray |
-| **benchArrayDirect** | **214.6 us** | **±4.5%** | **142.2 us** | **Array 直接索引（最快的方案）** |
-| **2026-09-02 v1.6.12** | 217.2 us | ±4.6% | 141.1 us | 持平 |
-| benchByteBufferWrite | 1.145 ms | ±3.3% | 0.901 ms | ByteBuffer 逐字节写入 |
-| benchByteBufferWriteBytes | 0.905 ms | ±4.5% | 0.707 ms | ByteBuffer 批量写入 |
+### Go 侧对照命令
 
-**结论：** Array 直接索引比 ArrayList + toArray() 快 **2.7-5.3x**，比 ByteBuffer 快 **4.2-5.3x**。
+```bash
+cd ~/Projects/Cangjie/.bench-go/badger   # v4.9.1
+unset https_proxy http_proxy
 
-### 1.2 SkiplistBench
+# 纯并发写：N 必须与仓颉侧对齐
+go test -run='^$' -bench='^BenchmarkWrite$' -benchtime=5000x -count=30 -cpu=16 ./skl
 
-| Case | Median | Err | Mean |
-|------|--------|-----|------|
-| benchPut | 1.324 us (1,324 ns/op) | ±1.5% | 1.342 us |
-| **2026-09-02 v1.6.12** | **1.067 us (1,067 ns/op)** | ±3.7% | 0.790 us | 持平 |
-| benchGet | 2.241 us (2,241 ns/op) | ±1.4% | 2.173 us |
-
-### 1.3 DBBench
-
-| Case | Median | Err | Mean |
-|------|--------|-----|------|
-| benchDBSet | 15.24 us (15,240 ns/op) | ±2.6% | 15.75 us |
-| **2026-09-02 v1.6.12** | **15.09 us**（±57% 波动） | — | 19.92 us | 持平（无回退） |
-| benchDBGet | 4.834 us (4,834 ns/op) | ±1.3% | 4.819 us |
-| **2026-09-02 v1.6.12** | **3.447 us** | ±0.6% | 3.429 us | 更快（波动范围） |
-
-### 1.4 TxnBench
-
-| Case | Median | Err | Mean |
-|------|--------|-----|------|
-| benchTxnWrite100 | 0.535 ms | ±3.9% | 0.558 ms |
-| benchTxnWrite500 | 3.214 ms | ±3.7% | 3.343 ms |
-| benchTxnWrite1000 | 9.435 ms | ±6.2% | 9.353 ms |
-| **2026-09-02 v1.6.12** | 0.449 ms | ±3.3% | 0.493 ms |
-| **2026-09-02 v1.6.12** | 2.593 ms | ±7.2% | 2.598 ms |
-| **2026-09-02 v1.6.12** | 7.904 ms | ±9.2% | 7.952 ms |
-
----
-
-## 2. 并发性能测试
-
-### 2.1 Skiplist 并发性能 (5000 ops, 16 threads)
-
-| 模式 | Per op | Throughput |
-|------|--------|------------|
-| **Concurrent Write** | **330 ns/op** | **3,029,845 ops/sec** |
-| **Concurrent Read** | **318 ns/op** | **3,139,346 ops/sec** |
-| Sequential Write | 606 ns/op | 1,648,825 ops/sec |
-| Sequential Read | 1,272 ns/op | 786,054 ops/sec |
-
-**2026-09-02 v1.6.12 复测：** Concurrent Write 392 ns/op / 2,546,430 ops/sec，Concurrent Read 332 ns/op / 3,009,495 ops/sec，Sequential Write 551 ns/op，Sequential Read 1,238 ns/op（读/写与历史值在系统负载波动范围内）
-
-### 2.2 并发事务写入 (50 并发事务)
-
-| 规模 | 耗时 | 延迟 | 吞吐量 |
-|------|------|------|--------|
-| 规模 | v1.3.1 (baseline) | v1.6.1 (master) | **优化后** |
-|------|------------------|-----------------|-----------|
-| 50×100 (5,000 keys) | 459,537 keys/s | 401,440 keys/s | **739,590 keys/s** |
-| 50×500 (25,000 keys) | 443,409 keys/s | 452,554 keys/s | **879,354 keys/s** |
-| 50×1,000 (50,000 keys) | 450,233 keys/s | 469,999 keys/s | **866,851 keys/s** |
-| 50×2,000 (100,000 keys) | 407,000 keys/s | 404,986 keys/s | **834,712 keys/s** |
-| 50×3,000 (150,000 keys) | 395,827 keys/s | 411,321 keys/s | **694,272 keys/s** |
-| 总耗时 | 856ms | 810ms | **903ms** |
-
-**2026-09-02 v1.6.12 复测（50 并发事务，每批后 close）：**
-
-| 规模 | 耗时 | 吞吐量 | 成功率 |
-|------|------|--------|--------|
-| 50×100 (5,000 keys) | 7ms | 671,230 keys/s | 50/50 |
-| 50×500 (25,000 keys) | 34ms | 724,271 keys/s | 50/50 |
-| 50×1,000 (50,000 keys) | 62ms | 798,729 keys/s | 50/50 |
-| 50×2,000 (100,000 keys) | 132ms | 756,511 keys/s | 50/50 |
-| 50×3,000 (150,000 keys) | 249ms | 602,317 keys/s | 50/50 |
-| 总耗时 | 912ms | — | — |
-
-与历史（优化后）量级一致（±5-15% 系统波动）；本版每批 close 走运行期已落盘 + 残余单表落盘，close 不再成为耗时大头。
-
-**结论：**
-- 事务成功率 100%
-- 优化后 vs v1.6.1 master: **吞吐量提升 69-106%**
-- 优化后 vs v1.3.1 baseline: **吞吐量提升 61-98%**
-- 单操作延迟: **1.14-1.44 µs**（从之前的 2.1-2.5 µs 大幅下降）
-- 优化 3 项（WAL buffer + keyWithTs + 避免重复编码）效果显著
-
-### 2.3 长时间事务写入
-
-| 规模 | 耗时 | 吞吐量 |
-|------|------|--------|
-| 500×3,000 (1,500,000 keys) | 4,707ms | **318,657 keys/s** |
-
-**2026-09-02 v1.6.12 复测：** 500×3,000 (1,500,000 keys) | 3,556ms | **421,749 keys/s**（+24%；flush 落盘 + imm 及时释放降低了运行期内存与 GC 压力）——本场景 60MB 数据远小于 256MB memtable 不触发运行期 flush，差异主要来自内存模型与系统状态。
-
-大规模长时间运行吞吐量略有下降（Compaction 和 GC 开销）。
-
-### 2.4 直接写入性能
-
-| 规模 | 耗时 | 吞吐量 |
-|------|------|--------|
-| 500,000 keys | 1,419ms | **352,236 keys/s** |
-
-**2026-09-02 v1.6.12 复测：** 500,000 keys | 762ms | **655,903 keys/s**（裸 MemTable 直写，不经 DB/WAL，与持久化改动无关；差异为 CPU/系统状态）
-
----
-
-## 3. Go Badger v4 对比测试
-
-**Go 环境：** 同机同 CPU，go1.22+, 16 并发 goroutine，skl 包 BenchmarkReadWrite
-
-### 3.1 Skiplist 并发性能对比
-
-Go badger 的 `BenchmarkReadWrite` 基准测试在 16 并发下测试不同读写比例的 Skiplist 操作。
-
-| 场景 | Go Badger v4 | Cangjie badger-cj | 比率 (CJ/Go) |
-|------|-------------|------------------|-------------|
-| 100% 写入 (frac_0) | 252.8 ns/op | **330 ns/op** | **1.30x** |
-| 90% 读 + 10% 写 (frac_9) | 100.0 ns/op | — | — |
-| 100% 读 (frac_10) | 3.7 ns/op | **318 ns/op** (并发读测试) | — |
-
-**说明：**
-- `frac_0` (100% 写入) 是最直接的对比项：Cangjie **1.3x** Go，差距已很小
-- `frac_10` (100% 读) Go 只有 3.7 ns/op，因为 Go benchmark 在读阶段 key 已预热在 L1 cache 中且无写入竞争——Cangjie 的并发读测试是独立阶段（无混合写入），但 skiplist 遍历仍有差异
-- Go 的混合读写测试 (frac_1~frac_9) 覆盖不同写入比例，整体 Cangjie 在写入密集场景差距最小
-
-### 3.2 单线程微基准对比
-
-| 操作 | Go Badger v4 | Cangjie badger-cj | 比率 |
-|------|-------------|------------------|------|
-| **Skiplist Put** | ~247 ns/op* | 1,324 ns/op | 5.4x |
-| **Skiplist Get** | — | 2,241 ns/op | — |
-
-\* Go 的 skiplist Put 单线程 benchmark 数据来自 `skl/skl_test.go` 的 BenchmarkReadWrite（含并发）。仓颉单线程 benchPut 数据含 Arena 分配 + 对象初始化开销，两者 workload 不完全一致。
-
-### 3.3 对比总结
-
-**Cangjie badger-cj 的 Skiplist 已经非常接近 Go：**
-- 并发写入：仅 1.3x 差距（从早期的 1.8x 优化到现在的 1.3x）
-- 关键优化：CAS 无锁 + AtomicStorage 分离
-- 剩余差距主要来自编译优化和运行时调度（Go 的 goroutine 调度比仓颉 spawn 更轻量）
-
-## 4. SSTable 写入性能
-
-### Batch SSTable Write: Sync vs io_uring
-
-| Files | File Size | Sync (ms) | io_uring Batch (ms) | Speedup | Sync MB/s | io_uring MB/s |
-|-------|-----------|-----------|---------------------|---------|-----------|---------------|
-| 4 | 4 MB | 1 | 9 | 0.11x | 16,085 | 1,787 |
-| 8 | 4 MB | 2 | 16 | 0.12x | 16,085 | 2,010 |
-| 16 | 4 MB | 4 | 34 | 0.11x | 16,085 | 1,892 |
-| 32 | 4 MB | 8 | 67 | 0.11x | 16,085 | 1,920 |
-
-### Sequential Write (baseline)
-
-| Files | File Size | Sync (ms) | io_uring Single (ms) | Speedup |
-|-------|-----------|-----------|----------------------|---------|
-| 4 | 4 MB | 1 | 3 | 0.33x |
-| 8 | 4 MB | 2 | 4 | 0.50x |
-| 16 | 4 MB | 4 | 9 | 0.44x |
-| 32 | 4 MB | 10 | 15 | 0.66x |
-
-**2026-09-02 v1.6.12 复测：** Sync 4/9/20/36ms（4/8/16/32 文件），io_uring 10/19/36/64ms——Sync 仍优于 io_uring（小文件提交/完成开销结论不变）；与历史数据同量级，磁盘缓存状态影响毫秒级波动
-
-**结论：** io_uring 在当前 workload 下不如 sync write——小 SSTable 文件用 io_uring 的提交/完成开销占比过高。适合大文件批量写入场景。
-
----
-
-## 5. Key 比较性能
-
-| Key 大小 | 逐字节比较 | FFI memcmp | 倍率 |
-|----------|-----------|------------|------|
-| 16 bytes | **3 ns/op** | 79 ns/op | 26.3x |
-| 64 bytes | **3 ns/op** | 76 ns/op | 25.3x |
-| 256 bytes | **4 ns/op** | 79 ns/op | 19.8x |
-| 1024 bytes | **3 ns/op** | 77 ns/op | 25.7x |
-
-**结论：** 仓颉逐字节比较比 FFI memcmp 调用快 ~20-26x（FFI 跨语言调用开销远大于 memcmp 本身节省的 CPU 周期）。
-
-**2026-09-02 v1.6.12 复测：** 逐字节 3-4 ns/op vs FFI memcmp 71-72 ns/op（快 18-24x），结论不变。
-
----
-
-## 6. 版本性能演进
-
-| 版本 | Skiplist Put | Skiplist Get | DB Set | DB Get | Concurrent Write | Concurrent Read |
-|------|-------------|-------------|-------|-------|-----------------|-----------------|
-| Go Badger v4 | ~247 ns* | — | — | — | **252.8 ns** | **100.0 ns** (frac_9) |
-| v1.3.1 (优化前) | ~1,958 ns | ~3,990 ns | ~10,840 ns | ~2,910 ns | ~457 ns | ~116 ns |
-| v1.6.1 (master) | 1,324 ns | 2,241 ns | 15,240 ns | 4,834 ns | 330 ns | 318 ns |
-| **v1.6.1+ (优化后)** | **1,115 ns** | **1,120 ns** | **15,330 ns** | **7,653 ns*** | **368 ns** | **347 ns** |
-| **v1.6.12 (flush 落盘修复)** | **1,067 ns** | **2,130 ns** | **15,090 ns** | **3,447 ns** | **392 ns** | **332 ns** |
-
-\* Go skiplist Put 数据含并发 goroutine 开销，单线程数据未直接提供。
-\* DB Get 数值波动较大（受系统负载影响），实际差距与 v1.6.1 持平。
-
-**Skiplist 层持续提升：**
-| 阶段 | Skiplist Put vs v1.3.1 | Skiplist Get vs v1.3.1 |
-|------|----------------------|----------------------|
-| v1.6.1 (CAS + findGe) | **-32%** | **-44%** |
-| **优化后 (+WAL buffer + keyWithTs)** | **-43%** | **-72%** |
-
-**DB 层变化：**
-- DB Set 从 v1.3.1 的 10.84 us 升到 15 us+，主因是增加了 VLog 真实文件 I/O 和 WAL 持久化（之前是纯内存不落盘）
-- 优化后的 WAL BufferedOutputStream 缓解了部分写入开销
-
-**本分支优化（vs v1.6.1 master）：**
-- Skiplist Put: **1,324 → 1,115 ns （-15.8%）** — keyWithTs 减少临时分配
-- Skiplist Get: **2,241 → 1,120 ns （-50.0%）** — keyWithTs 减少临时分配
-- DB Set: 15.24 → 15.33 us（~持平）
-- Concurrent Write/Read: 系统负载波动，差异在正常范围
-
----
-
-## 7. 无锁并发实现效果
-
-### 优化前 vs 优化后
-
-| 指标 | 优化前 (伪CAS) | 优化后 (真CAS) |
-|------|--------------|---------------|
-| 并发安全 | ❌ 数据损坏风险 | ✅ 无锁并发安全 |
-| 写性能 | ~380 ns/op | ~330 ns/op |
-| 读性能 | ~98 ns/op | ~318 ns/op |
-
-### 关键改进
-
-1. **分离 AtomicStorage**
-   - `values: Array<AtomicUInt64>` - value 原子存储
-   - `towers: Array<Array<AtomicUInt32>>` - tower 原子存储
-
-2. **真正的 CAS 操作**
-   ```cangjie
-   public func casNextOffset(nodeIdx: Int64, level: Int64, old: UInt32, new: UInt32): Bool {
-       towers[nodeIdx][level].compareAndSwap(old, new)
-   }
-   ```
-
-3. **CAS 循环重试**
-   ```cangjie
-   while (true) {
-       if (prevNode.casNextOffset(i, nextOffsets[i], nodeOffset)) {
-           break
-       }
-       let (p, n) = findSpliceForLevel(key, prevOff, i)
-       prevOffsets[i] = p
-       nextOffsets[i] = n
-   }
-   ```
-
----
-
-## 8. 性能优化记录 (Phase 6-7)
-
-### 优化 1: findGe O(log n) 查找 - **核心优化**
-
-**问题：** `getWithTs()` 使用 SkipIterator 全表扫描，O(n) 复杂度
-
-**效果：** DB Get 从 **1.97ms → 3.9us**，提升 **500 倍**
-
-### 优化 2: ReadWriteLock
-
-**问题：** `db.get()` 使用 Mutex（排他锁）
-
-**效果：** 并发读取无锁竞争
-
-### 优化 3: WAL BufferedOutputStream
-
-**问题：** 每次 WAL 写入都是同步 I/O
-
-**效果：** 减少 I/O 系统调用
-
-### 优化 4: LinkedBlockingQueue
-
-**问题：** ConcurrentLinkedQueue 无容量限制
-
-**效果：** 防止内存溢出
-
-### 优化 5: ArrayList → Array 直接索引
-
-**问题：** ArrayList + toArray() 比 Array 直接索引慢 8.7x
-
-**影响文件：**
-- `keyWithTs()` - helpers.cj
-- `ValueStruct.encode()` - types.cj
-- `ValuePointer.encode()` - types.cj
-- `LogEntry.encode()` - entry.cj
-- `Varint.encode()` - varint.cj
-- `BlockBuilder.finish()` - block_builder.cj
-
-**效果：** 编码提速 2.7-5.3x
-
-### 优化 6: NotifyingWriteChannel (Condition 零延迟通知)
-
-**问题：** ArrayBlockingQueue.remove(Duration.millisecond) 有 1ms 轮询延迟
-
-**效果：** 消除 1ms 轮询延迟
-
-### 优化 7: 请求对象池化
-
-**问题：** 每次 Transaction.commit() 创建新 WriteRequest
-
-**效果：** 减少 GC 压力
-
-### 优化 8: 移除不必要的写锁
-
-**问题：** writeRequests() 整个写入过程持有 writeLock
-
-**效果：** 持平（锁不是瓶颈）
-
-### 优化 9: Skiplist Node keySize UInt16 → UInt32
-
-**问题：** keySize 用 UInt16 保存，大 key（>65535 bytes）截断
-
-**效果：** 修复大 key 数据丢失 Bug
-
-### 优化 10: VLog 真实文件 I/O
-
-**问题：** VLogFile 纯内存操作，close/reopen 后数据丢失
-
-**效果：** 实现 VLog 数据持久化落盘
-
-### 优化 11: CloseableBlockingQueue (LinkedBlockingQueue + Condition)
-
-**问题：** NotifyingWriteChannel 用 ArrayList + remove(at:0) O(n)，add() 不阻塞
-
-**效果：** 改用 LinkedBlockingQueue 实现 O(1) 出队、满时阻塞背压
-
-### 优化 12: WAL BufferedOutputStream
-
-**问题：** WAL.write() 每次用裸 f.write()，每次写入触发 OS 系统调用
-
-**效果：** BufferedOutputStream(65536) 批量缓冲写入，事务吞吐量提升 69-106%
-
-### 优化 13: keyWithTs 消除临时数组
-
-**问题：** keyWithTs() 创建 tsBuffer 临时数组 + copyTo 两次分配
-
-**效果：** 直接逐字节写入 result 数组，Skiplist Get 提升 50%
-
-### 优化 14: MemTable.put 避免 vs.encode() 重复
-
-**问题：** MemTable.put() 中 vs.encode() 被调用两次（WAL + Arena）
-
-**效果：** 先 encode 一次，传递编码后字节给 WAL，避免重复分配
-
----
-
-## 9. 性能差距分析
-
-### Skiplist 层 (1.3x vs Go)
-
-- **Concurrent Write: 330 ns/op** — 纯无锁 CAS，仅 1.3x Go (252.8 ns/op)
-- **Concurrent Read: 318 ns/op** — 无锁读
-- 差距来源：Go 运行时调度更轻量（goroutine vs spawn），编译优化更深
-
-### DB 层 (10-15x vs Go，估算)
-
-主要瓶颈：
-
-1. **VLog + WAL 持久化 I/O**
-   - 真实文件写入增加了固定延迟
-   - Go 使用 mmap + 异步 fsync，我们使用 BufferedOutputStream
-   - 这是 DB Set 15.24 us 的主要开销
-
-2. **仓颉运行时开销**
-   - FFI 调用开销大（memcmp 示例：FFI 比纯仓颉慢 20x）
-   - I/O 操作没有 Go 的 epoll/kqueue 原生支持
-
-3. **事务协调开销**
-   - 仓颉 spawn/destroy 开销高于 Go goroutine
-   - 仓颉多线程模型 vs Go M:N 调度
-
-### 优化方向
-
-| 优先级 | 优化项 | 预期收益 | 状态 |
-|--------|--------|---------|------|
-| P1 | VLog/WAL mmap 替代 BufferedOutputStream | 减少 I/O 复制，预期 DB Set 减半 | 🔶 设计中（v2.0，见 `plans/2026-09-01-mmap-wal-vlog-design.md`） |
-| P1 | WAL batch write + group commit | 减少 fsync 次数 | ⬜ 未开始（v2.1） |
-| P2 | Transaction 批量提交流水线 | 提高并发吞吐 | ✅ 已实现（WritePipeline + flushLoop 批量收集，2026-07-17） |
-| P2 | Arena 内存池调优 | 减少分配开销 | 🔶 部分（Arena 已实现，调优未做） |
-| P3 | io_uring 替代同步 I/O | 异步 I/O 减少阻塞 | ✅ 已完成（2026-03，v1.6.9 起失败自动降级） |
-
----
-
-## 10. v1.6.12 flush 落盘语义修复——专项实测（2026-09-02）
-
-> 背景：v1.6.11/1.6.12 将运行期 memtable flush 对齐 badger-go——每次 flush **同步落盘
-> SSTable + MANIFEST 并从 imm 出队**（此前 flush 只建内存 L0 表，落盘全压在 close/compaction）。
-> 专项基准用「小 memtable(1MB) + 连续批量写 48.8MB（500 轮 × 100 keys × 1KB，≈40+ 次运行期
-> flush）」对比修复前(29507fd)与修复后(master)，io_uring 与降级同步写双路径各 3 次取中位数。
-> 基准程序：`src/examples/flush_impact_perf`（`cjHeapSize=12gb` 运行；`sync` 参数走降级路径）。
-
-| 版本 | 写路径 | 运行期写吞吐 (keys/s) | close 耗时 |
-|------|--------|----------------------|-----------|
-| v1.6.12（修复后） | io_uring | 46.3K-47.2K | **15-19 ms** |
-| v1.6.12（修复后） | 降级同步写 | 48.4K-51.5K | **15-31 ms** |
-| v1.6.10（修复前，仅内存表） | io_uring | 44.5K-46.0K | 719-741 ms |
-| v1.6.10（修复前，仅内存表） | 降级同步写 | 45.2K-45.4K | 694-707 ms |
-
-**结论：**
-
-1. **运行期写吞吐无回退，反而略优（~+2-13% 波动带内）**——flush 的表构建是两版共同成本；
-   修复后 imm 及时释放降低了内存与 GC 压力，磁盘写（~1MB/次，页缓存）开销不显著。
-2. **close 提速 ~40x（≈720ms → ≈16ms）**：落盘成本从 close 的集中爆发摊平到运行期逐次
-   flush——修复前 close 需一次性落盘全部 imm（本场景 40+ 张表），修复后 close 只落当前
-   mt 残余单表。对"docker stop 优雅退出/周期性重启"场景的停机时间收益显著。
-3. 降级同步写路径（容器 io_uring 被禁）与 io_uring 吞吐持平，close 亦无退化——seccomp 容器
-   内实测（ubuntu:22.04 默认 seccomp，io_uring EPERM）5000 条多轮 flush 写入 + 优雅退出全找回。
-4. 附带验证：修复前同一场景在默认 256MB GC 堆下会因 imm/L0 双份驻留卡在 GC/OOM 边缘
-   （须 `cjHeapSize≥1GB` 才能跑完）——即 issue（生产 OOM）的量化复现；修复后 256MB 堆即可。
-
-**官方基准总览（v1.6.12 vs v1.6.1+opt 历史）：** 常规场景数据量不触发运行期 flush
-（memtable 256MB/64MB），DB Set 15.09us vs 15.24us 持平、TxnBench 快 10-17%、并发事务
-吞吐同量级（±5-15% 波动）、长时间事务 421K vs 319K keys/s（+24%）、Skiplist 并发读写波动
-范围内——**持久化语义修复未引入可测的常规路径性能回退**。
-
----
-
-## 11. 异步 flusher + TableBuilder 单拷贝——专项实测（2026-09-05，v7.0）
-
-> 背景：flush 移出全局写锁（写路径只轮换 memtable，构建/落盘由 flusher 协程并行执行，
-> 队列深度 = NumMemtables 背压）+ TableBuilder 分块持有消除双拷贝。同一基准程序复测
-> （io_uring 3 次取中位；对比 §10 的 v6.0 基线）。
-
-| 版本 | 写路径 | 运行期写吞吐 (keys/s) | close 耗时 |
-|------|--------|----------------------|-----------|
-| v7.0（异步 flusher，本版） | io_uring | **93.7K-95.6K** | 54-60 ms |
-| v7.0（异步 flusher，本版） | 降级同步写 | 97.4K | 52 ms |
-| v6.0（v1.6.12，同步 flush） | io_uring | 46.3K-47.2K | 15-19 ms |
-
-**结论：**
-
-1. **运行期写吞吐 ~2 倍（46.3-47.2K → 93.7-95.6K keys/s）**：flush 的 SSTable 构建 + 写盘
-   从写锁内同步执行移出为 flusher 并行——写路径不再被每轮 flush（~1MB 表构建 + io_uring
-   落盘 + MANIFEST）整批阻塞，读者也不再被 flush 磁盘 I/O 阻塞。
-2. **close 54-60ms（毫秒级）**：较 v6.0 的 15-19ms 略增——close 需等 flusher 把在途表
-   落盘完毕（数据完整性语义：close 返回 = 无在途表），相对 v1.6.10 集中落盘的 ~720ms
-   仍是 ~12x 提升；该成本随在途表数量线性，常规 memtable 下为个位数毫秒。
-3. flush_impact 场景下运行期落盘表数不变（每 ~1MB 一张），imm 峰值受 NumMemtables（默认 5）
-   约束——**长期运行内存上界 = NumMemtables × 2 × MemTableSize**（v6.0 同步 flush 恒 1 张在途）。
-
-**文档版本：** v7.0  
-**最后更新：** 2026-10-06（新增 §12 WAL mmap 后端对比）
-
----
-
----
-
-## 12. WAL mmap 后端对比——专项实测（2026-10-06）
-
-**背景**：v2.0 引入 `Config.MmapWAL`（默认开）：WAL 写路径由 `BufferedOutputStream(64KB)` 改为
-「按 arena 大小预分配 + 固定映射 + memcpy」，`sync` 由「仅刷新缓冲」改为 `msync(MS_SYNC)`。
-本节量化该替换对**写入吞吐**的影响。
-
-**方法**：同一二进制内用命令行参数切换后端
-（`txn_queue_perf [threads] [txnsPerThread] [keysPerTxn] [mmap:on|off] [valueSize]`），
-A/B **每轮交替**执行，共 8 轮 × 2 组 × 3 次内部重复 = 每组 24 样本；按轮配对统计（配对差 + t 检验），
-避免单轮 best 值造成的误判。环境：Linux x86_64、cjc 1.2.0、`-O2`、`cjHeapSize=4gb`。
-
-| 场景 | mmap mean ns/txn | buffered mean ns/txn | 比值 buffered/mmap | mmap 胜 | 配对 t |
-|---|---|---|---|---|---|
-| 小 value（8 线程 × 5000 事务 × 1 key） | 10103（median 7546，min 4394） | **9151**（median 6288，min 4690） | 0.906x | 6/16 | 0.65 |
-| 大 value 4KB（8 线程 × 500 事务 × 1 key） | **18065**（median 17844，min 16317） | 18435（median 16928，min 15836） | 1.020x | 9/16 | −2.31 |
-
-**结论**：
-
-1. **小 value 场景 mmap 无优势**：均值慢 9.4% 但不显著（t=0.65，配对仅 6/16 胜出）；
-   两个场景的**中位数都是 buffered 更低**，mmap 的优势只出现在均值上（分布更平）。
-2. **大 value 场景 mmap 略快 2.0% 且统计显著**（t=−2.31），但效应量处于噪音级别，
-   不足以支撑「换 mmap 提升写吞吐」的假设。
-3. 与写路径结构一致：单事务提交成本主要在跨线程投递与唤醒（见 §1.3 DBBench），
-   WAL 的缓冲/映射差异在该负载下被淹没；mmap 另外还要承担预分配文件的**首次触碰页 page fault**
-   （表现为 min 更低、长尾更差）。
-
-**因此 v2.0 的 mmap 收益不体现在写吞吐**，其价值需在别处验证：崩溃一致性语义（`msync` 对齐 fsync）、
-恢复期读取路径、以及消除缓冲未落盘窗口。
-
-**原始数据**：`docs/bench-wal-mmap-ab.txt`
-
-## Benchmark 测试文件
-
-| 文件 | 测试数 | 描述 |
-|------|--------|------|
-| `src/db/skiplist_bench.cj` | 2 | Skiplist Put/Get |
-| `src/db/db_bench.cj` | 2 | DB Set/Get |
-| `src/db/buffer_bench.cj` | 5 | ArrayList/Array/ByteBuffer 对比 |
-| `src/db/txn_bench.cj` | 3 | 事务写入基准测试 |
-| `src/examples/skiplist_perf/` | - | Skiplist 并发性能 |
-| `src/examples/txn_perf/` | - | 并发事务性能 |
-| `src/examples/txn_perf_long/` | - | 长时间事务性能 |
-| `src/examples/raw_write_perf/` | - | 直接写入性能 |
-| `src/examples/sstable_write_perf/` | - | SSTable 写入性能 (Sync vs io_uring) |
-| `src/examples/key_compare_perf/` | - | Key 比较性能 |
-| `src/examples/flush_impact_perf/` | - | flush 落盘语义影响专项（小 memtable 高频 flush，新/旧版本对比） |
-
----
-
-## 性能目标达成情况
-
-| 操作 | 目标 | 实测 | 状态 |
-|------|------|------|------|
-| Skiplist 写入延迟 | < 2 us | 1.32 us | ✅ 达标 |
-| Skiplist 读取延迟 | < 3 us | 2.24 us | ✅ 达标 |
-| Skl 并发写入 | > 2M ops/s | 3.03M ops/s | ✅ 达标 |
-| Skl 并发读取 | > 3M ops/s | 3.14M ops/s | ✅ 达标 |
-| 事务吞吐量 | > 100K keys/s | 400K+ keys/s | ✅ 达标 |
-| 事务成功率 | 100% | 100% | ✅ 达标 |
-| 大事务(150万 keys) | - | 318K keys/s | ✅ 稳定 |
-
----
-
-## 经验总结
-
-### 关键发现
-
-1. **无锁并发是正确的选择** - CAS + AtomicStorage 提供了线程安全 + 高性能
-2. **Array 直接索引最快** - 比 ArrayList 快 2.7-5.3x，比 ByteBuffer 快 4.2-5.3x
-3. **FFI 调用开销大** - 逐字节比较比 FFI memcmp 快 20-26x
-4. **io_uring 不适用小文件** - 提交/完成开销在小 SSTable 场景下得不偿失
-5. **正确性优先** - VLog 持久化/WAL replay 虽然降了 DB bench 分数，但保证了数据不丢
-
-### 仓颉性能特点
-
-1. **基础性能优秀** - Skiplist 并发达到 3M ops/s
-2. **并发原语完善** - Atomic, CAS, ReadWriteLock, Condition 完整支持
-3. **Array 操作高效** - 直接索引几乎零开销
-4. **运行时开销** - spawn 线程比 Go goroutine 重
-
----
-
-**文档版本：** v7.0  
-**最后更新：** 2026-10-06（新增 §12 WAL mmap 后端对比）
+# ⚠️ 不要单独跑 frac_10：它是空表（§3.2），且不加 -benchtime=Nx 会 OOM
+```

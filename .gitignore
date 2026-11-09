@@ -4,6 +4,8 @@
 target
 .arts
 cov_*
+# 基准数据/报告输出目录（scripts/bench/run-bench.py 默认落这里）
+.bench-data
 
 # file
 log.txt

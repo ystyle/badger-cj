@@ -104,11 +104,19 @@ protected class VLogManager {
         let entries = Directory.readFrom(dir)
         let found = HashMap<UInt32, Path>()
         for (e in entries) {
+            // 数据目录里同时混有 MANIFEST / WAL / SST / 用户文件：同名目录与非段文件一律忽略
+            if (e.isDirectory()) {
+                continue
+            }
             let name = e.name
             if (!name.endsWith(".vlog")) {
                 continue
             }
             let idStr = name[0..(name.size - 5)]
+            // 写入侧命名不使用前导零；拒绝 "007.vlog" 这类别名，避免同一 fid 出现两个文件
+            if (idStr.size > 1 && idStr.startsWith("0")) {
+                continue
+            }
             match (Int64.tryParse(idStr)) {
                 case Some(v) =>
                     if (v >= 0 && v <= Int64(UInt32.Max)) {

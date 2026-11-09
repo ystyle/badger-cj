@@ -1,0 +1,64 @@
+From f17c6470a42e46029f64511e968a7ae7e4433fe9 Mon Sep 17 00:00:00 2001
+From: YSTYLE <lxy5266@live.com>
+Date: Tue, 6 Oct 2026 10:43:58 +0800
+Subject: [PATCH] =?UTF-8?q?exp:=20=E5=8D=95=E7=BA=A7=E5=86=99=E8=B7=AF?=
+ =?UTF-8?q?=E5=BE=84=EF=BC=88flushLoop=20=E7=9B=B4=E6=8E=A5=E5=A4=84?=
+ =?UTF-8?q?=E7=90=86=E6=89=B9=E6=AC=A1=EF=BC=8C=E7=BB=95=E8=BF=87=20WriteP?=
+ =?UTF-8?q?ipeline=20=E4=BA=8C=E7=BA=A7=E9=98=9F=E5=88=97=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+仅用于量化两级队列的开销：语义与 WritePipeline.runBatch 一致
+（异常整批 markFailed，finally 保证 done），全量 375/375 通过。
+---
+ src/db/badger.cj | 26 ++++++++++++++++++++++----
+ 1 file changed, 22 insertions(+), 4 deletions(-)
+
+diff --git a/src/db/badger.cj b/src/db/badger.cj
+index c123421..beb1ecf 100644
+--- a/src/db/badger.cj
++++ b/src/db/badger.cj
+@@ -950,6 +950,26 @@ public class Badger <: VLogGCDB {
+     }
+ 
+ // Collect requests and emit to pipeline
++    // 实验：单级写路径 —— flushLoop 直接处理批次，语义与 WritePipeline.runBatch 一致
++    // （异常整批 markFailed，finally 保证 done），省掉一次队列投递与一次线程唤醒。
++    private func writeBatchDirect(reqs: ArrayList<WriteRequest>): Unit {
++        try {
++            writeRequests(reqs)
++        } catch (e: Exception) {
++            for (req in reqs) {
++                req.markFailed(failureMsg(e))
++            }
++        } catch (e: Error) {
++            for (req in reqs) {
++                req.markFailed(systemFailureMsg(e))
++            }
++        } finally {
++            for (req in reqs) {
++                req.done()
++            }
++        }
++    }
++
+     private func flushLoop(): Unit {
+         while (running.load()) {
+             if (let Some(req) <- writeCh.remove()) {
+@@ -965,10 +985,8 @@ public class Badger <: VLogGCDB {
+                     }
+                 }
+                 
+-                // Emit to pipeline (async)
+-                if (let Some(p) <- pipeline) {
+-                    p.emit(reqs)
+-                }
++                // 实验：单级写路径（直接处理批次，不再经 WritePipeline 二级队列）
++                writeBatchDirect(reqs)
+             }
+         }
+         
+-- 
+2.56.0
+
