@@ -1,6 +1,6 @@
 # Block Cache（块缓存）子设计
 
-> 状态：**设计（未实现）**；父项：docs/plans/2026-11-09-v2.1-plus-design.md 的 P1-1 / R4。
+> 状态：**已实现（2.1.0）**；父项：docs/plans/2026-11-09-v2.1-plus-design.md 的 P1-1 / R4。
 > 目标版本：2.1。前置：2.0.1 已发布（arena 对齐 go、.sst 回收）。
 > 一句话：给 Table 读路径加一层可配容量的块 LRU，让 mmap 模式的随机读回到「整表驻留堆」
 > 的水平，同时保持「内存上界与数据量解耦」这个 2.0 的核心收益。
@@ -80,3 +80,18 @@
 | 摘表失效遗漏 -> 读到旧表数据 | 失效用例钉住；tableId 进 key，命中前校验 tableId 存在性 |
 | 单锁竞争 | 先基准；若命中路径占比高再分片（2.2 明确「先证明再拆」） |
 | 大 block（压缩后单块 > 4KB）膨胀 | 单条按实际大小计费，超上限的大块可只走直读不入缓存 |
+
+## 6. 实现结果（2026-11-09）
+
+- 代码：src/table/block_cache.cj（按字节 LRU、键 (tableId, blockIdx)、摘表即失效）；
+  Table.readBlock 命中直返、未命中读盘后写入；Config.BlockCacheSizeMB（默认 0）；
+  已接入 loadTables / flush 落盘 / compaction 产出三条建表路径。
+- 测试：BlockCacheTest 4 例（命中计数 / LRU 顺序 / 按表失效 / 容量 0）+ BlockCacheDbTest 2 例；
+  全量 461/461（-j 4，连跑 2 轮绿）。
+- 实测（128MB 随机读）：cache=0 113.2 µs/Get → cache=64MB **36.9 µs/Get**（堆内 35.9 µs，
+  **1.03x**，验收目标 1.1x 达成）。
+
+## 7. 后续
+
+- 默认值建议：0 保持默认（行为兼容）；生产建议 64-256MB，文档给建议值。
+- P2-1 Stats API 可把 hits/misses/used 暴露出去（BlockCache 已内置计数）。

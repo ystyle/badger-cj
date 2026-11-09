@@ -8,7 +8,7 @@ import badgercj.db.*
 /**
  * SSTable 读按需化对照：表数据「页缓存（mmap）」vs「GC 堆（整表读入）」。
  *
- * 用法: sst_read_mem_perf [totalMB] [mmap:on|off] [dir]
+ * 用法: sst_read_mem_perf [totalMB] [mmap:on|off] [dir] [cacheMB]
  *
  * 以 1MB 小 memtable 高频 flush，写出 totalMB 的 .sst（numLevelZeroTables 调大以隔离
  * compaction，确保表持续累积），随后随机读回。在受限堆下运行（cjHeapSize）即可直接
@@ -21,13 +21,16 @@ main(args: Array<String>): Int64 {
     // 注意：必须放在**真实磁盘**上。/tmp 常为 tmpfs，页缓存会直接占用内存，
     // 使「表数据在页缓存 vs 在 GC 堆」的对照失真（mmap 一侧反而更吃内存）。
     let dir = if (args.size > 2) { args[2] } else { "/tmp/badger_sst_read_mem" }
+    // 2.1 Block Cache：0 = 关闭（2.0.1 行为）
+    let cacheMB: Int64 = if (args.size > 3) { Int64.parse(args[3]) } else { 0 }
     if (exists(Path(dir))) {
         remove(Path(dir), recursive: true)
     }
 
     let opt = Config(dir: dir, memTableSize: 1024 * 1024u64,
         numLevelZeroTables: 100000,     // 隔离 compaction：让 L0 表持续累积
-        mmapSSTable: mmapOn)
+        mmapSSTable: mmapOn,
+        blockCacheSizeMB: if (cacheMB > 0) { UInt64(cacheMB) } else { 0 })
     let db = Badger.open(opt)
 
     let value = Array<Byte>(1024, repeat: 0x41)
@@ -56,7 +59,7 @@ main(args: Array<String>): Int64 {
     let readNs = (MonoTime.now() - readStart).toNanoseconds()
 
     let sstCount = countSst(dir)
-    println("RESULT scenario=sst_read_mem mmap=${mmapOn} totalMB=${totalMB} rounds=${rounds} " +
+    println("RESULT scenario=sst_read_mem mmap=${mmapOn} cacheMB=${cacheMB} totalMB=${totalMB} rounds=${rounds} " +
         "sstFiles=${sstCount} keysPerSec=${Float64(rounds * keysPerRound) * 1.0e9 / Float64(writeNs)} " +
         "readOps=${reads} hit=${hit} nsPerGet=${Float64(readNs) / Float64(reads)}")
     db.close()

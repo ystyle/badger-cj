@@ -15,7 +15,7 @@
 
 ```toml
 [dependencies]
-  "badgercj" = "2.0.1" # 注意使用最新的版本
+  "badgercj" = "2.1.0" # 注意使用最新的版本
 ```
 
 ## 快速开始

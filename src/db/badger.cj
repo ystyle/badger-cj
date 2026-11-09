@@ -510,9 +510,9 @@ public class Badger <: VLogGCDB {
                 // 已落盘：表数据改用只读映射（构建产物 data 至此可弃，不再常驻 GC 堆）
                 let path = sstablePath(opt.Dir, tableID)
                 let table = if (opt.MmapSSTable) {
-                    Table(tableID, tableData: MmapTableData(path))
+                    Table(tableID, tableData: MmapTableData(path), cache: blockCache)
                 } else {
-                    Table(tableID, data)
+                    Table(tableID, data, cache: blockCache)
                 }
                 lc.addTable(0, TableAdapter(table))
             }
@@ -554,9 +554,9 @@ public class Badger <: VLogGCDB {
         } else {
             // 已落盘：默认改用只读映射，让表数据离开 GC 堆（数据唯一持久副本已在盘上）
             let table = if (opt.MmapSSTable) {
-                Table(tableID, tableData: MmapTableData(path))
+                Table(tableID, tableData: MmapTableData(path), cache: blockCache)
             } else {
-                Table(tableID, data)
+                Table(tableID, data, cache: blockCache)
             }
             lc.addTable(0, TableAdapter(table))
         }
@@ -577,6 +577,8 @@ public class Badger <: VLogGCDB {
     }
     
     protected func getLevelsController(): LevelsController { lc }
+    
+    protected func getBlockCache(): ?BlockCache { blockCache }
     
     /** Block Cache 当前占用字节数（诊断/测试用；关闭时为 0）。 */
     public func blockCacheUsedBytes(): Int64 {
@@ -1023,9 +1025,9 @@ public class Badger <: VLogGCDB {
         } else {
             // 已落盘：默认改用只读映射（与 flushMemTablesBatch 保持一致）
             let table = if (opt.MmapSSTable) {
-                Table(tableID, tableData: MmapTableData(path))
+                Table(tableID, tableData: MmapTableData(path), cache: blockCache)
             } else {
-                Table(tableID, data)
+                Table(tableID, data, cache: blockCache)
             }
             lc.addTable(0, TableAdapter(table))
         }

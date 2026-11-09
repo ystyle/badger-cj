@@ -382,9 +382,9 @@ protected class Compaction {
             
             // 已落盘：改用只读映射（构建产物 data 至此可弃）
             let table = if (db.getOpt().MmapSSTable) {
-                Table(tableId, tableData: MmapTableData(path))
+                Table(tableId, tableData: MmapTableData(path), cache: db.getBlockCache())
             } else {
-                Table(tableId, data)
+                Table(tableId, data, cache: db.getBlockCache())
             }
             result.add(TableAdapter(table))
             manifestChanges.add(ManifestChange(tableId, ManifestChangeOp.Create, level: UInt32(level)))

@@ -394,6 +394,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-09 | master | **2.1.0：Block Cache（P1-1）**：可配容量 LRU（默认 0 = 关闭，行为与 2.0.1 一致）；键 (tableId, blockIdx)、摘表即失效；接入 loadTables/flush/compaction 三条建表路径。测试 461/461（新增 6 例：命中/LRU/失效/零容量 + DB 端到端）。实测 128MB 随机读：cache=0 113.2 µs/Get → cache=64MB 36.9 µs/Get（堆内 35.9，**1.03x**，验收 1.1x 达成）。 |
 | 2026-11-09 | master | **v2.0.1 发布（发布后问题 patch）**：compaction 摘表后先 close 再 unlink 回收废弃 .sst + open 时按 manifest 清理孤儿表（d1293a5）；memtable arena 对齐 go 公式 2x→约 1.32x（7ee2c88）；README 写明 user key 不应互为前缀。全量 455/455。私有仓预演→中心仓 publish success→索引含 2.0.1、制品 HTTP 200、sha256 与本地一致（e3ee8c2b…）→ tag v2.0.1 推 origin/GitHub。 |
 | 2026-11-09 | fix/2.0.1 | **2.0.1 进行中（发布后问题 patch）**：① **P0-1 .sst 回收**——compaction 摘表后先 close 再 unlink、open 时按 manifest 清理孤儿表；新增 table_cleanup_test（多轮压缩后 sst 数 == 活表数、孤儿被清理、数据完整），全量 454/454 连跑 3 轮绿（d1293a5）。② **P1-5 arena 对齐 go 公式**——2xMemTableSize → MemTableSize+15%+15%（约 1.32x，默认 64MB 时单 memtable 128MB → 约 84MB）；WAL 段容量仍 2x；shouldFlush 改按 arena 用量（go 语义）；新增 MemtableArenaTest；A/B 9 轮写吞吐 +0.76%、p=0.85 不显著；全量 455/455 连跑 2 轮绿（7ee2c88）。③ P0-3 Windows close->unlink 契约已随 P0-1 落地，待 Windows CI 验证。 |
 | 2026-11-09 | master | **v2.0.0 发布**：私有仓预演 → 制品逐字节核对（197 项、无 docs/scripts/AGENTS）→ 中心仓 publish success → 索引含 2.0.0、制品 HTTP 200、sha256 与本地一致 → tag v2.0.0 推 origin/GitHub。 |
