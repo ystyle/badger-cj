@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-10-22  
-**当前阶段：** ✅ v1.6.22（写管道重复 done 修复——消除「提交返回却读不到 / 并发 CME / 条目永久丢失」；附确定性回归守卫 + WritePipeline 完成信号契约；叠加 v1.6.21 compaction tombstone 层级丢弃修复、v1.6.16 reverse seek/OOM 批显式失败、v1.6.15 跨 block 间隙、v1.6.12 flush 落盘语义对齐）
+**最后更新：** 2026-11-09  
+**当前阶段：** ✅ v1.6.23（VLog 重开恢复段表与写偏移——修「大值 ≥ ValueThreshold 重开后静默读错值」；叠加 v1.6.22 写管道重复 done 修复、v1.6.21 compaction tombstone 层级丢弃修复、v1.6.16 reverse seek/OOM 批显式失败、v1.6.12 flush 落盘语义对齐）
 
 ---
 
@@ -9,10 +9,10 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 380/380 通过 ✅ |
+| **测试** | 389/389 通过 ✅ |
 | **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
 | **API 对齐** | P0+P1 完成，对齐率 ~85% |
-| **版本** | 1.6.22（v1.6.22：写管道重复 done 修复；v1.6.21：compaction tombstone 层级丢弃；v1.6.16：reverse seek 编码对齐 + WritePipeline Error 整批失败；更早见下方变更记录） |
+| **版本** | 1.6.23（v1.6.23：VLog 重开恢复段表与写偏移；v1.6.22：写管道重复 done 修复；v1.6.21：compaction tombstone 层级丢弃；更早见下方变更记录） |
 
 ---
 
@@ -368,6 +368,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-09 | v1.6.23 | **VLog 重开后大值静默读错（受影响旧版本：≤ v1.6.22；值 ≥ ValueThreshold 时）**：`VLogManager.init(dir)` 重开时无条件 `VLogFile.create("0.vlog")` 且写偏移 `offset` 恒 0，既不扫描已有段、也不恢复 `files`/`maxFid`/`currentFile`。后果：① 重开后新写入的 `ValuePointer.offset` 从 0 开始，读路径只按指针取记录、不校验 key → 读回段首的其它 value（静默数据损坏）；② `maxFid` 恒 0，写满换段时会复用已存在的 fid，直接覆盖旧段。修复：新增 `VLogFile.open`（顺序解析到最后一个 CRC 完整的条目，`setLength` 截断崩溃残尾，逐条读不整段入内存）+ `scanValidLength`；`VLogManager.init` 改为扫描 `<fid>.vlog` 按 fid 升序恢复段表、`maxFid`、`currentFile`，`offset` = 末段有效长度，空目录才建 `0.vlog`；非法段名/前导零别名/同名目录一律忽略。新增 9 个用例（多段重开、段满边界续写、崩溃残尾截断、CRC 损坏停止、非段文件忽略、大 fid、DB 级大值跨两次重开）：修复前 7/9 失败（段表只剩 1、残尾未截断、`newVp.offset==0`、DB 大值读到 `gen1-*`/`first-*`），修复后 9/9 绿；全量 389/389（`-j 4` 与 `-j 16` 均绿）。注意：**2.0 分支的 VLog 实现已含等价恢复逻辑**（mmap 版 `open`/`scanValidLength`），合并时以 v2 侧为准。 |
 | 2026-10-22 | v1.6.22 | **写管道对每个 WriteRequest 重复 done()（并发 commit 偶发「提交成功却读不到」/CME/丢写）**：`Badger.writeRequests()` 结尾自己 `done()` 一遍，`WritePipeline.runBatch()` 的 finally 又 `done()` 一遍——40311bf 把 done 移进 runBatch finally 时漏删前者。`SyncCounter.dec()` 在计数已为 0 时保持不变（std.sync 文档），故未被复用的请求看似无害；但 `wait()` 返回后请求立即被调用方归还 `WriteRequestPool`、`reset()` 复用到下一批，迟到的第二次 done 会把新请求计数器 1→0 → 新 commit 在本批写入前被提前唤醒（写后立即读缺失），请求还可能在管道仍遍历 entries 时被 reset 清空 → `ConcurrentModificationException` / 条目永久丢失。**受影响版本：v1.6.7 – v1.6.21**（40311bf 起；v1.6.6 及更早没有 runBatch，正常路径只有一次 done，不受影响）。修复：删除 `writeRequests()` 的 done 循环，done 唯一所有权归 `runBatch()` finally（异常路径 markFailed+done 语义不变）；`writeOneRequest()`（flushLoop drain 路径，无 runBatch 包装）保持自包含 done。复现方式除了下述并发压测，还做了确定性插桩（200 次 commit → 400 次 done()，修复后 200 次）。新增 `write_pipeline_done_once_test.cj`：①单线程 6000 次 updateOrThrow 后立即 `db.get` 必须命中；②24 线程 × 1500 次并发 commit，每次返回后立即读 + 结束后全量扫描 key 数。两版二进制交替 A/B（同规模合计 60 轮）：未修复 **9/60 红**（单线程用例命中 2 次、并发用例 7 次；系统负载高时单轮最高 7/30，单次最多 53 个可见性错误），已修复 **0/60 红**（最终二进制另连续 20 轮全绿）。**评审补强**：压测用例查错能力依赖负载（空闲机器上 30 轮全绿），故另加 `@When[test]` 确定性守卫（测试构建里统计"同一请求第二次 done"，缺陷代码上 300 次 commit 必命中 300 次、修复后恒 0；发布产物编译为空函数）并把完成信号契约写进 `WritePipeline` public 文档。全量 380/380 通过。制品清单同时改为锚定写法 `include = ["/src", "/LICENSE"]`，补上此前一直缺的 LICENSE（1.6.21 及更早制品只有 README/cjpm.toml/src）。 |
 | 2026-10-06 | v1.6.21 | **删除标记被 compaction 提前丢弃 → 已删数据在多层合并后复活**（消费方实测：删掉的上游记录在某次 2MB compaction 之后整批回来、连 id 都不变，且重开一直在）：`compactBuildTables` ① 无条件 `isDeletedOrExpired → continue`，没判断 `cd.nextLevel` 是否到最底层——更低层还留着更旧版本时，丢掉 tombstone 等于给旧值解禁；② `lastKey` 只在写入后推进，被丢弃的 tombstone 不参与去重，同 key 的更旧版本于是被当成新 key 写进新表（复活的直接机制）。改法：先去重（无论是否写入都推进 `lastKey`），非最底层一律把 tombstone 写进新表继续压制，只有 `nextLevel` 到 `MaxLevels-1` 才真正丢弃。回归用例先红后绿：`testDeleteSurvivesLaterCompaction`（值沉底→删→再合并→重开）、`testDeleteSurvivesMultiLevelCompactions`（多层多表 + 多轮合并；单层小场景复现不出来，实测 FAILED → PASSED）；366 测试通过 |
 | 2026-10-02 | feat/ring-queue（未发版，分支） | **CloseableBlockingQueue 改单锁环形缓冲（抑制无效唤醒）**：原实现「LinkedBlockingQueue + 外挂 Mutex/Condition」每次 add 在入队后还要抢一次外层锁做 notify（即使无等待者），且队满时阻塞在 LBQ 内部、close 唤不醒它——新用例 `testBlockedProducerFailsOnClose` 在旧实现上 **超时 20s 挂起**（队满 + 消费者退出时生产者永久阻塞，违背 close 契约）。改为定长环形数组 + 单 Mutex + `notEmpty`/`notFull`：存取与判空/判满在同一临界区完成、通知按等待者计数按需下发、队满等待同时观察 closed；API 与语义不变（add 满阻塞 / close 后抛异常；remove 空阻塞 / close 排空后 None；tryRemove 非阻塞；size 精确）。新增 `CloseableBlockingQueueTest` 11 用例；全量 375/375 通过。端到端（新增 `txn_queue_perf` 示例：8 线程 × 5000 单键事务，两版二进制交替 A/B 各 9 轮）：平均 4567 vs 4956 ns/txn，**写吞吐 +7.8%**（最佳轮口径 +11.5%），配对比较 9/9 全胜 |
