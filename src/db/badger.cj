@@ -1028,6 +1028,23 @@ public class Badger <: VLogGCDB {
     //      元素数 ≤ immCount - flusher 手中表数 < 容量——数学上必有空位；即便个别
     //      时刻队列满，flusher 的 remove 不依赖 db 写锁，腾位后 add 返回，无死锁。
     // 返回被轮换表（供调用方等待其完成标志）。
+    // [写锁内] 把「下一张 memtable 的 arena」抬到至少能装下一条 entryBytes 的档位（封顶目标值）。
+    //
+    // 为什么需要：渐进扩容的 arena 只在轮换时增长，而首张小 arena（默认 256KB）可能小于
+    // 单条条目的大小（大 value 内联时很常见）。若不抬升就轮换，新表仍是 512KB、再
+    // 512KB……大条目只是把轮换次数变成报错次数；抬到「够装这一条」才是渐进扩容该有的
+    // 自适应用法。到目标值仍装不下 = 真的超过 memtable 容量，由调用方报错。
+    private func growNextArenaToFitLocked(entryBytes: Int64): Unit {
+        let target = Badger.targetArenaBytes(opt)
+        var need = entryBytes + MAX_NODE_SIZE + NODE_ALIGN + 8
+        if (need > target) {
+            need = target
+        }
+        if (memtableArenaBytes < need) {
+            memtableArenaBytes = need
+        }
+    }
+    
     private func rotateAndEnqueueLocked(): MemTable {
         // 阶段 1（可抛）：新表构造完成前不触碰任何共享状态
         let fid = Int64(reserveFileID())
@@ -1375,8 +1392,18 @@ public class Badger <: VLogGCDB {
                 if (immCount.load() >= Int64(opt.NumMemtables)) {
                     needRoom = true
                 } else if (mt.isEmpty()) {
-                    throw Exception(
-                        "entry too large for memtable: needs more than remaining arena ${mt.remainingArena()} bytes")
+                    // 全新 memtable 也装不下这一条：渐进扩容下 arena 只在轮换时增长，
+                    // 首张小 arena（默认 256KB）可能小于单条大小。此时先把「下一张表」
+                    // 抬到装得下这一条的档位（封顶目标值）再轮换——
+                    // 否则 arena 渐进等于「大 value 不可写」（实测：单个 600KB 内联条目
+                    // 在 memTableSize=4MB 的默认配置下直接被判为超大条目）。
+                    let (k, v) = prepared[idx]
+                    growNextArenaToFitLocked(Int64(k.size) + Int64(v.encode().size))
+                    if (memtableArenaBytes <= mt.arenaCapacity()) {
+                        throw Exception(
+                            "entry too large for memtable: needs more than remaining arena ${mt.remainingArena()} bytes")
+                    }
+                    rotateAndEnqueueLocked()
                 } else {
                     rotateAndEnqueueLocked()
                 }

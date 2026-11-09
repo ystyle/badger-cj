@@ -611,7 +611,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `useIoUring` | true | Linux 下用 io_uring 写 SSTable（不可用/失败自动降级同步写） |
 | `compression` | None | SSTable 块压缩（Snappy）；默认关闭，mmap 读是零拷贝路径 |
 | `blockCacheSizeMB` | 0（关闭） | 2.1 块缓存：LRU 缓存热 block（128MB 数据 113 → 37 µs/Get）；生产建议 64–256 |
-| `arenaGrowthStartBytes` | 256 KB | 2.2 arena 渐进扩容起点（首张 memtable 用该值，每轮换翻倍、封顶目标值）；0 = 关闭渐进 |
+| `arenaGrowthStartBytes` | 256 KB | 2.2 arena 渐进扩容起点（首张 memtable 用该值，每轮换翻倍、封顶目标值）；0 = 关闭渐进。单条大于当前 arena 时按需抬升 |
 | `streamingSSTable` | false | 2.2 流式落盘：flush/compaction 边构建边写文件，不再留整表副本；低堆/大表场景建议开 |
 
 ## 内存使用
@@ -622,7 +622,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 |------|--------|------|
 | `memTableSize` | 64 MB | 单个 MemTable 上限 |
 | arena 目标值 | **memTableSize + 15% 批次预留（约 1.3 × memTableSize；默认 64MB 表约 84MB/库）** | 对齐 badger-go 的 arenaSize()；每张 memtable 用满即轮换 |
-| `arenaGrowthStartBytes` | 256 KB | 2.2 起 arena **渐进扩容**：首张 memtable 用该值，每轮换翻倍、封顶目标值；**0 = 关闭渐进** |
+| `arenaGrowthStartBytes` | 256 KB | 2.2 起 arena **渐进扩容**：首张 memtable 用该值，每轮换翻倍、封顶目标值；**0 = 关闭渐进**。单条条目比当前 arena 大时按需抬升（大 value 内联不受起点限制） |
 | `blockCacheSizeMB` | 0（关闭） | 2.1 块缓存：LRU 缓存热 block，把 mmap 随机读拉回堆内水平（128MB 数据 113 → 37 µs/Get）；生产建议 64–256 |
 | 仓颉 GC 堆上限 | **256 MB（默认）** | 仓颉运行时默认堆上限，arena 等原生内存之外的 GC 托管对象均在此配额内 |
 

@@ -210,6 +210,14 @@ protected class MemTable {
         Int64(arena.size) - Int64(arena.usedSize())
     }
     
+    /**
+     * 本表 arena 总容量（渐进扩容下每张表不同）。
+     * 写入路径用它判断「轮换到下一张表能否腾出更大空间」——见 Badger.putPrepared。
+     */
+    public func arenaCapacity(): Int64 {
+        Int64(arena.size)
+    }
+    
     public func get(key: Array<Byte>): ?ValueStruct {
         let node = table.get(key)
         if (let Some(n) <- node) {
