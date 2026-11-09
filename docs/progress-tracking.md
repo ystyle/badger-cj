@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-11-09  
-**当前阶段：** 🔶 **v2.0.0-dev**（分支 `feat/v2-mmap-wal-vlog`）——阶段 0–6 完成（回补 1.6.23、合并 master、B1–B4、FORMAT+兼容夹具、分组提交/WriteBatch、保留策略/Merge/Managed/Sequence/estimateSize、lazy index + VLog 流式），阶段 7（三平台 CI、文档、基准重测、发版预演、下游升版）进行中。master 线仍为 ✅ v1.6.23
+**当前阶段：** ✅ **v2.0.0 已发布**（2.x 主线 = master，2026-11-09 由 v2 特性分支 FF 合并；1.x 维护线 = release/1.6，基 v1.6.23）。阶段 0-7 完成、全量 452/452；后续功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
 
 ---
 
