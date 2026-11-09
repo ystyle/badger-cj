@@ -23,12 +23,9 @@ class RetentionPolicyTest {
             db.updateOrThrow({ txn => txn.set("k".toArray(), "v-${i}".toArray()) })
             db.flushMemTable()
         }
-        @Assert(countVersionsOf(db, "k"), 5)
-
-        // 先把 read watermark 推到最新提交 ts（否则最新版本 > discardTs，会多留一个），
-        // 再手动 compaction；否则 compact 只会执行一轮，旧表已进 L1 无法再收敛。
-        advanceWatermark(db)
-        db.compact()
+        // 不能在压缩前断言版本数：后台 compactor 可能已经按旧水位合并过 L0（CI 上实测
+        // 会先压成 3 个版本）。这里只断言「压缩后」的确定性结果。
+        compactWithFreshWatermarkRetention(db)
         // 保留 latest 3 个版本（无活跃读者，全部 5 个都可判丢弃）
         @Assert(countVersionsOf(db, "k"), 3)
 
@@ -47,8 +44,7 @@ class RetentionPolicyTest {
             db.updateOrThrow({ txn => txn.set("k".toArray(), "v-${i}".toArray()) })
             db.flushMemTable()
         }
-        advanceWatermark(db)
-        db.compact()
+        compactWithFreshWatermarkRetention(db)
         @Assert(countVersionsOf(db, "k"), 1)
         db.close()
         cleanupDir(dir)
@@ -107,7 +103,13 @@ func countVersionsOf(db: Badger, userKey: String): Int64 {
     n
 }
 
-func advanceWatermark(db: Badger): Unit {
+// 推进 read watermark 到最新提交 ts，并强制触发一轮「L0 + 重叠 L1」压缩：
+// 后台 compactor 可能已把 L0 合并走（之后手动 compact 不会再动 L1），必须写一条
+// 触发数据 + flush 让 L0 非空，才能用新水位重新合并旧表。
+func compactWithFreshWatermarkRetention(db: Badger): Unit {
     let txn = db.newTransaction(update: false)
     txn.discard()
+    db.updateOrThrow({ t => t.set("__retention_trigger".toArray(), "1".toArray()) })
+    db.flushMemTable()
+    db.compact()
 }
