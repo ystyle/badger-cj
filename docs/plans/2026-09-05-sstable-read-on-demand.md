@@ -1,7 +1,10 @@
 # Badger-cj v2.0：SSTable 读按需化（表数据移出 GC 堆）
 
-> 状态：设计稿（待评审）
+> 状态：已实现（阶段 A–D，v2.0.0；`feat/v2-mmap-wal-vlog` @ ab6f640）
 > 目标版本：v2.0.0（与 `2026-09-01-mmap-wal-vlog-design.md` 的 mmap 基础设施线并行/同批）
+> 口径（2026-11-09 更新）：本设计只对齐 go 的语义、**不追求文件格式字节兼容**；加密不进 2.0；
+> 常规 flush 路径接入映射（B1）、`Iterator` allVersions 吐 tombstone（B4）、lazy index 等收尾项见
+> [`2026-11-09-v2.0-implementation-plan.md`](2026-11-09-v2.0-implementation-plan.md)。
 > 来源：chronomem 生产验证（2026-09-05）——稳态堆活随数据线性涨 + 大请求瞬时峰值，
 > 与 256MB 堆上限结构性矛盾 → 周期性 OOM（修复后已降级为「单请求牺牲 + 服务自愈」，
 > 但结构性矛盾仍在）

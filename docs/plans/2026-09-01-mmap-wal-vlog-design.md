@@ -1,7 +1,12 @@
 # Badger-cj v2.0：WAL / VLog 写路径 mmap 化设计
 
-> 状态：设计稿（待评审）
+> 状态：已实现（阶段 1/2/4，v2.0.0；`feat/v2-mmap-wal-vlog` @ ab6f640）
 > 目标版本：v2.0.0
+> 口径（2026-11-09 更新，与 [`2026-11-09-v2.0-implementation-plan.md`](2026-11-09-v2.0-implementation-plan.md) 一致）：
+> ① 本设计只对齐 go 的**语义**，**不追求文件格式字节兼容**（2.0 为自有格式：可读 v1.6.x 目录，不支持降级）；
+> ② **加密（Encryption at rest）不进 2.0**，作为 2.1+ 可选能力延后；
+> ③ 阶段 3（VLog 读 mmap）并入读路径收口，不作为 2.0 必做项；
+> ④ 新增 `<dir>/FORMAT` 格式基线（`format=1`、`features=`），在 2.0.0 落地。
 > 关联：`benchmark-report.md` P1 优化项「VLog mmap 替代 BufferedOutputStream」、`mmap-cj`（darwin/linux/windows 三平台封装）、go 版 `z.MmapFile`
 
 ## 1. 背景与动机
