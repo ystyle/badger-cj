@@ -286,7 +286,25 @@ protected class Compaction {
         let result = ArrayList<TableInterface>()
         let manifestChanges = ManifestChangeSet()
         
-        let builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
+        // L2 流式（Config.StreamingSSTable）：产出表边构建边写文件，不在内存持有整表字节。
+        let streaming = db.getOpt().StreamingSSTable && db.getOpt().MmapSSTable
+        var streamFile: ?File = None
+        var streamTableId: UInt64 = 0
+        var streamPath = ""
+        var builder: TableBuilder
+        if (streaming) {
+            streamTableId = db.reserveFileID()
+            streamPath = sstablePath(db.getOpt().Dir, streamTableId)
+            if (exists(Path(streamPath))) {
+                remove(Path(streamPath))
+            }
+            let f = File(Path(streamPath), ReadWrite)
+            streamFile = Some(f)
+            builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive,
+                compression: db.getOpt().Compression, sink: { data => f.write(data) })
+        } else {
+            builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
+        }
         // k 路归并输入：各表本身按键有序，流式合并即可，不必把 top+bot 全表读进
         // ArrayList 再冒泡排序（旧实现峰值内存 O(总条目数)、时间 O(n²)）。
         let mergeIters = ArrayList<SimpleIterator>()
@@ -371,24 +389,40 @@ protected class Compaction {
             merger.next()
         }
         
+        let hasData = !builder.isEmpty()
         let data = builder.finish()
-        if (data.size > 0) {
-            // 表 id 必须取文件序列（对齐 badger-go reserveFileID）：此前误用 db.getVersion()
-            // （提交版本号计数器）→ 与 flush/close 的文件 id 序列重叠、同版本重复 compaction
-            // 会覆写同一 id 文件 + manifest 同 id 双记录（deleteTables 按 id 误删风险）
-            let tableId = db.reserveFileID()
-            let path = sstablePath(db.getOpt().Dir, tableId)
-            // 写失败抛异常（由 compactor 外层捕获记录，不杀协程、不留半落盘表）
-            writeFile(path, data, useIoUring: db.getOpt().UseIoUring)
-            
-            // 已落盘：改用只读映射（构建产物 data 至此可弃）
-            let table = if (db.getOpt().MmapSSTable) {
-                Table(tableId, tableData: MmapTableData(path), cache: db.getBlockCache())
-            } else {
-                Table(tableId, data, cache: db.getBlockCache())
+        if (streaming) {
+            match (streamFile) {
+                case Some(f) => f.close()
+                case None => ()
             }
-            result.add(TableAdapter(table))
-            manifestChanges.add(ManifestChange(tableId, ManifestChangeOp.Create, level: UInt32(level)))
+        }
+        if (hasData) {
+            if (streaming) {
+                let table = Table(streamTableId, tableData: MmapTableData(streamPath), cache: db.getBlockCache())
+                result.add(TableAdapter(table))
+                manifestChanges.add(ManifestChange(streamTableId, ManifestChangeOp.Create, level: UInt32(level)))
+            } else {
+                // 表 id 必须取文件序列（对齐 badger-go reserveFileID）：此前误用 db.getVersion()
+                // （提交版本号计数器）→ 与 flush/close 的文件 id 序列重叠、同版本重复 compaction
+                // 会覆写同一 id 文件 + manifest 同 id 双记录（deleteTables 按 id 误删风险）
+                let tableId = db.reserveFileID()
+                let path = sstablePath(db.getOpt().Dir, tableId)
+                // 写失败抛异常（由 compactor 外层捕获记录，不杀协程、不留半落盘表）
+                writeFile(path, data, useIoUring: db.getOpt().UseIoUring)
+                let table = if (db.getOpt().MmapSSTable) {
+                    Table(tableId, tableData: MmapTableData(path), cache: db.getBlockCache())
+                } else {
+                    Table(tableId, data, cache: db.getBlockCache())
+                }
+                result.add(TableAdapter(table))
+                manifestChanges.add(ManifestChange(tableId, ManifestChangeOp.Create, level: UInt32(level)))
+            }
+        } else if (streaming) {
+            // 空输出：删除已建的半成品文件
+            if (exists(Path(streamPath))) {
+                remove(Path(streamPath))
+            }
         }
         
         // 统计必须在本轮结束前交给 VLogManager（Go 同位置：compactBuildTables 末尾 updateDiscardStats）
