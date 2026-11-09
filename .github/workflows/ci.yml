@@ -1,9 +1,10 @@
 name: CI
 
-# 触发：master / v2 开发分支推送与所有 PR
+# 触发：master / 维护线 / 功能与修复分支推送，以及所有 PR
+# （2.x 主线在 master；release/1.6 是 1.x 维护线；feat/* fix/* 为在飞工作）
 on:
   push:
-    branches: [master, feat/v2-mmap-wal-vlog]
+    branches: [master, release/1.6, "feat/**", "fix/**"]
   pull_request:
 
 # 依赖全部来自仓颉中心仓（cjpm.toml 写版本号），无需 checkout 兄弟仓库。
