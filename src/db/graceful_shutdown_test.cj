@@ -7,7 +7,8 @@ import std.collection.*
 import std.sync.*
 import std.time.*
 import std.env.getProcessId
-import std.posix.kill
+// 用通配导入：Windows 上 std.posix 没有 kill，具名导入会直接编译失败（类已 @When[os==Linux] 排除）
+import std.posix.*
 
 // 优雅退出回归（docker stop / Ctrl+C）：
 // registerSignalShutdown() 注册后，SIGTERM 触发后台线程 close()。

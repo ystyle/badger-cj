@@ -9,6 +9,7 @@ import std.unittest.testmacro.*
 import std.collection.*
 import std.fs.*
 
+@When[os == "Linux"]
 @Test
 class IoUringTest {
     
@@ -76,6 +77,7 @@ class IoUringTest {
     }
 }
 
+@When[os == "Linux"]
 @Test
 class IoUringFileWriterTest {
     
