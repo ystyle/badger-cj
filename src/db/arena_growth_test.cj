@@ -12,6 +12,35 @@ class ArenaGrowthTest {
         ("ag-" + String.fromUtf8(Array<Byte>(pad, repeat: 0x30)) + raw).toArray()
     }
 
+
+    @TestCase
+    func testGrowthCanBeDisabled(): Unit {
+        let dir = "/tmp/badger_arena_growth_off"
+        cleanupDir(dir)
+        let db = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64, arenaGrowthStartBytes: 0))
+        let first = db.getMemTable().remainingArena()
+        println("[arena-growth] disabled first=" + first.toString())
+        // 关闭渐进：直接用目标值（1.32x MemTableSize）
+        @Assert(first > 1300 * 1024, true)
+        db.close()
+        cleanupDir(dir)
+    }
+
+    @TestCase
+    func testGrowthCustomStart(): Unit {
+        let dir = "/tmp/badger_arena_growth_custom"
+        cleanupDir(dir)
+        let db = Badger.open(Config(dir: dir, memTableSize: 1024 * 1024u64,
+            arenaGrowthStartBytes: 64 * 1024u64))
+        let first = db.getMemTable().remainingArena()
+        println("[arena-growth] custom first=" + first.toString())
+        // 自定义起点 64KB（扣掉 arena 头部后约 63KB）
+        @Assert(first > 48 * 1024, true)
+        @Assert(first < 96 * 1024, true)
+        db.close()
+        cleanupDir(dir)
+    }
+
     @TestCase
     func testArenaDoublesUntilTarget(): Unit {
         let dir = "/tmp/badger_arena_growth"

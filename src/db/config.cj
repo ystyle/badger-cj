@@ -35,6 +35,10 @@ public struct Config {
     // compaction 每个 key 至少保留的版本数（对齐 badger-go NumVersionsToKeep，默认 1）。
     // managed DB 必须调大（旧 readTs 要能读到旧版本），否则旧快照会丢数据。
     public var NumVersionsToKeep: Int
+    // Pebble 式 arena 渐进扩容起点（字节，2.1）。0 = 关闭渐进（每张 memtable 直接用目标值）；
+    // 默认 256KB：第一张 memtable 用 256KB，之后每轮换翻倍，封顶目标值
+    // （MemTableSize + 15% 批次预留）。小表（目标 < 起点）等于目标值，无渐进过程。
+    public var ArenaGrowthStartBytes: UInt64
     // Block Cache 容量（MB，2.1）。默认 0 = 关闭，行为与 2.0.1 完全一致；
     // 建议 64-256，用于把 mmap 模式随机读延迟拉回「整表驻留堆」水平。
     public var BlockCacheSizeMB: UInt64
@@ -63,7 +67,8 @@ public struct Config {
         vlogFileSize!: UInt64 = 1024 * 1024 * 1024u64,
         numVersionsToKeep!: Int = 1,
         managedTxns!: Bool = false,
-        blockCacheSizeMB!: UInt64 = 0
+        blockCacheSizeMB!: UInt64 = 0,
+        arenaGrowthStartBytes!: UInt64 = 256 * 1024u64
     ) {
         this.Dir = dir
         this.MemTableSize = memTableSize
@@ -81,6 +86,7 @@ public struct Config {
         this.NumVersionsToKeep = if (numVersionsToKeep < 1) { 1 } else { numVersionsToKeep }
         this.ManagedTxns = managedTxns
         this.BlockCacheSizeMB = blockCacheSizeMB
+        this.ArenaGrowthStartBytes = arenaGrowthStartBytes
         this.MmapWAL = mmapWAL
         this.MmapVLog = mmapVLog
         this.MmapSSTable = mmapSSTable

@@ -145,11 +145,16 @@ public class Badger <: VLogGCDB {
     // 渐进扩容起点：min(256KB, 目标值)。小表（目标 < 256KB）等于目标值，无渐进过程。
     private static func initialArenaBytes(opt: Config): Int64 {
         let target = targetArenaBytes(opt)
-        if (target < 256 * 1024) {
-            target
-        } else {
-            256 * 1024
+        // 0 = 关闭渐进扩容（直接按目标值分配）
+        if (opt.ArenaGrowthStartBytes == 0) {
+            return target
         }
+        let start = if (opt.ArenaGrowthStartBytes > UInt64(target)) {
+            Int64(target)
+        } else {
+            Int64(opt.ArenaGrowthStartBytes)
+        }
+        if (start > target) { target } else { start }
     }
     
     public static func open(opt: Config): Badger {
