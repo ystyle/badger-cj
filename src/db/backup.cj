@@ -14,7 +14,6 @@ private let MaxBatchCount: Int64 = 1000
 private let MaxBatchSize: Int64 = 16 << 20
 
 protected class BackupWriter {
-    private let writer: ByteBuffer
     private var maxVersion: UInt64
     private let kvList: ArrayList<StreamKV>
     private var totalSize: Int64
@@ -23,7 +22,6 @@ protected class BackupWriter {
     
     public init(db: Badger, output: OutputStream) {
         this.db = db
-        this.writer = ByteBuffer()
         this.output = output
         this.maxVersion = 0
         this.kvList = ArrayList<StreamKV>()
@@ -32,13 +30,10 @@ protected class BackupWriter {
     }
     
     private func writeHeader(): Unit {
-        for (b in BackupMagicBytes) {
-            writer.writeByte(b)
-        }
-        let versionBuf = u32ToLE(BackupVersion)
-        writer.write(versionBuf)
-        let flagsBuf = u32ToLE(0u32)
-        writer.write(flagsBuf)
+        // 直接写输出流：旧实现先攒进 ByteBuffer，finish 才一次性写出，备份多大就驻留多大内存
+        output.write(BackupMagicBytes)
+        output.write(u32ToLE(BackupVersion))
+        output.write(u32ToLE(0u32))
     }
     
     public func addKV(kv: StreamKV): Unit {
@@ -65,98 +60,76 @@ protected class BackupWriter {
             return
         }
         
-        let blockData = ArrayList<Byte>()
-        let count = UInt32(kvList.size)
-        let countBuf = u32ToLE(count)
-        for (b in countBuf) {
-            blockData.add(b)
+        // block 头需要总长度：先算精确大小（4 count + 8 maxVersion + 每条 KV 编码长度），
+        // 再逐条直接写输出流——不再构造整块 blockData（其峰值 ≈ FlushThreshold）。
+        var blockSize: Int64 = 4 + 8
+        for (kv in kvList) {
+            blockSize += estimateKVSize(kv)
         }
-        
-        let maxVerBuf = u64ToLE(maxVersion)
-        for (b in maxVerBuf) {
-            blockData.add(b)
-        }
+        output.write(u64ToLE(UInt64(blockSize)))
+        output.write(u32ToLE(UInt32(kvList.size)))
+        output.write(u64ToLE(maxVersion))
         
         for (kv in kvList) {
-            writeKVToBuffer(blockData, kv)
-        }
-        
-        let sizeBuf = u64ToLE(UInt64(blockData.size))
-        writer.write(sizeBuf)
-        
-        for (b in blockData) {
-            writer.writeByte(b)
+            writeKV(kv)
         }
         
         kvList.clear()
         totalSize = 0
     }
     
-    private func writeKVToBuffer(buf: ArrayList<Byte>, kv: StreamKV): Unit {
-        let keyLenBuf = u32ToLE(UInt32(kv.key.size))
-        for (b in keyLenBuf) {
+    private func writeKV(kv: StreamKV): Unit {
+        let buf = ArrayList<Byte>()
+        for (b in u32ToLE(UInt32(kv.key.size))) {
             buf.add(b)
         }
         for (b in kv.key) {
             buf.add(b)
         }
-        
-        let valLenBuf = u32ToLE(UInt32(kv.value.size))
-        for (b in valLenBuf) {
+        for (b in u32ToLE(UInt32(kv.value.size))) {
             buf.add(b)
         }
         for (b in kv.value) {
             buf.add(b)
         }
-        
         buf.add(kv.userMeta)
-        
-        let verBuf = u64ToLE(kv.version)
-        for (b in verBuf) {
+        for (b in u64ToLE(kv.version)) {
             buf.add(b)
         }
-        
-        let expBuf = u64ToLE(kv.expiresAt)
-        for (b in expBuf) {
+        for (b in u64ToLE(kv.expiresAt)) {
             buf.add(b)
         }
-        
         buf.add(kv.meta)
+        output.write(buf.toArray())
     }
     
     public func finish(): UInt64 {
         flush()
-        output.write(writer.bytes())
         output.flush()
         return maxVersion
     }
 }
 
 protected class BackupReader {
-    private let reader: ByteBuffer
+    private let input: InputStream
     private let db: Badger
     private var entries: ArrayList<Entry>
     private var entriesSize: Int64
     private var totalSize: Int64
+    // 流式读取：旧实现把整个备份文件读进 ByteBuffer，备份多大就驻留多大内存
+    private let readBuf: Array<Byte>
+    private var bufPos: Int64
+    private var bufLen: Int64
     
     public init(db: Badger, input: InputStream) {
         this.db = db
-        this.reader = ByteBuffer()
-        let buf = ArrayList<Byte>()
-        var tmp = Array<Byte>(4096, repeat: 0)
-        while (true) {
-            let n = input.read(tmp)
-            if (n <= 0) {
-                break
-            }
-            for (i in 0..n) {
-                buf.add(tmp[i])
-            }
-        }
-        reader.write(buf.toArray())
+        this.input = input
         this.entries = ArrayList<Entry>()
         this.entriesSize = 0
         this.totalSize = 0
+        this.readBuf = Array<Byte>(64 * 1024, repeat: 0)
+        this.bufPos = 0
+        this.bufLen = 0
         readHeader()
     }
     
@@ -180,21 +153,38 @@ protected class BackupReader {
     }
     
     private func readBytes(n: Int64): Array<Byte> {
-        // 长度为 0 时不能调用 ByteBuffer.read：目标数组为空会抛
-        // IllegalArgumentException("The buffer is empty")——tombstone 的 value 就是 0 字节。
+        // 0 字节读取直接返回空数组（tombstone 的 value 就是 0 字节）
         if (n <= 0) {
             return []
         }
-        let buf = Array<Byte>(n, repeat: 0)
-        reader.read(buf)
-        buf
+        let out = Array<Byte>(n, repeat: 0)
+        var copied: Int64 = 0
+        while (copied < n) {
+            if (bufPos >= bufLen) {
+                bufPos = 0
+                bufLen = input.read(readBuf)
+                if (bufLen <= 0) {
+                    break
+                }
+            }
+            let available = bufLen - bufPos
+            let want = n - copied
+            let take = if (available < want) { available } else { want }
+            for (i in 0..take) {
+                out[copied + i] = readBuf[bufPos + i]
+            }
+            bufPos += take
+            copied += take
+        }
+        if (copied == n) { out } else { out[0..copied] }
     }
     
     private func readByte(): Byte {
-        match (reader.readByte()) {
-            case Some(b) => b
-            case None => throw BadgerException.corruptionError("Unexpected end of backup file")
+        let b = readBytes(1)
+        if (b.size != 1) {
+            throw BadgerException.corruptionError("Unexpected end of backup file")
         }
+        b[0]
     }
     
     public func restore(): Unit {
@@ -242,14 +232,26 @@ protected class BackupReader {
     
     private func readKV(): StreamKV {
         let keyLenBuf = readBytes(4)
+        if (keyLenBuf.size < 4) {
+            throw BadgerException.corruptionError("Unexpected end of backup file")
+        }
         let keyLen = Int64(u32FromLE(keyLenBuf, 0))
         
         let key = readBytes(keyLen)
+        if (key.size != keyLen) {
+            throw BadgerException.corruptionError("Unexpected end of backup file")
+        }
         
         let valLenBuf = readBytes(4)
+        if (valLenBuf.size < 4) {
+            throw BadgerException.corruptionError("Unexpected end of backup file")
+        }
         let valLen = Int64(u32FromLE(valLenBuf, 0))
         
         let value = readBytes(valLen)
+        if (value.size != valLen) {
+            throw BadgerException.corruptionError("Unexpected end of backup file")
+        }
         
         let userMeta = readByte()
         
