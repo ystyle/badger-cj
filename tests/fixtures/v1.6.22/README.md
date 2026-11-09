@@ -7,7 +7,8 @@
 1. 在 `v1.6.22` 的独立 worktree 中加临时示例 `src/examples/fixture_gen`（内容见 git 历史），
    用 `Config(dir, memTableSize=64KB, valueThreshold=1024, syncWrites=true)` 执行：
    - 写 `small-0..9`（inline）→ `flushMemTable()`
-   - 覆盖 `small-0`、写 `big-0/big-1`（2KB，进 vlog）、`ttl-key`（TTL 1 小时）、`del-me` → `flushMemTable()`
+   - 覆盖 `small-0`、写 `big-0/big-1`（2KB，进 vlog）、`ttl-key`（**TTL 10 年**）、`del-me` → `flushMemTable()`
+     （TTL 必须远大于夹具寿命：夹具是长期提交的二进制，用小时级 TTL 会让 CI 在生成后一小时开始稳定失败）
    - 删除 `del-me`
    - 写 `wal-0..4`（**不 flush**）
 2. 程序打印 `FIXTURE_READY` 后挂住，用 `kill -9` 终止（不执行 close）——

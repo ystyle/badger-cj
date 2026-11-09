@@ -33,7 +33,7 @@ class FormatCompatTest {
         assertBytes(db, "big-0", compatValue("big0", 2048))
         assertBytes(db, "big-1", compatValue("big1", 2048))
 
-        // TTL 键仍有效（TTL 1 小时，生成时未过期）
+        // TTL 键仍有效（夹具 TTL 10 年，避免「生成一小时后 CI 稳定失败」的时间依赖）
         assertValue(db, "ttl-key", "ttl-value")
 
         // 删除标记必须生效（夹具里删除发生在第二次 flush 之后、未落盘 → 依赖 WAL replay）

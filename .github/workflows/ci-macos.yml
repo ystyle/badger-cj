@@ -1,0 +1,34 @@
+name: CI (macOS)
+
+# macOS 单独跑，不进入主 CI 必跑矩阵：
+# 公开仓的 macos-14 runner 偶发「排队即 cancelled」（started/completed 相差 1s、无 step、
+# runner_name 为空），放进主 workflow 会把整轮 run 结论拖成 cancelled。
+# 这里只取可见性：workflow_dispatch 手动触发 + 每周一定时跑。
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  build-test:
+    name: 构建 · 单测（macos-14）
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Zxilly/setup-cangjie@v3
+        with:
+          channel: sts
+          version: auto
+          components: stdx
+
+      - name: Build
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: cjpm build -j 4
+
+      - name: Unit tests
+        env:
+          CANGJIE_STDX_PATH: ${{ env.CANGJIE_STDX_PATH_STATIC }}/stdx
+        run: cjpm test -j 4 --no-progress

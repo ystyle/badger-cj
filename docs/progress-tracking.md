@@ -16,6 +16,22 @@
 
 ---
 
+## CI 平台矩阵（2.0）
+
+仓库镜像：GitHub `ystyle/badger-cj`（`github` 远端）+ GitCode `origin`。工作流见 `.github/workflows/`。
+
+| 平台 | 工作流 | 状态 | 说明 |
+|---|---|---|---|
+| linux（ubuntu-24.04） | `ci.yml` | ✅ 必跑（发布口径） | 安装 `liburing-dev`；`cjpm build/test -j 4`；全量 452 例 |
+| windows-latest | `ci.yml` | 🔶 可见性（continue-on-error） | 构建通过；测试约 441 例中 2 类 ERROR，均为**测试清理阶段 Windows 文件占用**（mmap 表/日志尚未释放即 `remove(recursive)`），见下 |
+| macOS（macos-14） | `ci-macos.yml`（手动/每周） | ⏸ 暂不进门禁 | 公开仓 macos runner 偶发「排队即 cancelled」（无 runner 分配、无 step），放进必跑矩阵会把 run 结论拖成 cancelled |
+
+**已知平台问题（逐条登记，不忽略）**：
+
+1. **Windows 测试清理的文件占用**：`LargeBatchTest` / `ManagedDbTest` 等用例在 `db.close()` 后立刻 `remove(dir, recursive)`，Windows 上仍报 `return -32: 文件被另一进程使用`——需要确认 close 是否在所有路径上都解除了映射（含 SSTable/VLog/WAL），或测试改为显式等待/使用独立临时目录；属测试与生命周期收口问题，不是数据路径缺陷（构建与其余用例正常）。
+2. **fixture TTL 时间依赖**（已修）：v1.6.22 兼容夹具原用 TTL 1 小时，CI 在夹具生成 1 小时后开始稳定失败（`ttl-key 缺失`）；已重新生成夹具为 **TTL 10 年**并在夹具 README 写明原因。
+3. **setup-cangjie 的 cjv 引导器下载偶发 504**：workflow 内已加重试两次。
+
 ## 路线图（Roadmap，统一计划表）
 
 > 来源整合：progress「下一阶段功能」表 + benchmark-report 优化方向 + 需求文档 P0/P1/P2 + port-design v2.0 规划。

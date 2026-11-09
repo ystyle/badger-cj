@@ -7,16 +7,18 @@ on:
   pull_request:
 
 # 依赖全部来自仓颉中心仓（cjpm.toml 写版本号），无需 checkout 兄弟仓库。
+# macOS 单独跑（ci-macos.yml，手动/定时）：公开仓的 macOS runner 偶发「排队即 cancelled」
+# （无 runner 分配、无 step），放进必跑矩阵会让整轮 run 结论变成 cancelled。
 jobs:
   build-test:
     name: 构建 · 单测（${{ matrix.os }}）
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    # 2.0 发布口径以 Linux 为准。macOS/Windows 先跑通可见性；失败项逐条登记
+    # 2.0 发布口径以 Linux 为准。Windows 先跑通可见性；失败项逐条登记
     # （见 docs/progress-tracking.md 的「CI 平台矩阵」），不静默忽略。
     continue-on-error: ${{ matrix.os != 'ubuntu-24.04' }}
     steps:
