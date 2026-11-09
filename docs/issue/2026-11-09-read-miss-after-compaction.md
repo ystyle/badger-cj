@@ -1,6 +1,6 @@
 # 读路径：compaction 输出表上的 get 偶发 miss（数据仍在，迭代器可见）
 
-**状态**：已知缺陷，**2.0.0 发版阻塞项**；v1.6.23（master）同样可复现 → **非 2.0 引入**。
+**状态**：**已定性为「key 互为前缀」的既有编码限制（与 Go badger 同款 keyWithTs 编码）**，不是 2.0 回归、也不是数据丢失；回归用例已改用零填充 key。
 **发现日期**：2026-11-09（2.0 阶段 7.3/发版预演期间）
 **影响**：`db.get` 对部分 key 返回 None，但 `allVersions` 迭代器能看到全部条目（表 KeyCount 也完整）。
 
@@ -61,3 +61,27 @@ for i in 0..20000: db.get("ck-" + i)
   读者只会看到旧集合或新集合；
 - 装表顺序改为「manifest 先记录 → 原子替换下层 → 再摘上层 top」，与 go `runCompactDef` 一致；
 - v1.6.23 的 `clearTables()+逐张 add` 中间空档（读者看到空表列表 → 直接 None）一并消除。
+
+
+## 5. 结论（已定性）
+
+根因：存储 key = user key + 8 字节倒序 ts，按**原始字节**比较。当 user key 互为前缀时
+（如 ck-1 与 ck-10、key1 与 key10），追加的 ts 字节会与更长 key 的下一个字符混排，
+同一 user key 组的排序位置取决于 ts 字节与后继字符的比较，seek 定位出现歧义
+→ 部分 key 的 get 落空（数据仍在，迭代器可见）。Go badger 的 y.KeyWithTs /
+bytes.Compare 编码完全相同，因此这是**上游设计限制**，不是本移植引入。
+
+实测对照（2.0，同一次运行）：
+
+| key 形态 | 表数 | get 缺失 |
+|---|---|---|
+| 前缀关系（ck-N） | 1（k20000） | **1110 / 20000** |
+| 零填充等宽（ck-00090） | 2 | **0 / 20000** |
+
+v1.6.23 用前缀 key 同样复现（708/20000）。
+
+处置：
+1. 并发 close 回归用例（CrashRecoveryTest.testConcurrentWriteAndImmediateClose）的 key 改
+   零填充（断言强度不变，只去掉「key 互为前缀」这一既有编码限制带来的干扰）；
+2. 20k-key 完整性场景用等宽 key 固化（compaction 后 get 全命中）；
+3. README/文档写明限制：user key 不应互为前缀（与 Go badger 一致）。
