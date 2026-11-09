@@ -199,12 +199,12 @@ public class Iterator {
                 }
             }
             
-            // 检查删除或过期
+            // 检查删除或过期：默认模式跳过（tombstone 不对外可见）；allVersions 模式继续产出——
+            // 否则调用方无法区分「key 不存在」与「已删除」，且 Backup/Stream 会漏掉删除标记
+            //（恢复后旧值复活）。go badger 的 iterator 同样在 AllVersions 下返回 tombstone。
             if (let Some(vs) <- vsOpt) {
-                if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
-                    if (!opt.allVersions) {
-                        lastKey = safeCopy(lastKey, key)
-                    }
+                if (isDeletedOrExpired(vs.meta, vs.expiresAt) && !opt.allVersions) {
+                    lastKey = safeCopy(lastKey, key)
                     iitr.next()
                     continue
                 }

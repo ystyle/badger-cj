@@ -505,10 +505,10 @@ public class Badger <: VLogGCDB {
         let data = builder.finish()
         
         let tableID = reserveFileID()
+        let path = sstablePath(opt.Dir, tableID)
         
         // InMemory 模式不写文件
         if (!opt.InMemory) {
-            let path = sstablePath(opt.Dir, tableID)
             // 写失败由 writeFile 抛异常（返回值恒为 data.size，无独立检查意义）
             writeFile(path, data, useIoUring: opt.UseIoUring)
         }
@@ -829,9 +829,9 @@ public class Badger <: VLogGCDB {
         }
         
         let tableID = reserveFileID()
+        let path = sstablePath(opt.Dir, tableID)
         
         if (!opt.InMemory) {
-            let path = sstablePath(opt.Dir, tableID)
             // 写失败（磁盘满/IO 错）由 writeFile 抛异常；io_uring 不可用已自动降级同步写
             writeFile(path, data, useIoUring: opt.UseIoUring)
             
@@ -1450,12 +1450,13 @@ public class Badger <: VLogGCDB {
                     continue
                 }
                 
-                if (item.isDeletedOrExpired()) {
-                    iter.next()
-                    continue
+                // 删除/过期条目也必须导出（带 meta 位），否则恢复后删除不生效、旧值复活；
+                // 导出 tombstone 后立即结束该 key 的版本链（更旧版本不需要，go 同语义）。
+                let deleted = item.isDeletedOrExpired()
+                var val: Array<Byte> = []
+                if (!deleted) {
+                    val = item.valueCopy()
                 }
-                
-                let val = item.valueCopy()
                 
                 let meta: Byte = item.meta & (!(Meta.bitTxn | Meta.bitFinTxn | Meta.bitValuePointer))
                 
@@ -1468,6 +1469,16 @@ public class Badger <: VLogGCDB {
                     meta: meta
                 ))
                 
+                if (deleted) {
+                    // 本 key 的版本链到此为止：把迭代器推到下一个 key（Stream 契约：
+                    // keyToList 返回时迭代器必须已指向下一个 key，外层循环不再 next）
+                    iter.next()
+                    while (iter.valid() && compareKeys(iter.item().key, key) == 0) {
+                        iter.next()
+                    }
+                    break
+                }
+                
                 if (item.discardEarlierVersions()) {
                     list.add(StreamKV(
                         key: item.keyCopy(),
@@ -1477,6 +1488,10 @@ public class Badger <: VLogGCDB {
                         expiresAt: 0,
                         meta: Meta.bitDelete
                     ))
+                    iter.next()
+                    while (iter.valid() && compareKeys(iter.item().key, key) == 0) {
+                        iter.next()
+                    }
                     break
                 }
                 

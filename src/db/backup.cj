@@ -180,6 +180,11 @@ protected class BackupReader {
     }
     
     private func readBytes(n: Int64): Array<Byte> {
+        // 长度为 0 时不能调用 ByteBuffer.read：目标数组为空会抛
+        // IllegalArgumentException("The buffer is empty")——tombstone 的 value 就是 0 字节。
+        if (n <= 0) {
+            return []
+        }
         let buf = Array<Byte>(n, repeat: 0)
         reader.read(buf)
         buf
