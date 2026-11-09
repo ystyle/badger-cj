@@ -288,7 +288,7 @@ protected class Compaction {
         
         // L2 流式（Config.StreamingSSTable）：产出表边构建边写文件，不在内存持有整表字节。
         let streaming = db.getOpt().StreamingSSTable && db.getOpt().MmapSSTable
-        var streamFile: ?File = None
+        var streamSink: ?TableFileSink = None
         var streamTableId: UInt64 = 0
         var streamPath = ""
         var builder: TableBuilder
@@ -298,10 +298,10 @@ protected class Compaction {
             if (exists(Path(streamPath))) {
                 remove(Path(streamPath))
             }
-            let f = File(Path(streamPath), ReadWrite)
-            streamFile = Some(f)
+            let sink = TableFileSink(streamPath, useIoUring: db.getOpt().UseIoUring)
+            streamSink = Some(sink)
             builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive,
-                compression: db.getOpt().Compression, sink: { data => f.write(data) })
+                compression: db.getOpt().Compression, sink: { data => sink.write(data) })
         } else {
             builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
         }
@@ -392,8 +392,8 @@ protected class Compaction {
         let hasData = !builder.isEmpty()
         let data = builder.finish()
         if (streaming) {
-            match (streamFile) {
-                case Some(f) => f.close()
+            match (streamSink) {
+                case Some(sk) => let _ = sk.finish()
                 case None => ()
             }
         }

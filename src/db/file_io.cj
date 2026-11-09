@@ -49,3 +49,55 @@ protected func syncWriteFile(path: String, data: Array<Byte>): Int64 {
     f.close()
     return Int64(data.size)
 }
+/**
+ * 表文件分段写器（2.1 L2 流式落盘用）：block 完成即写，io_uring 可用时按队列分段提交，
+ * 不可用/写失败回退普通 File 写（与 writeFile 的降级语义一致）。
+ */
+protected class TableFileSink {
+    private var writer: ?IoUringInterface
+    private var file: ?File
+    private var written: Int64
+
+    public init(path: String, useIoUring!: Bool = true) {
+        this.written = 0
+        if (useIoUring) {
+            if (let Some(w) <- createIoUringWriter(path)) {
+                this.writer = Some(w)
+                this.file = None
+                return
+            }
+        }
+        // 回退：普通 File 写（先清空已有内容）
+        if (exists(Path(path))) {
+            remove(Path(path))
+        }
+        this.file = Some(File(Path(path), Write))
+        this.writer = None
+    }
+
+    public func write(data: Array<Byte>): Unit {
+        match (writer) {
+            case Some(w) => w.write(data)
+            case None =>
+                match (file) {
+                    case Some(f) => f.write(data)
+                    case None => throw Exception("TableFileSink not initialized")
+                }
+        }
+        written += Int64(data.size)
+    }
+
+    public func finish(): Int64 {
+        match (writer) {
+            case Some(w) =>
+                w.sync()
+                w.close()
+            case None =>
+                match (file) {
+                    case Some(f) => f.close()
+                    case None => ()
+                }
+        }
+        written
+    }
+}

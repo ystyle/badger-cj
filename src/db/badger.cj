@@ -1059,9 +1059,9 @@ public class Badger <: VLogGCDB {
         if (exists(Path(path))) {
             remove(Path(path))
         }
-        let f = File(Path(path), ReadWrite)
+        let sink = TableFileSink(path, useIoUring: opt.UseIoUring)
         let builder = TableBuilder(bloomFalsePositive: opt.BloomFalsePositive,
-            compression: opt.Compression, sink: { data => f.write(data) })
+            compression: opt.Compression, sink: { data => sink.write(data) })
         let iter = mt.iterator()
         var any: Bool = false
         while (iter.hasNext()) {
@@ -1074,7 +1074,7 @@ public class Badger <: VLogGCDB {
             }
         }
         let rest = builder.finish()
-        f.close()
+        let _ = sink.finish()
         if (!any || rest.size != 0) {
             // 空表 / 契约异常：不落盘（删半成品），由调用方出队
             if (exists(Path(path))) {
