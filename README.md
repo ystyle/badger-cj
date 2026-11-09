@@ -2,13 +2,12 @@
 
 一个可嵌入、持久化且速度很快的基于LSM-Tree的键值 (KV) 数据库，移植自 Go [BadgerDB v4](https://github.com/dgraph-io/badger)。
 
-> ⚠️ **兼容性声明**
-> 
-> 本项目**不保证**与 Go BadgerDB 的数据文件完全兼容。虽然我们按照 Go 版本的格式实现了 SSTable/VLog/MANIFEST，但由于 Protobuf/FlatBuffers 编码是手动实现，未经充分验证。
-> 
-> - ✅ **API 语义兼容** - 接口设计遵循 Go 版本
-> - ⚠️ **数据格式理论上兼容** - 但未经跨语言测试验证
-> - ❌ **不支持直接迁移** - 不能直接读取 Go BadgerDB 的数据目录
+> ⚠️ **兼容性声明（2.0）**
+>
+> - ✅ **API 语义对齐** —— 接口设计遵循 Go BadgerDB v4（P0/P1 全部对齐，2.0 补齐 WriteBatch / MergeOperator / Managed DB / Sequence / EstimateSize）
+> - ✅ **自有磁盘格式** —— 2.0 起字节布局由本项目自行维护（SSTable/MANIFEST/LogEntry 与 v1.6.x 一致，WAL/VLog 的**文件布局**与物理大小不同：WAL 多段、VLog 稀疏预分配）；数据目录写出 `FORMAT` 基线（`format=1`），未知 feature/更高格式会被拒绝打开
+> - ✅ **可升级** —— 2.0 可直接打开 v1.6.x 数据目录（首次打开补写 `FORMAT`），**不支持降级回 v1.6.x**
+> - ❌ **不承诺与 Go BadgerDB 数据文件互相兼容** —— 不做跨语言数据迁移，也不追求与 Go 字节级格式一致
 
 ## 安装
 
@@ -16,7 +15,7 @@
 
 ```toml
 [dependencies]
-  "badgercj" = "1.2.0" # 注意使用最新的版本
+  "badgercj" = "2.0.0" # 注意使用最新的版本
 ```
 
 ## 快速开始
@@ -314,6 +313,65 @@ db.batchSetAsync(entries, callback: { =>
 > 注意：`batchSetAsync` 每批会 `spawn` 一个等待线程，**高频小批量调用会导致线程膨胀**
 > （线程数 = 批次数）；它适合"批量大、频率低"的场景，此时能把等待移出调用方线程。
 
+## 2.0 新增 API
+
+### WriteBatch（用户侧批量写）
+
+```cangjie
+let wb = db.newWriteBatch()
+for (i in 0..1000) {
+    wb.set("k${i}".toArray(), "v${i}".toArray())
+}
+wb.flush() // 达到单事务上限（15% MemTableSize / 条数上限）会自动切分并提交
+```
+
+失败后批进入错误态（`getError()`），后续操作抛异常；`cancel()` 丢弃未提交条目。
+
+### MergeOperator（读-改-写合并）
+
+```cangjie
+import std.convert.*
+import std.time.*
+
+// 计数器：existing 是已折叠值，incoming 是本次追加值
+let op = db.getMergeOperator("counter".toArray(), { existing, incoming =>
+    (Int64.parse(String.fromUtf8(existing)) + Int64.parse(String.fromUtf8(incoming))).toString().toArray()
+}, interval: Duration.millisecond * 100)
+op.add("1".toArray())
+op.add("2".toArray())
+println(String.fromUtf8(op.get())) // "3"
+op.stop() // 必须停掉后台折叠线程（db.close 也会统一停）
+```
+
+后台线程按 `interval` 折叠并回写带 discard 位的普通条目；compaction 之后旧 merge 链被回收。
+
+### Managed DB（外部指定时间戳）
+
+```cangjie
+let db = Badger.openManaged(Config(dir: "/tmp/mydb", numVersionsToKeep: 3))
+let txn = db.newTransactionAt(100, update: true)
+txn.set("k".toArray(), "v".toArray())
+txn.commitAt(100)
+db.setDiscardTs(90) // 允许 compaction 丢弃 <= 90 的旧版本
+```
+
+managed 库不能开普通读事务（内部取自动时间戳会报错），必须用 `newTransactionAt(ts)`；
+`numVersionsToKeep` 必须按外部最老 readTs 的需求调大，否则旧快照会丢数据。
+
+### Sequence（租约式单调递增）
+
+```cangjie
+let seq = db.getSequence("order-id".toArray(), 100) // 租约带宽 100
+let id = seq.nextValue()
+seq.release() // 退回未用完的区间（下次从退回处继续）
+```
+
+### 前缀容量估算
+
+```cangjie
+let (onDisk, uncompressed) = db.estimateSize("user/".toArray())
+```
+
 ## TTL 过期
 
 ```cangjie
@@ -525,7 +583,15 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `detectConflicts` | true | 启用 SSI 冲突检测 |
 | `inMemory` | false | 纯内存模式（不持久化） |
 | `autoCloseOnExit` | false | 进程退出时自动关闭 |
-| `syncWrites` | false | 每次写入后 fsync，确保严格持久性 |
+| `syncWrites` | false | 写入批次结束后 sync（msync），确保严格持久性 |
+| `mmapWAL` | true | WAL 走 mmap（段内固定映射 + 稀疏预分配，段满换段） |
+| `mmapVLog` | true | VLog 走 mmap（稀疏预分配 `vlogFileSize`，段内固定映射） |
+| `mmapSSTable` | true | SSTable 只读映射（数据在页缓存，不占 GC 堆；读块是复制语义） |
+| `vlogFileSize` | 1 GB | VLog 单段容量（GC 只能回收非当前段） |
+| `numVersionsToKeep` | 1 | compaction 每个 key 至少保留的版本数（managed DB 必须调大） |
+| `numMemtables` | 5 | 允许的未落盘 memtable 上限（写路径背压阈值） |
+| `useIoUring` | true | Linux 下用 io_uring 写 SSTable（不可用/失败自动降级同步写） |
+| `compression` | None | SSTable 块压缩（Snappy）；默认关闭，mmap 读是零拷贝路径 |
 
 ## 内存使用
 
@@ -554,6 +620,7 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 - 同时打开多个库时，总内存 ≈ 每个库各一份 arena，请按库数量折算
 - 降低 `cjHeapSize` 可以让 GC 更早回收，但会提高 GC 频率，需按写入负载权衡
 - 纯缓存场景可用 `inMemory: true` 关闭磁盘持久化，但 arena 占用不变
+- 2.0 起 SSTable/VLog/WAL 走 mmap（`mmapSSTable/mmapVLog/mmapWAL` 默认开）：表数据与段数据在页缓存，不占 GC 堆；关闭 mmap 会回退到堆内数组/无缓冲 File 写
 
 ## 事务 ACID 特性
 
@@ -646,12 +713,22 @@ badger-cj 约 390 ns/op（±40%），**约慢 2.6 倍**。
 | **Backup/Restore** | 全量/增量备份，支持 TTL 和 UserMeta |
 | **InMemory 模式** | 纯内存模式，适合测试和临时缓存 |
 | **Compression** | Snappy 压缩，减少存储空间 |
+| **mmap WAL/VLog/SSTable**（2.0） | WAL 多段 + 稀疏预分配、VLog 段内固定映射、SSTable 只读映射；数据不再整体驻留 GC 堆 |
+| **分组提交**（2.0） | 同批写请求共享一次 WAL 映射写 + 一次 msync；`syncWrites` 下按批持久化 |
+| **WriteBatch**（2.0） | 用户侧批量写，按单事务上限自动切分；`flush/cancel/getError` |
+| **MergeOperator**（2.0） | 读-改-写合并算子（计数器/列表追加等），后台折叠 + compaction 回收旧链 |
+| **Managed DB**（2.0） | 调用方指定 readTs/commitTs（`openManaged/newTransactionAt/commitAt/setDiscardTs/newWriteBatchAt`） |
+| **Sequence**（2.0） | 租约式单调递增序列（`getSequence`/`nextValue`/`release`） |
+| **版本保留策略**（2.0） | compaction 按 `discardTs` + `numVersionsToKeep` 保留旧版本（活跃读者安全） |
+| **EstimateSize**（2.0） | 按前缀估算 on-disk/解压后字节数 |
+| **FORMAT 基线**（2.0） | 数据目录格式声明；旧目录缺失视为 v1.6.x 并在首次打开补写 |
 
 ### ⏳ 待完善
 
 | 功能 | 说明 |
 |------|------|
-| Encryption | 加密存储 |
+| Encryption | 加密存储（延后到 2.1：先定 SM4-CTR vs AES-256-CTR 的算法口径） |
+| Block Cache | 仅对压缩/加密读路径有意义；2.0 默认 `Compression=None`（mmap 零拷贝），延后到 2.1 |
 
 ## 参考
 

@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-11-09  
-**当前阶段：** ✅ v1.6.23（VLog 重开恢复段表与写偏移——修「大值 ≥ ValueThreshold 重开后静默读错值」；叠加 v1.6.22 写管道重复 done 修复、v1.6.21 compaction tombstone 层级丢弃修复、v1.6.16 reverse seek/OOM 批显式失败、v1.6.12 flush 落盘语义对齐）
+**当前阶段：** 🔶 **v2.0.0-dev**（分支 `feat/v2-mmap-wal-vlog`）——阶段 0–6 完成（回补 1.6.23、合并 master、B1–B4、FORMAT+兼容夹具、分组提交/WriteBatch、保留策略/Merge/Managed/Sequence/estimateSize、lazy index + VLog 流式），阶段 7（三平台 CI、文档、基准重测、发版预演、下游升版）进行中。master 线仍为 ✅ v1.6.23
 
 ---
 
@@ -9,10 +9,10 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 389/389 通过 ✅ |
-| **性能** | 事务写入 ~694-879K keys/s（优化后），Skiplist Get 1.12 us |
-| **API 对齐** | P0+P1 完成，对齐率 ~85% |
-| **版本** | 1.6.23（v1.6.23：VLog 重开恢复段表与写偏移；v1.6.22：写管道重复 done 修复；v1.6.21：compaction tombstone 层级丢弃；更早见下方变更记录） |
+| **测试** | 452/452 通过 ✅（v2 分支；master 线 389/389） |
+| **性能** | 事务写入 ~694-879K keys/s（v1.6.21 口径）；2.0 的 mmap/分组提交重测见阶段 7.3 |
+| **API 对齐** | P0+P1 完成 + 2.0 补齐 WriteBatch/MergeOperator/Managed/Sequence/EstimateSize，对齐率 ~95% |
+| **版本** | 2.0.0-dev（v2 分支，未发版）；master 线 1.6.23 |
 
 ---
 
@@ -34,28 +34,35 @@
 | flush 异步化（移出写锁 + 背压） | #518 评审 P2-2 | P2 | ✅（e744941，v1.6.17） |
 | TableBuilder 单拷贝（L1） | 内存峰值优化 | P2 | ✅（3c8f261，v1.6.17） |
 
-### v2.0（mmap 写路径，🔶 设计已落盘）
+### v2.0（已完成，待发版）
 
 | 计划项 | 说明 | 优先级 | 状态 |
 |--------|------|--------|------|
-| **WAL mmap 化** | 对齐 go `z.MmapFile`，消除 64KB 缓冲落盘不确定 | P1 | 🔶 `docs/plans/2026-09-01-mmap-wal-vlog-design.md` |
-| **VLog 写 mmap 化** | 对齐 go value.go，消除每次 syscall | P1 | 🔶 同上 |
-| VLog 读 mmap 化 | vlog 读取走映射（可选） | P2 | ⬜ |
-| 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | 🔶 |
-| 三平台 CI（macOS arm64） | GitHub Actions 全平台验证 | P1 | ⬜（设计已论证可行性） |
-| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | 🔶 `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读，与 WAL/VLog mmap 同栈） |
+| **WAL mmap 化** | 多段 + 稀疏预分配 + 段满换段/封口截断 | P1 | ✅ `docs/plans/2026-09-01-mmap-wal-vlog-design.md` |
+| **VLog 写 mmap 化** | 稀疏预分配 + 段内固定映射 | P1 | ✅ 同上 |
+| VLog 读 mmap 化 | 段遍历改流式（6.2），按条目读映射 | P2 | ✅ |
+| 截断回收 / 换段边界 | 预分配稀疏文件 + close 截断 | P1 | ✅ |
+| 三平台 CI | GitHub Actions（linux/macos/windows） | P1 | ✅ 已建镜像仓与 workflow；平台矩阵结果见阶段 7.1 |
+| **SSTable 读按需化**（表数据移出 GC 堆） | chronomem OOM 结构矛盾（2026-09-05） | P1 | ✅ `docs/plans/2026-09-05-sstable-read-on-demand.md`（mmap 读 + lazy index 6.1） |
+| **分组提交 / WriteBatch** | 同批共享一次 WAL 写 + 一次 msync | P1 | ✅ 阶段 4 |
+| **版本保留策略** | discardTs + NumVersionsToKeep | P1 | ✅ 阶段 5.1 |
+| **Merge Operator** | 读-改-写合并 + 后台折叠 | P2 | ✅ 阶段 5.2 |
+| **Managed DB** | 外部指定 readTs/commitTs | P3 | ✅ 阶段 5.3 |
+| **Sequence / estimateSize** | 租约式序列 + 前缀容量估算 | P3 | ✅ 阶段 5.4 |
+| **FORMAT 基线 + v1.6.22 兼容夹具** | 格式声明 + 旧库端到端兼容测试 | P1 | ✅ 阶段 3 |
 
 ### v2.x（后续线，独立规划）
 
 | 计划项 | 来源 | 优先级 | 状态 |
 |--------|------|--------|------|
-| WAL batch write + group commit | benchmark P1 | P1 | ⬜ |
+| WAL batch write + group commit | benchmark P1 | P1 | ✅（阶段 4） |
 | CloseableBlockingQueue 简化（remove 阻塞化 + 哨兵 close） | 调研（2026-09-01） | P2 | ⬜（官方文档确认 LinkedBlockingQueue 自带阻塞 remove()，当前手写 Condition 循环可去掉；多消费者 close 需哨兵唤醒） |
 | Block/Index Cache | 需求 P1 性能优化 | P1 | ⬜ |
 | ~~事务批量提交流水线~~ | benchmark P2 | P2 | ✅ 已实现（WritePipeline + flushLoop 批量收集，2026-07-17 channel 优化） |
-| Merge Operator | 需求 P2 / 下一阶段 | P2 | ⬜ |
-| Managed DB（补全） | 下一阶段 P3 | P3 | ⬜（仅 Oracle 底层支持 managed 时间戳模式，公开 API 未做） |
-| Encryption | 下一阶段 P4 | P4 | ⬜ |
+| Merge Operator | 需求 P2 / 下一阶段 | P2 | ✅（阶段 5.2） |
+| Managed DB（补全） | 下一阶段 P3 | P3 | ✅（阶段 5.3：openManaged/newTransactionAt/commitAt/setDiscardTs/newWriteBatchAt） |
+| Encryption | 下一阶段 P4 | P4 | ⬜（延后 2.1；先定 SM4-CTR vs AES-256-CTR） |
+| Block/Index Cache | 需求 P1 | P2 | ⬜（延后 2.1；2.0 默认 Compression=None） |
 | Arena 内存池调优 | benchmark P2 | P2 | 🔶 部分（Arena 已实现，调优未做） |
 | 分布式特性 | port-design v2.0 | — | ❌（嵌入式库定位） |
 
