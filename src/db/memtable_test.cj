@@ -1,6 +1,7 @@
 package badgercj.db
 
 import std.unittest.*
+import std.fs.*
 import std.unittest.testmacro.*
 import std.collection.ArrayList
 import std.fs.{remove, exists, Path}
@@ -103,18 +104,26 @@ class MemTableTest {
     
     @TestCase
     func testMemTableShouldFlushByArenaUsage() {
-        let opt = Config(dir: "/tmp/badger_memtable_test_flush", memTableSize: 4 * 1024u64)
+        let dir = "/tmp/badger_memtable_test_flush"
+        if (!exists(Path(dir))) {
+            Directory.create(Path(dir), recursive: true)
+        }
+        let opt = Config(dir: dir, memTableSize: 4 * 1024u64)
         let mt = MemTable(opt, 1, false)
         
         @Assert(mt.shouldFlush(), false)
         
-        for (i in 0..100) {
-            let key = "key_${i}".toArray()
+        // 只写到触发阈值为止：arena 按 go 公式分配后容量更紧（4KB 表只剩约 5KB 余量），
+        // 继续硬写会先撞 arena 溢出——本用例要验证的是「按 arena 用量触发」。
+        var i: Int64 = 0
+        while (i < 100 && !mt.shouldFlush()) {
+            let key = ("key_" + i.toString()).toArray()
             let value = Array<Byte>(20, repeat: 65)
             mt.put(key, ValueStruct(value))
+            i++
         }
-        
-        @Assert(mt.shouldFlush())
+
+        @Assert(mt.shouldFlush(), true)
         
         try {
             if (exists(Path("/tmp/badger_memtable_test_flush"))) {

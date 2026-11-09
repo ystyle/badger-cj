@@ -33,7 +33,21 @@ protected class MemTable {
         this.fid = fid
         this.walExists = walExists
         
-        let arenaSize = Int64(opt.MemTableSize * 2)
+        // arena 大小对齐 badger-go 的 arenaSize()：
+        //   MemTableSize + maxBatchSize + maxBatchCount*MaxNodeSize
+        // 旧实现固定 2x MemTableSize，导致每个 memtable 的堆占用约为 go 的 2 倍
+        // （默认 64MB 时单个 arena 就是 128MB，NumMemtables=5 的背压上限下峰值可达
+        //  约 640MB）。多出来的那部分预留是给「一批写入的 skiplist 节点开销」的，
+        // 公式里的 maxBatchSize/maxBatchCount 已经覆盖，不需要 2 倍。
+        var maxBatchSize = Int64(opt.MemTableSize) * 15 / 100
+        if (maxBatchSize < 1024) {
+            maxBatchSize = 1024
+        }
+        var maxBatchCount = maxBatchSize / 96
+        if (maxBatchCount < 1) {
+            maxBatchCount = 1
+        }
+        let arenaSize = Int64(opt.MemTableSize) + maxBatchSize + maxBatchCount * MAX_NODE_SIZE
         this.arena = Arena(arenaSize)
         
         let estimatedEntries = arenaSize / 256
@@ -50,9 +64,11 @@ protected class MemTable {
             this.wal = None
         } else {
             let walPath = opt.Dir + "/${fid}.mem"
-            // v2.0：WAL 走 mmap（预分配 = arena 大小，保证 WAL 不会先于 arena 满）；
+            // v2.0：WAL 走 mmap（预分配 = 2x MemTableSize，对齐 go 的 WAL 段容量；
+            // 与 arena 大小解耦——arena 只按「memtable 能装多少」算，WAL 段还要容纳
+            // 换段前最后一批写入，保持 2 倍余量）；
             // Config.MmapWAL=false 时回退 v1.x 的 BufferedOutputStream 路径
-            this.wal = Some(WAL.open(walPath, capacity: arenaSize, useMmap: opt.MmapWAL))
+            this.wal = Some(WAL.open(walPath, capacity: Int64(opt.MemTableSize * 2), useMmap: opt.MmapWAL))
         }
         
         if (walExists && !opt.DisableWAL) {
@@ -224,20 +240,12 @@ protected class MemTable {
         return sizeInBytes_.load()
     }
     
+    // 对齐 badger-go：按 **arena 已用量** 判断（go: MemSize() >= MemTableSize），
+    // 而不是按用户数据字节数。原因：arena 里还有 skiplist 节点（塔层 + 对齐），小 value
+    // 时节点开销可与数据本身相当甚至更大；只有按 arena 用量判断，arena 的
+    // 「MemTableSize + 一批预留」公式才成立（按数据判断会在 arena 耗尽后才触发）。
     public func shouldFlush(): Bool {
-        let dataSize = sizeInBytes()
-        let arenaUsed = UInt64(arena.usedSize())
-        let arenaSize = UInt64(arena.size)
-        
-        if (dataSize >= opt.MemTableSize) {
-            return true
-        }
-        
-        if (arenaUsed > arenaSize * 75 / 100) {
-            return true
-        }
-        
-        return false
+        return UInt64(arena.usedSize()) >= opt.MemTableSize
     }
     
     public func incrRef(): Unit {
