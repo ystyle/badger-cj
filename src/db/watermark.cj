@@ -8,7 +8,10 @@ protected class WaterMark {
     private let doneUntil_: AtomicUInt64
     private let lastIndex_: AtomicUInt64
     private let lock: Mutex
-    private let pending: HashSet<UInt64>
+    // 同一 ts 可能被多个活跃事务共享（并发读事务 readTs 相同），因此用计数而非集合：
+    // 用 Set 时「读事务 A begin(1) → 写事务 begin(1) → 写事务 done(1)」会把 A 的登记
+    // 一并移除，doneUntil 提前推进 → compaction 会丢掉仍被 A 需要的版本。
+    private let pending: HashMap<UInt64, Int64>
     private let running: AtomicBool
     
     public init(name: String) {
@@ -16,24 +19,41 @@ protected class WaterMark {
         this.doneUntil_ = AtomicUInt64(0)
         this.lastIndex_ = AtomicUInt64(0)
         this.lock = Mutex()
-        this.pending = HashSet<UInt64>()
+        this.pending = HashMap<UInt64, Int64>()
         this.running = AtomicBool(true)
     }
     
     public func begin(index: UInt64): Unit {
         lock.lock()
-        pending.add(index)
+        addPending(index)
         if (index > lastIndex_.load()) {
             lastIndex_.store(index)
         }
         lock.unlock()
     }
     
+    private func addPending(index: UInt64): Unit {
+        let cur: Int64 = if (pending.contains(index)) { pending[index] } else { 0 }
+        pending[index] = cur + 1
+    }
+    
+    private func removePending(index: UInt64): Unit {
+        if (!pending.contains(index)) {
+            return
+        }
+        let cur = pending[index]
+        if (cur <= 1) {
+            pending.remove(index)
+        } else {
+            pending[index] = cur - 1
+        }
+    }
+    
     public func beginMany(indices: Array<UInt64>): Unit {
         lock.lock()
         var maxIdx: UInt64 = 0
         for (idx in indices) {
-            pending.add(idx)
+            addPending(idx)
             if (idx > maxIdx) {
                 maxIdx = idx
             }
@@ -46,7 +66,7 @@ protected class WaterMark {
     
     public func done(index: UInt64): Unit {
         lock.lock()
-        pending.remove(index)
+        removePending(index)
         updateDoneUntil()
         lock.unlock()
     }
@@ -54,7 +74,7 @@ protected class WaterMark {
     public func doneMany(indices: Array<UInt64>): Unit {
         lock.lock()
         for (idx in indices) {
-            pending.remove(idx)
+            removePending(idx)
         }
         updateDoneUntil()
         lock.unlock()
