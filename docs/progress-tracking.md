@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-11-10  
-**当前阶段：** **2.2.0 待发**（feat/arena-growth）：2.1.0 已发布（Block Cache）；2.2.0 内容 = 渐进式 arena（P1-6，可配）、Stats API（P2-1）、L2 流式落盘（P1-2，默认关）+ **表生命周期引用计数修复**（阻断性缺陷，见下）；全量 **473/473**；后续功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
+**当前阶段：** ✅ **v2.2.0 已发布**（2026-11-10，master → 中心仓；tag v2.2.0 → da37d55）：渐进式 arena（P1-6，可配 + 大条目自适应）、Stats API（P2-1）、L2 流式落盘（P1-2，默认关）、**表生命周期引用计数修复**（阻断性缺陷）；全量 **475/475 连跑 3 次**；下一批功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
 
 ---
 
@@ -9,10 +9,10 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 473/473 通过 ✅（feat/arena-growth；2.1.0 线 462/462） |
+| **测试** | 475/475 通过 ✅（master；本地 -j 4 连跑 3 次 + GitHub CI Linux 绿） |
 | **性能** | 事务写入 ~694-879K keys/s（v1.6.21 口径）；2.0 的 mmap/分组提交重测见阶段 7.3 |
 | **API 对齐** | P0+P1 完成 + 2.0 补齐 WriteBatch/MergeOperator/Managed/Sequence/EstimateSize，对齐率 ~95% |
-| **版本** | **2.1.0**（2026-11-09 发布中心仓；tag v2.1.0），2.2.0 待发；1.x 维护线 release/1.6 = v1.6.23 |
+| **版本** | **2.2.0**（2026-11-10 发布中心仓；tag v2.2.0）；1.x 维护线 release/1.6 = v1.6.23 |
 
 ---
 
@@ -394,6 +394,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-10 | master | **v2.2.0 发布**：私有仓预演（制品 183 文件 = cjpm.toml/README/LICENSE/src，sha256 59865df8…）→ 中心仓 publish success → 索引含 2.2.0、制品 HTTP 200、下载 sha256 与本地 bundle 一致（含 LICENSE，`include = ["/src", "/LICENSE"]` 生效）→ tag v2.2.0 推 origin/GitHub。内容：表生命周期 refcount（阻断性缺陷修复）、arena 大条目自适应、渐进式 arena 可配、Stats API、L2 流式落盘（默认关）。发版前闸门全绿：本仓 475/475 连跑 3 次、下游 5 库（storm/storm-v2/tsdb/sunku/holt）+ 忆时塔 249/249 + cjreg 全绿、GitHub CI（Linux）绿 |
 | 2026-11-10 | feat/arena-growth | **arena 渐进扩容的自适应补丁 + 用例抖动修复**：① 单条条目比「首张小 arena」大时（默认配置下 600KB 内联值 vs 256KB 起点），原实现把「全新 memtable 也装不下」直接判为超大条目 → 大 value 不可写（下游应用真实用例复现）。改为写路径遇到该情形时把下一张表的 arena 抬到能装下这一条的档位（`growNextArenaToFitLocked`，封顶目标值）再轮换；到目标值仍装不下才报错。② `.sst` 删除时机按平台分：POSIX 在摘表时立刻 unlink（映射不受影响、磁盘立即回收，且避免延迟删除落在文件 id 复用之后误删新表），Windows 保留「最后引用释放后再删」。③ graceful_shutdown 测试 teardown 与异步 close 的落盘竞争（`Directory not empty`）改为重试清理。全量 **475/475 连跑 3 次绿**；下游 5 库 + 忆时塔 249/249 + cjreg 全绿 |
 | 2026-11-10 | feat/arena-growth | **表生命周期 refcount 修复（阻断 2.2.0 的缺陷）**：compaction 摘表即解映射 + unlink 会让**已经建立的迭代器**下一次进块撞上关闭的映射（`Exception: MmapFile is closed`，迭代与压缩并发时整条扫描失败）。改为 `Table` refcount（起点 1 = 持有者，迭代器创建 incr / 关闭 decr，归零才解映射并删待删文件 `markForDeletion`）；关闭链打通 `TableIter.close` → `TableIterWrapper` → `MergeIterator` → `Iterator.close`，`TableAdapter.get` 与 compaction 建表走 finally，关库走 `closeForce`。新增 `table_refcount_test`（引用语义/幂等/强关）+ `table_lifetime_test`（**该用例在 2.1.0 上复现 MmapFile is closed**，修复后通过）。全量 **473/473**。详见 v2.1-plus 设计 §11 |
 | 2026-11-09 | master | **v2.1.0 发布**：Block Cache（Config.BlockCacheSizeMB，默认 0）——中心仓 publish success → 索引含 2.1.0、制品 HTTP 200、sha256 与本地一致 → tag v2.1.0 推 origin/GitHub。 |
