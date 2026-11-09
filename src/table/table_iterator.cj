@@ -9,12 +9,23 @@ protected class TableIterator <: TableIter {
     private let table: Table
     private var blockIdx: Int64
     private var blockIter: BlockIterator
+    private var closed: Bool
     
     public init(table: Table) {
         this.table = table
         this.blockIdx = 0
         this.blockIter = BlockIterator([], [])
+        this.closed = false
         seekFirst()
+    }
+    
+    /** 关闭：归还表引用（Table.newIterator 里取的），幂等。 */
+    public func close(): Unit {
+        if (closed) {
+            return
+        }
+        closed = true
+        table.decrRef()
     }
     
     public func seekFirst(): Unit {
@@ -74,7 +85,7 @@ protected class TableIterator <: TableIter {
     }
     
     public func isValid(): Bool {
-        return blockIdx < table.numBlocks() && blockIter.isValid()
+        return !closed && blockIdx < table.numBlocks() && blockIter.isValid()
     }
     
     public func key(): Array<Byte> {

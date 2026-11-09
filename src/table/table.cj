@@ -3,6 +3,7 @@ package badgercj.table
 import std.collection.*
 import std.fs.*
 import std.io.*
+import std.sync.*
 import badgercj.utils.{compareKeys, keysEqual, hasPrefix}
 import snappy.decode
 
@@ -17,6 +18,14 @@ protected class Table {
     private let bloomFilter: ?BloomFilter
     // 2.1 Block Cache：可选，容量 0/未配置时为 None（行为与 2.0.1 一致）
     private let blockCache: ?BlockCache
+    // 引用计数（起点 1 = 持有者引用）。表不可变，但「从 LevelHandler 摘除」不等于
+    // 「没有读者」——迭代器在摘除之后仍要读后续块（compaction 换表期间必然发生）。
+    // 迭代器创建时 incrRef、关闭时 decrRef，计数归零才解映射、才删待删文件。
+    private let refs: AtomicInt64
+    // 待删文件（compaction 换表时标记）：必须等最后一个引用释放后再删，
+    // 既避免删掉仍被读的数据，也满足 Windows「先 close 再 unlink」的约束。
+    private var deletePath: ?String = None
+    private var released: Bool = false
     
     public let smallest: Array<Byte>
     public let biggest: Array<Byte>
@@ -26,6 +35,7 @@ protected class Table {
     public init(id: UInt64, data: Array<Byte>, inMemory!: Bool = false, cache!: ?BlockCache = None) {
         this.id = id
         this.blockCache = cache
+        this.refs = AtomicInt64(1)
         // 阶段 A：行为与原实现一致（数据仍常驻内存），仅把存放方式抽到 TableData；
         // 阶段 B 将由 MmapTableData 承接磁盘模式，使表数据离开 GC 堆。
         this.tableData = MemoryTableData(data)
@@ -57,6 +67,7 @@ protected class Table {
     public init(id: UInt64, tableData!: TableData, inMemory!: Bool = false, cache!: ?BlockCache = None) {
         this.id = id
         this.blockCache = cache
+        this.refs = AtomicInt64(1)
         this.tableData = tableData
         this.isInMemory = inMemory
         let idx = TableIndex.decodeFromTableData(tableData)
@@ -129,6 +140,8 @@ protected class Table {
     }
     
     public func newIterator(): TableIter {
+        // 迭代器持有表引用：即便该表随后被 compaction 摘除，迭代器仍能读完自己那份数据
+        incrRef()
         return TableIterator(this)
     }
     
@@ -217,16 +230,78 @@ protected class Table {
     }
     
     /**
-     * 释放底层数据源（磁盘模式解除映射）。表不可变，关闭后不可再读。
-     * 调用方约定见设计 §5.2：读块是复制语义，因此「表从 LevelHandler 摘除后即可 close」，
-     * 无需引用计数；Windows 上必须先 close 再 unlink 表文件。
+     * 新增一个引用（迭代器等读者调用）。持有者提交引用后调用未配对的 decrRef 即可。
      */
+    public func incrRef(): Unit {
+        refs.fetchAdd(1)
+    }
+
+    /**
+     * 释放一个引用。归零时才解除底层数据源（磁盘模式解除映射）并删除待删文件。
+     *
+     * 为什么必须按引用释放：从 LevelHandler 摘除只保证「没有新的读者能拿到这张表」，
+     * 已经在读的迭代器还要继续读它的后续块。若摘除即解映射，迭代器下一次进块就撞上
+     * 已关闭的映射（`MmapFile is closed`）。读块是复制语义，所以延迟到最后一个引用
+     * 释放是安全且充分的。
+     *
+     * 幂等：重复释放不会把计数打成负数（检测到已归零即恢复原值）。
+     */
+    public func decrRef(): Unit {
+        let old = refs.fetchSub(1)
+        if (old <= 0) {
+            refs.fetchAdd(1)
+            return
+        }
+        if (old == 1) {
+            shutdown()
+        }
+    }
+
+    /** 释放持有者引用（历史接口名，等价 decrRef）。 */
     public func close(): Unit {
+        decrRef()
+    }
+
+    /**
+     * 强制释放（数据库关闭用）：忽略尚未归还的读者引用。
+     * 只在确认进程内不再读这张表时使用（Badger.close 的路径）。
+     */
+    public func closeForce(): Unit {
+        refs.store(0)
+        shutdown()
+    }
+
+    /** 标记表文件在最后一个引用释放时删除（compaction 换表时调用）。 */
+    public func markForDeletion(path: String): Unit {
+        deletePath = Some(path)
+    }
+
+    /** 当前引用计数（诊断/测试用）。 */
+    public func refCount(): Int64 {
+        refs.load()
+    }
+
+    /** 真正释放底层资源：失效缓存条目 → 解映射 → 删待删文件。只执行一次。 */
+    private func shutdown(): Unit {
+        if (released) {
+            return
+        }
+        released = true
         // 摘表先失效该表的缓存条目：compaction 替换后同 blockIdx 可能是另一份内容
         if (let Some(c) <- blockCache) {
             c.invalidateTable(id)
         }
         tableData.close()
+        if (let Some(p) <- deletePath) {
+            // 删除失败不阻断：MANIFEST 已移除该表，文件最迟由 open 时的孤儿清理回收
+            try {
+                if (exists(Path(p))) {
+                    remove(Path(p))
+                }
+            } catch (e: Exception) {
+                // 忽略：文件可能仍被别的句柄占用
+            }
+        }
     }
     
     public func onDiskSize(): Int64 {

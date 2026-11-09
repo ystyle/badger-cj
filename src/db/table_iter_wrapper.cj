@@ -31,6 +31,11 @@ public class TableIterWrapper <: SimpleIterator {
         if (reverse) { iter.seekLast() } else { iter.seekFirst() }
     }
     
+    // 归还底层 TableIter 持有的表引用
+    public override func close(): Unit {
+        iter.close()
+    }
+    
     public override func seek(key: Array<Byte>): Unit {
         if (reverse) {
             // reverse seek 语义（对齐 MemTableIterator.reverse.seek）：

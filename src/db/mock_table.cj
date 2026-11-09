@@ -118,6 +118,15 @@ public class MockTable <: TableInterface {
 
     public func close(): Unit {}
 
+    public func closeForce(): Unit {}
+
+    public func markForDeletion(_: String): Unit {}
+
+    // Mock 表不持有底层资源，恒为 1（接口完备性用）
+    public func refCount(): Int64 {
+        1
+    }
+
     public func isMmapBacked(): Bool {
         false
     }
@@ -200,6 +209,9 @@ class MockTableIter <: TableIter {
     public func valueStruct(): ?ValueStruct {
         return currentValue
     }
+
+    // Mock 迭代器不持有表引用，close 为空实现（接口完备性用）
+    public func close(): Unit {}
     
     private func updateCurrent(): Unit {
         if (currentIndex >= 0 && currentIndex < entries.size) {

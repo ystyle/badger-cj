@@ -123,6 +123,17 @@ interface TableData {                    // 新增内部抽象（table 包内）
   可免 refcount**，用「LevelHandler 摘表时统一 close（此时无并发读者持有表引用——
   读者在 LevelHandler 锁内取表后读块，块复制已脱离表）」。读块即复制 ⇒ 读不跨表
   存活 ⇒ 摘表即 close 安全。**设计倾向免 refcount 方案**，实施时以审计结论定。
+> **实施结论（2.2.0 修正）**：上面「免 refcount」的审计漏了一条路径 —— 迭代器创建后
+> 长期持有 `TableIterator`（`TableIterWrapper` → `MergeIterator` 链），它在表被 compaction
+> 摘除**之后**仍要读该表的后续块。摘表即 close 会让这些读者下一次进块撞上已关闭的映射
+> （`MmapFile is closed`），把一次正常的范围扫描/链式遍历打成运行期异常（下游现场形态：
+> 迭代与 compaction 并发时整条读失败）。「读块即复制」只保证**已读到**的块不会失效，
+> 不保证**还能继续读**。
+>
+> 最终实现：`Table` 引入 refcount（起点 1 = 持有者），迭代器创建时 incr、关闭时 decr，
+> 归零才解映射并删除待删文件（`markForDeletion`），顺带天然满足 Windows 的
+> 「先 close 再 unlink」。所有迭代器创建路径都必须 close：`TableAdapter.get`（finally）、
+> `MergeIterator.close`（链表）、compaction 建表归并（finally）。
 
 ### 5.3 写路径联动（flush / compaction / 恢复）
 

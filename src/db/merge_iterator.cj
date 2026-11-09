@@ -15,12 +15,14 @@ public class MergeIterator {
     private let reverse: Bool
     private var current: SimpleIterator
     private var curKey: Array<Byte>
+    private var closed: Bool
     
     public init(iters: ArrayList<SimpleIterator>, reverse!: Bool = false) {
         this.iters = iters
         this.reverse = reverse
         this.current = SimpleIterator()
         this.curKey = []
+        this.closed = false
         
         if (iters.size > 0) {
             for (iter in iters) {
@@ -74,6 +76,20 @@ public class MergeIterator {
         }
         fix()
         setCurrent()
+    }
+    
+    /**
+     * 关闭所有子迭代器（放掉它们持有的表引用）。幂等。
+     * 不关闭 = 旧表映射与表文件永不释放，磁盘随 compaction 单调增长。
+     */
+    public func close(): Unit {
+        if (closed) {
+            return
+        }
+        closed = true
+        for (iter in iters) {
+            iter.close()
+        }
     }
     
     private func fix(): Unit {
@@ -167,6 +183,11 @@ public open class SimpleIterator {
     
     // key: 定位键（空迭代器忽略此参数）
     public open func seek(_: Array<Byte>): Unit {
+        // 空实现
+    }
+    
+    // 关闭迭代器：持有表引用的实现必须在这里归还（默认无资源可释放）
+    public open func close(): Unit {
         // 空实现
     }
 }

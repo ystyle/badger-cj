@@ -154,7 +154,9 @@ public class Iterator {
             return
         }
         closed = true
-        // 最后一个迭代器关闭时，VLog GC 挂起的旧段才会真正删除
+        // 关闭子迭代器：归还它们持有的表引用（被 compaction 摘除的表由最后一个引用
+        // 负责解映射 + 删文件）；最后一个迭代器关闭时 VLog GC 挂起的旧段才会删除
+        iitr.close()
         txn.getDB().decrIteratorCount()
     }
     

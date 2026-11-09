@@ -40,11 +40,15 @@ protected class LevelsController {
         }
     }
     
-    /** 释放所有表的底层资源（磁盘表解除映射）。close() 时调用，避免反复 open/close 累积虚拟地址。 */
+    /**
+     * 释放所有表的底层资源（磁盘表解除映射）。close() 时调用，避免反复 open/close 累积虚拟地址。
+     * 用 closeForce：数据库关闭时不再有读，若某个迭代器忘了 close 导致引用未归还，
+     * 也必须解映射（关库不该留下映射泄漏；表文件不删——它们是活数据）。
+     */
     public func closeTables(): Unit {
         for (handler in levels) {
             for (t in handler.getTables()) {
-                t.close()
+                t.closeForce()
             }
         }
     }

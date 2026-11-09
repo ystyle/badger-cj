@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
-**最后更新：** 2026-11-09  
-**当前阶段：** ✅ **v2.0.0 已发布**（2.x 主线 = master，2026-11-09 由 v2 特性分支 FF 合并；1.x 维护线 = release/1.6，基 v1.6.23）。2.1.0 已发布（Block Cache；中心仓索引/制品核验、tag v2.1.0）；全量 455/455；后续功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
+**最后更新：** 2026-11-10  
+**当前阶段：** **2.2.0 待发**（feat/arena-growth）：2.1.0 已发布（Block Cache）；2.2.0 内容 = 渐进式 arena（P1-6，可配）、Stats API（P2-1）、L2 流式落盘（P1-2，默认关）+ **表生命周期引用计数修复**（阻断性缺陷，见下）；全量 **473/473**；后续功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
 
 ---
 
@@ -9,10 +9,10 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 452/452 通过 ✅（v2 分支；master 线 389/389） |
+| **测试** | 473/473 通过 ✅（feat/arena-growth；2.1.0 线 462/462） |
 | **性能** | 事务写入 ~694-879K keys/s（v1.6.21 口径）；2.0 的 mmap/分组提交重测见阶段 7.3 |
 | **API 对齐** | P0+P1 完成 + 2.0 补齐 WriteBatch/MergeOperator/Managed/Sequence/EstimateSize，对齐率 ~95% |
-| **版本** | **2.0.0**（2026-11-09 发布中心仓；tag v2.0.0）；master 线 1.6.23 保留 |
+| **版本** | **2.1.0**（2026-11-09 发布中心仓；tag v2.1.0），2.2.0 待发；1.x 维护线 release/1.6 = v1.6.23 |
 
 ---
 
@@ -394,6 +394,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-10 | feat/arena-growth | **表生命周期 refcount 修复（阻断 2.2.0 的缺陷）**：compaction 摘表即解映射 + unlink 会让**已经建立的迭代器**下一次进块撞上关闭的映射（`Exception: MmapFile is closed`，迭代与压缩并发时整条扫描失败）。改为 `Table` refcount（起点 1 = 持有者，迭代器创建 incr / 关闭 decr，归零才解映射并删待删文件 `markForDeletion`）；关闭链打通 `TableIter.close` → `TableIterWrapper` → `MergeIterator` → `Iterator.close`，`TableAdapter.get` 与 compaction 建表走 finally，关库走 `closeForce`。新增 `table_refcount_test`（引用语义/幂等/强关）+ `table_lifetime_test`（**该用例在 2.1.0 上复现 MmapFile is closed**，修复后通过）。全量 **473/473**。详见 v2.1-plus 设计 §11 |
 | 2026-11-09 | master | **v2.1.0 发布**：Block Cache（Config.BlockCacheSizeMB，默认 0）——中心仓 publish success → 索引含 2.1.0、制品 HTTP 200、sha256 与本地一致 → tag v2.1.0 推 origin/GitHub。 |
 | 2026-11-09 | master | **2.1.0：Block Cache（P1-1）**：可配容量 LRU（默认 0 = 关闭，行为与 2.0.1 一致）；键 (tableId, blockIdx)、摘表即失效；接入 loadTables/flush/compaction 三条建表路径。测试 461/461（新增 6 例：命中/LRU/失效/零容量 + DB 端到端）。实测 128MB 随机读：cache=0 113.2 µs/Get → cache=64MB 36.9 µs/Get（堆内 35.9，**1.03x**，验收 1.1x 达成）。 |
 | 2026-11-09 | master | **v2.0.1 发布（发布后问题 patch）**：compaction 摘表后先 close 再 unlink 回收废弃 .sst + open 时按 manifest 清理孤儿表（d1293a5）；memtable arena 对齐 go 公式 2x→约 1.32x（7ee2c88）；README 写明 user key 不应互为前缀。全量 455/455。私有仓预演→中心仓 publish success→索引含 2.0.1、制品 HTTP 200、sha256 与本地一致（e3ee8c2b…）→ tag v2.0.1 推 origin/GitHub。 |

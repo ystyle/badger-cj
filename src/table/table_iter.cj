@@ -17,4 +17,9 @@ public interface TableIter {
     func key(): Array<Byte>
     func value(): Array<Byte>
     func valueStruct(): ?ValueStruct
+    /**
+     * 关闭迭代器：归还它持有的表引用（最后一个引用释放时才解映射/删表文件）。
+     * 幂等；关闭后不应继续读写。**所有创建路径都必须关闭**，否则该表永不释放。
+     */
+    func close(): Unit
 }

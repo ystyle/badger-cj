@@ -28,26 +28,31 @@ public class TableAdapter <: TableInterface {
         // 走表级迭代器（TableIterator.next 块尾自动进下一块）：同 user key 多版本
         // 跨多个 block 时单块扫描会漏掉更旧的可读版本；同时依赖 findBlock 的
         // 同 user key 组定位修复（R3）保证 seek 落到正确起始块。
+        // 迭代器持有表引用，未关闭会让该表永不释放（映射/文件都留着）——必须 finally 归还。
         let iter = table.newIterator()
-        iter.seek(seekKey)
-        
-        while (iter.isValid()) {
-            let iterKey = iter.key()
-            if (sameKey(iterKey, key)) {
-                let ts = parseTs(iterKey)
-                if (ts <= readTs) {
-                    if (let Some(vs) <- iter.valueStruct()) {
-                        return Some(vs)
+        try {
+            iter.seek(seekKey)
+            
+            while (iter.isValid()) {
+                let iterKey = iter.key()
+                if (sameKey(iterKey, key)) {
+                    let ts = parseTs(iterKey)
+                    if (ts <= readTs) {
+                        if (let Some(vs) <- iter.valueStruct()) {
+                            return Some(vs)
+                        }
                     }
+                } else {
+                    // 已进入下一个 user key（组结束），无 ≤ readTs 的可读版本
+                    break
                 }
-            } else {
-                // 已进入下一个 user key（组结束），无 ≤ readTs 的可读版本
-                break
+                iter.next()
             }
-            iter.next()
+            
+            return None
+        } finally {
+            iter.close()
         }
-        
-        return None
     }
     
     public func size(): Int64 {
@@ -84,6 +89,18 @@ public class TableAdapter <: TableInterface {
     
     public func close(): Unit {
         table.close()
+    }
+
+    public func closeForce(): Unit {
+        table.closeForce()
+    }
+
+    public func markForDeletion(path: String): Unit {
+        table.markForDeletion(path)
+    }
+
+    public func refCount(): Int64 {
+        table.refCount()
     }
     
     public func isMmapBacked(): Bool {

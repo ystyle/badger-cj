@@ -10,8 +10,9 @@ import mmapcj.*
  * - 内存模式 / 测试 / 构建产物：`MemoryTableData`（持有 `Array<Byte>`，与改造前语义一致）；
  * - 磁盘模式：`MmapTableData`（只读映射，数据位于页缓存而非 GC 堆，物理页可被 OS 回收）。
  *
- * 读接口是**复制语义**（返回新数组），因此调用方读块后不再持有表数据——
- * 这让「表从 LevelHandler 摘除后即可释放底层资源」成为安全操作，无需引用计数。
+ * 读接口是**复制语义**（返回新数组），因此调用方读块后不再持有表数据本身；
+ * 但**映射的生命周期仍要按引用计**：迭代器在表被 compaction 摘除之后还要继续读它的
+ * 后续块（见 Table.decrRef），复制语义只解决「读到的块不会失效」，不解决「映射还能用」。
  */
 protected interface TableData {
     /** 读取 `[offset, offset+len)` 的字节（复制语义） */
@@ -49,8 +50,9 @@ protected class MemoryTableData <: TableData {
 /**
  * 磁盘表数据：只读映射（数据位于页缓存而非 GC 堆，物理页由 OS 按访问加载、可回收）。
  *
- * unlink 后映射依然有效——这让「compaction 删除旧表文件」与「并发读者/迭代器读该表」
- * 天然安全，无需引用计数。Windows 上被映射文件不能删除，需**先 close 再 unlink**。
+ * unlink 后映射依然有效——所以文件删除时机可以比「最后一个读者释放」更早（POSIX）；
+ * 但反过来不行：映射不能早于最后一个读者释放，故仍按引用计数关闭（Table.decrRef）。
+ * 本实现统一把 unlink 推迟到最后一个引用释放之后，同时满足 Windows「先 close 再 unlink」。
  */
 protected class MmapTableData <: TableData {
     private let mmap: MmapFile

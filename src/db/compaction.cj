@@ -264,7 +264,7 @@ protected class Compaction {
             let removedBot = nextHandler.replaceTables(botIds, newTables)
             deleteTables(thisHandler, cd.top)
             for (t in removedBot) {
-                t.close()
+                retireTable(t)
             }
         } else {
             let topIds = HashSet<UInt64>()
@@ -273,7 +273,7 @@ protected class Compaction {
             }
             let removed = thisHandler.replaceTables(topIds, newTables)
             for (t in removed) {
-                t.close()
+                retireTable(t)
             }
         }
         
@@ -335,58 +335,63 @@ protected class Compaction {
         var skipRemainingVersions = false
         var firstVersionOfKey = true
         
-        while (merger.valid()) {
-            let key = merger.key()
-            let vs = ValueStruct.decode(merger.value())
-            // 换 key：重置版本保留计数（merger 可能复用 key 缓冲，lastKey 必须独立副本）
-            if (lastKey.size == 0 || !sameKey(key, lastKey)) {
-                lastKey = key.clone()
-                belowDiscardCount = 0
-                skipRemainingVersions = false
-                firstVersionOfKey = true
-            }
-            let isFirstVersion = firstVersionOfKey
-            firstVersionOfKey = false
-            if (skipRemainingVersions) {
-                Compaction.accumulateDiscard(discardStats, vs)
-                merger.next()
-                continue
-            }
-            let mergeEntry = (vs.meta & Meta.bitMergeEntry) != 0
-            let eligible = vs.version <= discardTs && !mergeEntry
-            if (!eligible) {
-                // 活跃读者可能还要读 / merge 位条目要留给折叠：无条件保留
-                builder.add(key, vs)
-                // 首版本带 discard 位 = MergeOperator 回写的折叠结果：它下面的 merge 条目
-                // 都已并入该值，本轮即可整体丢弃（否则那些带 merge 位的旧条目永不回收）
-                if (isFirstVersion && (vs.meta & Meta.bitDiscardEarlierVersions) != 0) {
-                    skipRemainingVersions = true
+        // 归并结束 / 异常路径都必须归还表引用：否则被换下的旧表永不释放（映射与文件都留着）
+        try {
+            while (merger.valid()) {
+                let key = merger.key()
+                let vs = ValueStruct.decode(merger.value())
+                // 换 key：重置版本保留计数（merger 可能复用 key 缓冲，lastKey 必须独立副本）
+                if (lastKey.size == 0 || !sameKey(key, lastKey)) {
+                    lastKey = key.clone()
+                    belowDiscardCount = 0
+                    skipRemainingVersions = false
+                    firstVersionOfKey = true
                 }
-                merger.next()
-                continue
-            }
-            if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
-                if (!bottomMost) {
-                    // 非最底层：保留 tombstone 压制低层旧值（删数据复活事故的修复点）
+                let isFirstVersion = firstVersionOfKey
+                firstVersionOfKey = false
+                if (skipRemainingVersions) {
+                    Compaction.accumulateDiscard(discardStats, vs)
+                    merger.next()
+                    continue
+                }
+                let mergeEntry = (vs.meta & Meta.bitMergeEntry) != 0
+                let eligible = vs.version <= discardTs && !mergeEntry
+                if (!eligible) {
+                    // 活跃读者可能还要读 / merge 位条目要留给折叠：无条件保留
                     builder.add(key, vs)
+                    // 首版本带 discard 位 = MergeOperator 回写的折叠结果：它下面的 merge 条目
+                    // 都已并入该值，本轮即可整体丢弃（否则那些带 merge 位的旧条目永不回收）
+                    if (isFirstVersion && (vs.meta & Meta.bitDiscardEarlierVersions) != 0) {
+                        skipRemainingVersions = true
+                    }
+                    merger.next()
+                    continue
+                }
+                if (isDeletedOrExpired(vs.meta, vs.expiresAt)) {
+                    if (!bottomMost) {
+                        // 非最底层：保留 tombstone 压制低层旧值（删数据复活事故的修复点）
+                        builder.add(key, vs)
+                    } else {
+                        Compaction.accumulateDiscard(discardStats, vs)
+                    }
+                    // 它屏蔽了同 key 的所有更旧版本
+                    skipRemainingVersions = true
+                    merger.next()
+                    continue
+                }
+                belowDiscardCount++
+                if (belowDiscardCount <= numVersionsToKeep) {
+                    builder.add(key, vs)
+                    if ((vs.meta & Meta.bitDiscardEarlierVersions) != 0) {
+                        skipRemainingVersions = true
+                    }
                 } else {
                     Compaction.accumulateDiscard(discardStats, vs)
                 }
-                // 它屏蔽了同 key 的所有更旧版本
-                skipRemainingVersions = true
                 merger.next()
-                continue
             }
-            belowDiscardCount++
-            if (belowDiscardCount <= numVersionsToKeep) {
-                builder.add(key, vs)
-                if ((vs.meta & Meta.bitDiscardEarlierVersions) != 0) {
-                    skipRemainingVersions = true
-                }
-            } else {
-                Compaction.accumulateDiscard(discardStats, vs)
-            }
-            merger.next()
+        } finally {
+            merger.close()
         }
         
         let hasData = !builder.isEmpty()
@@ -441,6 +446,22 @@ protected class Compaction {
         stats[vp.fid] = current + Int64(vp.len)
     }
     
+    /**
+     * 摘除后回收一张旧表：标记文件待删 + 释放持有者引用。
+     *
+     * 不能「摘除即解映射」：本次 compaction 换掉的那张表可能正好被并发迭代器持有
+     * （迭代器在 compaction 开始前就已建立，之后仍要读它的后续块）。所以真正的
+     * 解映射与 unlink 推给**最后一个引用释放**（Table.decrRef），这里只标记 + 归还
+     * 持有者那一份引用。顺带保证 Windows 上「先 close 再 unlink」的顺序。
+     *
+     * 删除失败不阻断 compaction：MANIFEST 已移除该表，文件最迟由 open 时的孤儿清理回收
+     *（崩溃窗口同理：已建表但 MANIFEST 未记的文件）。
+     */
+    private func retireTable(t: TableInterface): Unit {
+        t.markForDeletion(sstablePath(db.getOpt().Dir, t.getId()))
+        t.close()
+    }
+    
     private func deleteTables(handler: LevelHandler, tables: ArrayList<TableInterface>): Unit {
         let toDelete = HashSet<UInt64>()
         for (t in tables) {
@@ -450,22 +471,7 @@ protected class Compaction {
         // 读者会看到空列表，并发 get 偶发 miss（数据仍在库里）。
         handler.removeTables(toDelete)
         for (t in tables) {
-            // 摘除即释放：读块是复制语义（TableData.read 返回新数组），此处没有并发
-            // 读者持有表数据，因此无需引用计数（设计 §5.2 的免 refcount 方案）。
-            // 磁盘表的映射在此解除，避免虚拟地址只增不减。
-            t.close()
-            // 回收磁盘文件：旧实现只解映射不删文件，磁盘随每轮 compaction 单调增长。
-            // 顺序必须是「先 close 再 unlink」——Windows 上被映射的文件不能删除。
-            // 删除失败不阻断 compaction：manifest 已移除该表，文件最迟由 open 时的
-            // 孤儿清理回收（崩溃窗口同理：已建表但 MANIFEST 未记的文件）。
-            let path = sstablePath(db.getOpt().Dir, t.getId())
-            try {
-                if (exists(Path(path))) {
-                    remove(Path(path))
-                }
-            } catch (e: Exception) {
-                // 忽略：文件可能在别的进程/句柄上仍占用
-            }
+            retireTable(t)
         }
     }
 }
