@@ -77,6 +77,9 @@ public class Badger <: VLogGCDB {
     private let activeIterators: AtomicInt64 = AtomicInt64(0)
     private let pendingVLogDeletes: ArrayList<UInt32> = ArrayList<UInt32>()
     private let pendingVLogLock: Mutex = Mutex()
+    // —— Merge Operator（对齐 go merge.go）：close 时统一停掉后台折叠线程 ——
+    private let mergeOps: ArrayList<MergeOperator> = ArrayList<MergeOperator>()
+    private let mergeOpsLock: Mutex = Mutex()
     
     protected init(
         opt: Config,
@@ -257,6 +260,9 @@ public class Badger <: VLogGCDB {
         
         // 注销信号 handler（若注册过优雅退出），close 后信号不再触发 close
         cleanupSignalHandler()
+        
+        // 0. 停 MergeOperator 后台折叠线程：它们走正常提交路径，必须在关写通道前停
+        stopMergeOperators()
         
         // 1. 先关闭写入通道
         writeCh.close()
@@ -695,6 +701,48 @@ public class Badger <: VLogGCDB {
     /** 创建用户侧批量写入对象（自动按单事务上限切分；见 WriteBatch 文档）。 */
     public func newWriteBatch(): WriteBatch {
         WriteBatch(this)
+    }
+    
+    /**
+     * 创建 MergeOperator（对齐 go GetMergeOperator）：add 追加增量，get 折叠读取，
+     * 后台线程每 interval 折叠一次并回写 discard 位版本（compaction 之后回收旧链）。
+     */
+    public func getMergeOperator(key: Array<Byte>, f: MergeFunc,
+                                 interval!: Duration = Duration.second): MergeOperator {
+        let op = MergeOperator(this, key, f, interval)
+        registerMergeOperator(op)
+        spawn {
+            while (!op.isStopped()) {
+                sleep(op.getInterval())
+                if (op.isStopped()) {
+                    break
+                }
+                try {
+                    op.compact()
+                } catch (e: Exception) {
+                    // db 正在关闭 / 提交冲突：后台折叠失败不致命，下个周期重试或随 close 退出
+                    continue
+                }
+            }
+        }
+        op
+    }
+    
+    protected func registerMergeOperator(op: MergeOperator): Unit {
+        synchronized(mergeOpsLock) {
+            mergeOps.add(op)
+        }
+    }
+    
+    private func stopMergeOperators(): Unit {
+        var ops = ArrayList<MergeOperator>()
+        synchronized(mergeOpsLock) {
+            ops = ArrayList<MergeOperator>(mergeOps)
+            mergeOps.clear()
+        }
+        for (op in ops) {
+            op.stop()
+        }
     }
     
     // 对齐 badger-go batch.go：单事务上限 = 15% MemTableSize；条数上限 = maxBatchSize / 96。

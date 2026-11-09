@@ -295,6 +295,7 @@ protected class Compaction {
         let numVersionsToKeep = Int64(db.getOpt().NumVersionsToKeep)
         var belowDiscardCount: Int64 = 0
         var skipRemainingVersions = false
+        var firstVersionOfKey = true
         
         while (merger.valid()) {
             let key = merger.key()
@@ -304,7 +305,10 @@ protected class Compaction {
                 lastKey = key.clone()
                 belowDiscardCount = 0
                 skipRemainingVersions = false
+                firstVersionOfKey = true
             }
+            let isFirstVersion = firstVersionOfKey
+            firstVersionOfKey = false
             if (skipRemainingVersions) {
                 Compaction.accumulateDiscard(discardStats, vs)
                 merger.next()
@@ -315,6 +319,11 @@ protected class Compaction {
             if (!eligible) {
                 // 活跃读者可能还要读 / merge 位条目要留给折叠：无条件保留
                 builder.add(key, vs)
+                // 首版本带 discard 位 = MergeOperator 回写的折叠结果：它下面的 merge 条目
+                // 都已并入该值，本轮即可整体丢弃（否则那些带 merge 位的旧条目永不回收）
+                if (isFirstVersion && (vs.meta & Meta.bitDiscardEarlierVersions) != 0) {
+                    skipRemainingVersions = true
+                }
                 merger.next()
                 continue
             }
