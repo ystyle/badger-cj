@@ -36,7 +36,7 @@ public class Badger <: VLogGCDB {
     private let lc: LevelsController
     // 2.1 Block Cache（容量 0 = 关闭，默认；见 Config.BlockCacheSizeMB）
     private let blockCache: ?BlockCache
-    // 2.1 Pebble 式 arena 渐进扩容：当前/下一张 memtable 的 arena 容量（写锁内推进）
+    // 2.2 Pebble 式 arena 渐进扩容：当前/下一张 memtable 的 arena 容量（写锁内推进）
     private var memtableArenaBytes: Int64
     private let getCount: AtomicInt64
     private let flushCount: AtomicInt64

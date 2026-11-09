@@ -15,7 +15,7 @@
 
 ```toml
 [dependencies]
-  "badgercj" = "2.1.0" # 注意使用最新的版本
+  "badgercj" = "2.2.0" # 注意使用最新的版本
 ```
 
 ## 快速开始
@@ -225,6 +225,15 @@ for (t in tables) {
 let levels = db.levels()
 for (l in levels) {
     println("Level ${l.Level}: ${l.NumTables} tables, ${l.Size} bytes")
+}
+
+// 运行统计快照（2.2）：读/flush/compaction 计数、memtable 用量、各层表数与字节数、块缓存
+let st = db.getStats()
+println("gets=${st.Gets} flushes=${st.Flushes} compactions=${st.Compactions}")
+println("memtable=${st.MemTableBytes}B imm=${st.ImmCount} tables=${st.TableCount} bytes=${st.TableBytes}")
+println("blockCache hits=${st.BlockCache.Hits} misses=${st.BlockCache.Misses} used=${st.BlockCache.UsedBytes}B")
+for (ls in st.Levels) {
+    println("Level ${ls.Level}: ${ls.TableCount} tables, ${ls.Bytes} bytes")
 }
 ```
 
@@ -601,6 +610,9 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `numMemtables` | 5 | 允许的未落盘 memtable 上限（写路径背压阈值） |
 | `useIoUring` | true | Linux 下用 io_uring 写 SSTable（不可用/失败自动降级同步写） |
 | `compression` | None | SSTable 块压缩（Snappy）；默认关闭，mmap 读是零拷贝路径 |
+| `blockCacheSizeMB` | 0（关闭） | 2.1 块缓存：LRU 缓存热 block（128MB 数据 113 → 37 µs/Get）；生产建议 64–256 |
+| `arenaGrowthStartBytes` | 256 KB | 2.2 arena 渐进扩容起点（首张 memtable 用该值，每轮换翻倍、封顶目标值）；0 = 关闭渐进 |
+| `streamingSSTable` | false | 2.2 流式落盘：flush/compaction 边构建边写文件，不再留整表副本；低堆/大表场景建议开 |
 
 ## 内存使用
 
@@ -610,7 +622,7 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 |------|--------|------|
 | `memTableSize` | 64 MB | 单个 MemTable 上限 |
 | arena 目标值 | **memTableSize + 15% 批次预留（约 1.3 × memTableSize；默认 64MB 表约 84MB/库）** | 对齐 badger-go 的 arenaSize()；每张 memtable 用满即轮换 |
-| `arenaGrowthStartBytes` | 256 KB | 2.1 起 arena **渐进扩容**：首张 memtable 用该值，每轮换翻倍、封顶目标值；**0 = 关闭渐进** |
+| `arenaGrowthStartBytes` | 256 KB | 2.2 起 arena **渐进扩容**：首张 memtable 用该值，每轮换翻倍、封顶目标值；**0 = 关闭渐进** |
 | `blockCacheSizeMB` | 0（关闭） | 2.1 块缓存：LRU 缓存热 block，把 mmap 随机读拉回堆内水平（128MB 数据 113 → 37 µs/Get）；生产建议 64–256 |
 | 仓颉 GC 堆上限 | **256 MB（默认）** | 仓颉运行时默认堆上限，arena 等原生内存之外的 GC 托管对象均在此配额内 |
 
@@ -629,7 +641,7 @@ export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
 
 - 调小 `memTableSize`：`Config().withMemTableSize(16 * 1024 * 1024u64)`（16MB，arena 目标约 21MB；首张表从 256KB 渐进）或 `4 * 1024 * 1024u64`（4MB，arena 目标约 5.3MB）
 
-**低堆 / 大表场景：流式落盘（2.1，建议开启）**
+**低堆 / 大表场景：流式落盘（2.2，建议开启）**
 
 Config(streamingSSTable: true) 让 flush/compaction 边构建边写文件（io_uring 分段提交，失败回退同步写），不再在内存里多留一份整表副本。低堆下这是决定性的（实测 128MB 堆、写 24MB）：
 
@@ -746,13 +758,17 @@ badger-cj 约 390 ns/op（±40%），**约慢 2.6 倍**。
 | **版本保留策略**（2.0） | compaction 按 `discardTs` + `numVersionsToKeep` 保留旧版本（活跃读者安全） |
 | **EstimateSize**（2.0） | 按前缀估算 on-disk/解压后字节数 |
 | **FORMAT 基线**（2.0） | 数据目录格式声明；旧目录缺失视为 v1.6.x 并在首次打开补写 |
+| **Block Cache**（2.1） | 可配容量 LRU 缓存热 block（`blockCacheSizeMB`，默认关）；摘表即失效，命中率/占用见 `stats()` |
+| **渐进式 arena**（2.2） | Pebble 式渐进扩容（`arenaGrowthStartBytes`）：首张 memtable 从小 arena 起步、逐轮翻倍，低堆首写不再按目标值一次性分配 |
+| **流式落盘**（2.2） | `streamingSSTable`：flush/compaction 边构建边写文件（io_uring 分段提交，失败回退同步写），低堆下不再需要整表副本 |
+| **运行统计**（2.2） | `db.getStats()`：读次数、flush/compaction 次数、memtable 用量、各层表数与字节数、块缓存命中/占用 |
+| **表生命周期**（2.2） | 表按引用释放：compaction 换表不会解映射正在被迭代器读取的表（旧实现并发下可能抛 `MmapFile is closed`） |
 
 ### ⏳ 待完善
 
 | 功能 | 说明 |
 |------|------|
-| Encryption | 加密存储（延后到 2.1：先定 SM4-CTR vs AES-256-CTR 的算法口径） |
-| Block Cache | 仅对压缩/加密读路径有意义；2.0 默认 `Compression=None`（mmap 零拷贝），延后到 2.1 |
+| Encryption | 加密存储：先定算法口径（SM4-CTR vs AES-256-CTR）再排期；当前默认 `Compression=None` + mmap 零拷贝，加密会引入额外的写路径开销 |
 
 ## 参考
 

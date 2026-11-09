@@ -35,11 +35,11 @@ public struct Config {
     // compaction 每个 key 至少保留的版本数（对齐 badger-go NumVersionsToKeep，默认 1）。
     // managed DB 必须调大（旧 readTs 要能读到旧版本），否则旧快照会丢数据。
     public var NumVersionsToKeep: Int
-    // 2.1 L2 流式落盘开关（默认 false = 保持「整表字节 + writeFile」旧路径）。
+    // 2.2 L2 流式落盘开关（默认 false = 保持「整表字节 + writeFile」旧路径）。
     // true 时 flush 边构建边写文件、不再在内存持有整表字节（解 flush 峰值内存）。
     // 仅磁盘 mmap 模式生效；InMemory / MmapSSTable=false 时忽略。
     public var StreamingSSTable: Bool
-    // Pebble 式 arena 渐进扩容起点（字节，2.1）。0 = 关闭渐进（每张 memtable 直接用目标值）；
+    // Pebble 式 arena 渐进扩容起点（字节，2.2）。0 = 关闭渐进（每张 memtable 直接用目标值）；
     // 默认 256KB：第一张 memtable 用 256KB，之后每轮换翻倍，封顶目标值
     // （MemTableSize + 15% 批次预留）。小表（目标 < 起点）等于目标值，无渐进过程。
     public var ArenaGrowthStartBytes: UInt64

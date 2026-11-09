@@ -2,7 +2,7 @@ package badgercj.db
 
 import std.collection.ArrayList
 
-// 2.1 运行统计快照（P2-1）。只做「读一次、拿到一致的一份数字」，不承诺跨调用聚合。
+// 2.2 运行统计快照（P2-1）。只做「读一次、拿到一致的一份数字」，不承诺跨调用聚合。
 public class LevelStats {
     public let Level: Int64
     public let TableCount: Int64
