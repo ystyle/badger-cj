@@ -391,6 +391,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 7.5（前置）：下游集成验证（发版闸门前移）**：用独立 worktree 把 5 个下游仓切到本地 2.0 源码（只改 worktree 的 cjpm.toml 为 path 依赖，不提交），全部 build + test 通过：**storm-cj（bstorm+cli）266 例**、**storm-cj-v2 176 例**、**tsdb-cj 224 例**、**sunku-cj 134 例**、**holt-cj 102 例**，无失败。附 `scripts/downstream-verify.sh` 固化流程。顺序调整：**先跑通下游，再发 2.0.0**（发布不可逆）。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 7.1/7.2（部分）**：① 建 GitHub 镜像仓 `ystyle/badger-cj`（public，`github` 远端），新增三平台 CI workflow（linux/macos/windows，setup-cangjie v3 + 1.2.0 stdx，Linux 装 liburing-dev，Linux 为发布口径、非 Linux 先取可见性）；② 首次 CI 暴露并修掉平台门控缺口：io_uring 测试类加 `@When[os==Linux]`、`std.posix.kill` 具名导入改通配（Windows 编译通过）；③ README 按 2.0 重写兼容性声明/安装版本/配置项/新增 API（WriteBatch/Merge/Managed/Sequence/estimateSize）/功能表；④ progress-tracking 头部与路线图更新为 2.0.0-dev（452 tests）。全量 **452/452**。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 6（6.1/6.2）**：① 表索引 lazy 化（raw + 4B/块位置表，查找在 raw 上直接比较、key 按需复制，索引堆占用常数显著下降）；② VLog 段遍历流式化（mmap 直读 / file 64KB 滑动缓冲，峰值 = 单条 + 64KB，不再整段复制）。6.3 Block Cache 延后 2.1。新增 4 例；全量 **452/452**。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.2-5.4**：① `MergeOperator`（merge 位增量 + allVersions 折叠 + 后台折叠回写 discard 位；compaction 首版本 discard 位即丢弃旧链）；② Managed DB（`openManaged`/`newTransactionAt`/`commitAt`/`setDiscardTs`/`newWriteBatchAt`，时间戳全由调用方指定）；③ `Sequence`（租约式单调递增，release 退回未用区间）；④ `estimateSize`（此前已完成）。新增 14 例；全量 **448/448**（-j 4）。 |
