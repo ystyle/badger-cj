@@ -8,6 +8,7 @@ import std.time.*
 import badgercj.vlog.*
 import badgercj.table.*
 import mmapcj.*
+import ystyle::crc.*
 
 /**
  * WAL（memtable 的 write-ahead log）。
@@ -238,25 +239,15 @@ public class WAL {
         }
     }
 
-    /** 把攒好的整段字节写入当前段（调用方持 lock）。 */
-    private func writePending(pending: ArrayList<Byte>): Unit {
-        let data = pending.toArray()
-        if (mmap.isSome()) {
-            let m = mmap ?? throw Exception("WAL not open for write")
-            m.write(data, writeOffset)
-        } else if (let Some(b) <- buf) {
-            b.write(data)
-        } else {
-            throw Exception("WAL not open for write")
-        }
-        writeOffset += Int64(data.size)
-    }
-    
     /**
-     * 批量追加：整批只取一次锁，连续条目合并成一次映射写（分组提交的 WAL 侧）。
+     * 批量追加：整批只取一次锁，连续条目合并成**一块连续内存**一次映射写
+     * （分组提交的 WAL 侧）。
      *
-     * 批内按**条目边界**切段：单条记录不允许跨段，放不下就先把已攒字节落进当前段，
-     * 再 rotate 到新段继续。崩溃时 replay 的 scanValidLength 仍按条目边界截断。
+     * 批内按条目边界切段：单条记录不允许跨段，放不下就先把已攒条目落进当前段、
+     * rotate 到新段继续。崩溃时 replay 的 scanValidLength 仍按条目边界截断。
+     *
+     * 实现要点：直接按算好的总长度分配一块 chunk、逐字段 copyTo 写入并增量算 CRC——
+     * 不用 `ArrayList<Byte>` 逐字节追加（旧实现每字节约一次容器写入，是写路径的瓶颈）。
      */
     public func writeBatch(keys: ArrayList<Array<Byte>>, values: ArrayList<Array<Byte>>): Unit {
         if (keys.size == 0) {
@@ -264,29 +255,80 @@ public class WAL {
         }
         lock.lock()
         try {
-            var pending = ArrayList<Byte>()
-            for (i in 0..keys.size) {
-                let encoded = LogEntry(keys[i], values[i]).encode()
-                let need = Int64(encoded.size)
-                if (writeOffset + Int64(pending.size) + need > capacity) {
-                    if (pending.size > 0) {
-                        writePending(pending)
-                        pending = ArrayList<Byte>()
-                    }
-                    if (writeOffset + need > capacity) {
-                        rotate(need)
-                    }
-                }
-                for (b in encoded) {
-                    pending.add(b)
-                }
+            if (mmap.isNone() && buf.isNone()) {
+                throw Exception("WAL not open for write")
             }
-            if (pending.size > 0) {
-                writePending(pending)
+            var chunkStart: Int64 = 0
+            var chunkBytes: Int64 = 0
+            var i: Int64 = 0
+            while (i < keys.size) {
+                let entrySize = Int64(entrySize(keys[i], values[i]))
+                if (chunkBytes > 0 && writeOffset + chunkBytes + entrySize > capacity) {
+                    writeBatchChunk(keys, values, chunkStart, i, chunkBytes)
+                    chunkStart = i
+                    chunkBytes = 0
+                }
+                if (writeOffset + entrySize > capacity) {
+                    rotate(entrySize)
+                }
+                chunkBytes += entrySize
+                i++
+            }
+            if (chunkBytes > 0) {
+                writeBatchChunk(keys, values, chunkStart, keys.size, chunkBytes)
             }
         } finally {
             lock.unlock()
         }
+    }
+    
+    private func entrySize(key: Array<Byte>, value: Array<Byte>): UInt32 {
+        UInt32(9 + key.size + value.size + 4)
+    }
+    
+    /** 把 [start, end) 的条目编码进一块连续内存并一次写出（调用方持 lock）。 */
+    private func writeBatchChunk(keys: ArrayList<Array<Byte>>, values: ArrayList<Array<Byte>>,
+                                 start: Int64, end: Int64, totalBytes: Int64): Unit {
+        let chunk = Array<Byte>(totalBytes, repeat: 0)
+        var off: Int64 = 0
+        for (j in start..end) {
+            let key = keys[j]
+            let value = values[j]
+            let keyLen = UInt32(key.size)
+            let valLen = UInt32(value.size)
+            chunk[off] = UInt8(keyLen & 0xFF)
+            chunk[off + 1] = UInt8((keyLen >> 8) & 0xFF)
+            chunk[off + 2] = UInt8((keyLen >> 16) & 0xFF)
+            chunk[off + 3] = UInt8((keyLen >> 24) & 0xFF)
+            chunk[off + 4] = UInt8(valLen & 0xFF)
+            chunk[off + 5] = UInt8((valLen >> 8) & 0xFF)
+            chunk[off + 6] = UInt8((valLen >> 16) & 0xFF)
+            chunk[off + 7] = UInt8((valLen >> 24) & 0xFF)
+            key.copyTo(chunk, 0, off + 8, key.size)
+            value.copyTo(chunk, 0, off + 8 + Int64(key.size), value.size)
+            let metaOff = off + 8 + Int64(key.size) + Int64(value.size)
+            chunk[metaOff] = 0 // WAL 层 meta 恒 0（与 LogEntry(key, value).encode() 一致）
+            let crc = CRC32C()
+            crc.write(chunk[off..(off + 8)])
+            crc.write(key)
+            crc.write(value)
+            crc.write(chunk[metaOff..(metaOff + 1)])
+            let checksum = crc.sum32()
+            let crcOff = metaOff + 1
+            chunk[crcOff] = UInt8(checksum & 0xFF)
+            chunk[crcOff + 1] = UInt8((checksum >> 8) & 0xFF)
+            chunk[crcOff + 2] = UInt8((checksum >> 16) & 0xFF)
+            chunk[crcOff + 3] = UInt8((checksum >> 24) & 0xFF)
+            off += Int64(entrySize(key, value))
+        }
+        if (let Some(m) <- mmap) {
+            m.write(chunk, writeOffset)
+        } else if (let Some(b) <- buf) {
+            b.write(chunk)
+        } else {
+            throw Exception("WAL not open for write")
+        }
+        writeOffset += totalBytes
     }
     
     /**
