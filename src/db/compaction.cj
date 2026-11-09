@@ -237,10 +237,6 @@ protected class Compaction {
         
         let (newTables, manifestChanges) = compactBuildTables(cd, cd.nextLevel)
         
-        for (t in newTables) {
-            nextHandler.addTable(t)
-        }
-        
         for (t in cd.top) {
             manifestChanges.add(ManifestChange(t.getId(), ManifestChangeOp.Delete, level: UInt32(cd.thisLevel)))
         }
@@ -250,13 +246,36 @@ protected class Compaction {
             }
         }
         
-        deleteTables(thisHandler, cd.top)
-        if (cd.thisLevel != cd.nextLevel) {
-            deleteTables(nextHandler, cd.bot)
-        }
-        
+        // 顺序（对齐 badger-go runCompactDef）：
+        //   ① 新表文件已落盘 → 先把 manifest 变更写下去（崩溃时以 manifest 为准，
+        //      不会出现「旧表已删、新表还没登记」的丢数据窗口）；
+        //   ② 原子替换下层（去掉被替换的 bot + 加入新表，同一锁段内完成）；
+        //      先把新表装进下层、再摘除上层的 top —— 这期间读者在上层仍能找到数据，
+        //      不存在「两层都看不到」的窗口；
+        //   ③ 最后摘 top 并 close 被替换的旧表。
         let manifestFile = db.getManifestFile()
         manifestFile.saveChanges(manifestChanges)
+        
+        if (cd.thisLevel != cd.nextLevel) {
+            let botIds = HashSet<UInt64>()
+            for (t in cd.bot) {
+                botIds.add(t.getId())
+            }
+            let removedBot = nextHandler.replaceTables(botIds, newTables)
+            deleteTables(thisHandler, cd.top)
+            for (t in removedBot) {
+                t.close()
+            }
+        } else {
+            let topIds = HashSet<UInt64>()
+            for (t in cd.top) {
+                topIds.add(t.getId())
+            }
+            let removed = thisHandler.replaceTables(topIds, newTables)
+            for (t in removed) {
+                t.close()
+            }
+        }
         
         cstatus.delete(cd)
         return true
@@ -388,22 +407,18 @@ protected class Compaction {
     }
     
     private func deleteTables(handler: LevelHandler, tables: ArrayList<TableInterface>): Unit {
-        let currentTables = handler.getTables()
         let toDelete = HashSet<UInt64>()
         for (t in tables) {
             toDelete.add(t.getId())
         }
-        
-        handler.clearTables()
-        for (t in currentTables) {
-            if (!toDelete.contains(t.getId())) {
-                handler.addTable(t)
-            } else {
-                // 摘除即释放：读块是复制语义（TableData.read 返回新数组），此处没有并发
-                // 读者持有表数据，因此无需引用计数（设计 §5.2 的免 refcount 方案）。
-                // 磁盘表的映射在此解除，避免虚拟地址只增不减。
-                t.close()
-            }
+        // 原子摘除（一次锁段内重建列表）：不能 clear + 逐张 re-add——两个锁段之间
+        // 读者会看到空列表，并发 get 偶发 miss（数据仍在库里）。
+        handler.removeTables(toDelete)
+        for (t in tables) {
+            // 摘除即释放：读块是复制语义（TableData.read 返回新数组），此处没有并发
+            // 读者持有表数据，因此无需引用计数（设计 §5.2 的免 refcount 方案）。
+            // 磁盘表的映射在此解除，避免虚拟地址只增不减。
+            t.close()
         }
     }
 }
