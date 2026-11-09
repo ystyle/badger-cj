@@ -671,6 +671,22 @@ public class Badger <: VLogGCDB {
         }
     }
     
+    /** 创建用户侧批量写入对象（自动按单事务上限切分；见 WriteBatch 文档）。 */
+    public func newWriteBatch(): WriteBatch {
+        WriteBatch(this)
+    }
+    
+    // 对齐 badger-go batch.go：单事务上限 = 15% MemTableSize；条数上限 = maxBatchSize / 96。
+    protected func getMaxBatchSize(): Int64 {
+        let s = Int64(opt.MemTableSize * 15 / 100)
+        if (s < 1024) { 1024 } else { s }
+    }
+    
+    protected func getMaxBatchCount(): Int64 {
+        let n = getMaxBatchSize() / 96
+        if (n < 1) { 1 } else { n }
+    }
+    
     public func flushMemTable(): Unit {
         // 同步语义（对齐 badger-go / 旧 flushMemTableInternal）：返回时当前 memtable
         // 已落盘（含 MANIFEST + imm 出队，数据不再悬在内存）。实现 = 写锁内轮换入队
@@ -1071,12 +1087,55 @@ public class Badger <: VLogGCDB {
         return prepared
     }
     
-    // 阶段 2：flush 检查 + mt.put。持写锁保证 mt.put 与 imm 轮换/出队期间与读路径
-    // （读锁遍历 imm）互斥；单条目的锁段极短（无磁盘 I/O），flush 构建/写盘已移出
-    // 写锁由 flusher 执行——写路径不再被 flush 的磁盘 I/O 整批阻塞。
+    // 阶段 2：flush 检查 + 批量写入。持写锁保证 mt.put 与 imm 轮换/出队期间与读路径
+    // （读锁遍历 imm）互斥；单次 mt.putBatch 至多写到 memtable 落盘阈值（≤ MemTableSize），
+    // 整批 WAL 一次映射写 + 一次 sync（SyncWrites）——这是分组提交的核心收益。
     private func putPrepared(prepared: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
-        for ((keyWithTs, vs) in prepared) {
-            putOneWithFlush(keyWithTs, vs)
+        var idx: Int64 = 0
+        while (idx < prepared.size) {
+            var needRoom = false
+            var take: Int64 = 0
+            lock.writeLock.lock()
+            try {
+                if (mt.shouldFlush()) {
+                    if (immCount.load() >= Int64(opt.NumMemtables)) {
+                        needRoom = true
+                    } else {
+                        rotateAndEnqueueLocked()
+                    }
+                }
+                if (!needRoom) {
+                    take = mt.putBatch(prepared, idx)
+                }
+            } finally {
+                lock.writeLock.unlock()
+            }
+            if (needRoom) {
+                // 背压：等 flusher 出队腾位（等待期间读者不受影响，写锁已释放）
+                waitForFlushRoom()
+                continue
+            }
+            if (take > 0) {
+                idx += take
+                continue
+            }
+            // 本表连一条都放不下（arena 余量不足单条）：轮换后重试
+            lock.writeLock.lock()
+            try {
+                if (immCount.load() >= Int64(opt.NumMemtables)) {
+                    needRoom = true
+                } else if (mt.isEmpty()) {
+                    throw Exception(
+                        "entry too large for memtable: needs more than remaining arena ${mt.remainingArena()} bytes")
+                } else {
+                    rotateAndEnqueueLocked()
+                }
+            } finally {
+                lock.writeLock.unlock()
+            }
+            if (needRoom) {
+                waitForFlushRoom()
+            }
         }
     }
     
@@ -1135,10 +1194,16 @@ public class Badger <: VLogGCDB {
         // wait() 提前唤醒，调用方随即把请求归还对象池，另一线程取出后 reset() 清空
         // entries，而 runBatch 的 finally 仍在遍历同一请求 → ConcurrentModificationException
         // （表现为偶发写入失败）。
+        // 先把本批所有请求的 vlog 写入（锁外）并构建 LSM 条目，再整批写 LSM：
+        // 同批内所有请求的 WAL 追加合并成一次映射写 + 一次 msync（分组提交）。
+        // 注意保持请求顺序：prepared 顺序 = 请求顺序 × 条目顺序。
+        let preparedAll = ArrayList<(Array<Byte>, ValueStruct)>()
         for (req in reqs) {
-            let prepared = prepareEntries(req.getEntries(), req.commitTs)
-            putPrepared(prepared)
+            for (p in prepareEntries(req.getEntries(), req.commitTs)) {
+                preparedAll.add(p)
+            }
         }
+        putPrepared(preparedAll)
     }
     
     private func writeOneRequest(req: WriteRequest): Unit {

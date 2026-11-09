@@ -1,6 +1,7 @@
 package badgercj.db
 
 import std.sync.*
+import std.collection.*
 import badgercj.skiplist.*
 import badgercj.arena.*
 import badgercj.table.*
@@ -106,6 +107,84 @@ protected class MemTable {
         
         let entrySize = UInt64(key.size + encoded.size)
         sizeInBytes_.fetchAdd(entrySize)
+    }
+    
+    /**
+     * 批量写入（分组提交）：整批一次 WAL 追加 + 一次 sync（SyncWrites），再逐条进 skiplist。
+     *
+     * 从 `start` 起尽量多写，遇到「落盘阈值」或「arena 余量不足」即停，返回写入条数；
+     * 调用方持 db 写锁，返回 0 表示本表连一条都放不下（需由调用方轮换 memtable）。
+     * 语义与逐条 `put` 等价：arena 预检、WAL 顺序、maxVersion、sizeInBytes 统计一致。
+     */
+    public func putBatch(entries: ArrayList<(Array<Byte>, ValueStruct)>, start: Int64): Int64 {
+        if (start >= entries.size) {
+            return 0
+        }
+        let encodedList = ArrayList<Array<Byte>>()
+        var totalReserved: Int64 = 0
+        var accepted: Int64 = 0
+        var projectedData = Int64(sizeInBytes_.load())
+        let threshold = Int64(opt.MemTableSize)
+        var i = start
+        while (i < entries.size) {
+            // 与逐条 put 的轮换语义对齐：本条之前的表已达阈值时不再接收（由调用方先轮换）
+            if (accepted > 0 && projectedData >= threshold) {
+                break
+            }
+            let (key, vs) = entries[i]
+            let enc = vs.encode()
+            let encSize = Int64(enc.size)
+            // arena 用量除「值编码 + key」外还有 skiplist 节点（含塔层 + 对齐）——
+            // 按最坏节点大小预留，避免批量写入到一半 arena.putNode 抛溢出（那样 WAL 已写、
+            // 条目却进不了 skiplist，失败事务的数据会在崩溃 replay 时被复活）。
+            let reserve = encSize + Int64(key.size) + MAX_NODE_SIZE + NODE_ALIGN + 8
+            let remaining = Int64(arena.size) - Int64(arena.usedSize()) - totalReserved
+            if (reserve > remaining) {
+                break
+            }
+            encodedList.add(enc)
+            totalReserved += reserve
+            projectedData += encSize + Int64(key.size)
+            accepted++
+            i++
+        }
+        if (accepted == 0) {
+            return 0
+        }
+        
+        if (!opt.DisableWAL && !replaying.load()) {
+            if (let Some(w) <- wal) {
+                let keys = ArrayList<Array<Byte>>()
+                let values = ArrayList<Array<Byte>>()
+                for (j in 0..accepted) {
+                    keys.add(entries[start + j][0])
+                    values.add(encodedList[j])
+                }
+                // 整批一次映射写 + 一次 sync（分组提交：N 个提交共享一次 msync）
+                w.writeBatch(keys, values)
+                if (opt.SyncWrites) {
+                    w.sync()
+                }
+            }
+        }
+        
+        for (j in 0..accepted) {
+            let (key, vs) = entries[start + j]
+            let enc = encodedList[j]
+            if (vs.version > maxVersion.load()) {
+                maxVersion.store(vs.version)
+            }
+            let offset = arena.putBytes(enc)
+            let value = (UInt64(offset) << 32) | UInt64(UInt32(enc.size))
+            table.add(key, value)
+            sizeInBytes_.fetchAdd(UInt64(key.size + enc.size))
+        }
+        accepted
+    }
+    
+    /** memtable 剩余 arena 字节（写入路径分段用）。 */
+    public func remainingArena(): Int64 {
+        Int64(arena.size) - Int64(arena.usedSize())
     }
     
     public func get(key: Array<Byte>): ?ValueStruct {

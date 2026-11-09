@@ -238,6 +238,57 @@ public class WAL {
         }
     }
 
+    /** 把攒好的整段字节写入当前段（调用方持 lock）。 */
+    private func writePending(pending: ArrayList<Byte>): Unit {
+        let data = pending.toArray()
+        if (mmap.isSome()) {
+            let m = mmap ?? throw Exception("WAL not open for write")
+            m.write(data, writeOffset)
+        } else if (let Some(b) <- buf) {
+            b.write(data)
+        } else {
+            throw Exception("WAL not open for write")
+        }
+        writeOffset += Int64(data.size)
+    }
+    
+    /**
+     * 批量追加：整批只取一次锁，连续条目合并成一次映射写（分组提交的 WAL 侧）。
+     *
+     * 批内按**条目边界**切段：单条记录不允许跨段，放不下就先把已攒字节落进当前段，
+     * 再 rotate 到新段继续。崩溃时 replay 的 scanValidLength 仍按条目边界截断。
+     */
+    public func writeBatch(keys: ArrayList<Array<Byte>>, values: ArrayList<Array<Byte>>): Unit {
+        if (keys.size == 0) {
+            return
+        }
+        lock.lock()
+        try {
+            var pending = ArrayList<Byte>()
+            for (i in 0..keys.size) {
+                let encoded = LogEntry(keys[i], values[i]).encode()
+                let need = Int64(encoded.size)
+                if (writeOffset + Int64(pending.size) + need > capacity) {
+                    if (pending.size > 0) {
+                        writePending(pending)
+                        pending = ArrayList<Byte>()
+                    }
+                    if (writeOffset + need > capacity) {
+                        rotate(need)
+                    }
+                }
+                for (b in encoded) {
+                    pending.add(b)
+                }
+            }
+            if (pending.size > 0) {
+                writePending(pending)
+            }
+        } finally {
+            lock.unlock()
+        }
+    }
+    
     /**
      * 落盘缓冲。mmap 后端写即入映射、无用户态缓冲，此方法为空操作（语义保持，调用方无需分支）。
      */
