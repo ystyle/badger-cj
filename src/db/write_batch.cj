@@ -18,13 +18,16 @@ public class WriteBatch {
     private var pendingSize: Int64
     private var error: ?String
     private var canceled: Bool
+    // managed DB：所有切分出来的事务都以该 commitTs 提交（对齐 go WriteBatch.commitTs）
+    private let commitTs: ?UInt64
 
-    protected init(db: Badger) {
+    protected init(db: Badger, commitTs!: ?UInt64 = None) {
         this.db = db
         this.entries = ArrayList<Entry>()
         this.pendingSize = 0
         this.error = None
         this.canceled = false
+        this.commitTs = commitTs
     }
 
     public func set(key: Array<Byte>, value: Array<Byte>): Unit {
@@ -66,11 +69,25 @@ public class WriteBatch {
         entries.clear()
         pendingSize = 0
         try {
-            db.updateOrThrow({ txn =>
-                for (e in batch) {
-                    txn.setEntry(e)
-                }
-            })
+            match (commitTs) {
+                case Some(ts) =>
+                    // managed：以指定 commitTs 提交；readTs 同用该 ts（managed 不做冲突检测）
+                    let txn = db.newTransactionAt(ts, update: true)
+                    for (e in batch) {
+                        txn.setEntry(e)
+                    }
+                    match (txn.commitAt(ts)) {
+                        case TxnStatus.Ok => ()
+                        case TxnStatus.Conflict => throw TxnConflict()
+                        case TxnStatus.Error(msg) => throw Exception(msg)
+                    }
+                case None =>
+                    db.updateOrThrow({ txn =>
+                        for (e in batch) {
+                            txn.setEntry(e)
+                        }
+                    })
+            }
         } catch (e: Exception) {
             error = Some(e.message)
             throw e

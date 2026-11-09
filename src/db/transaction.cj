@@ -145,6 +145,8 @@ public class Transaction {
         let txnState = TxnState(readTs)
         txnState.reads = reads
         txnState.conflictKeys = conflictKeys
+        // managed DB：提交时间戳由调用方（commitAt）决定，oracle.newCommitTs 直接取它
+        txnState.commitTs = this.commitTs
         
         let tsOpt = oracle.newCommitTs(txnState)
         if (tsOpt.isNone()) {
@@ -179,6 +181,18 @@ public class Transaction {
             case Some(msg) => TxnStatus.Error(msg)
             case None => TxnStatus.Ok
         }
+    }
+    
+    /**
+     * managed DB 专用：以指定 commitTs 提交（对齐 go Txn.CommitAt）。
+     * 非 managed 库调用直接抛异常——自动提交时间戳由 oracle 分配。
+     */
+    public func commitAt(commitTs: UInt64): TxnStatus {
+        if (!oracle.managed()) {
+            throw BadgerException.invalidConfig("commitAt is only allowed for managed DB")
+        }
+        this.commitTs = commitTs
+        commit()
     }
     
     public func commitOrThrow(): Unit {

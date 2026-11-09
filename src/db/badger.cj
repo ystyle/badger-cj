@@ -98,7 +98,7 @@ public class Badger <: VLogGCDB {
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
         this.nextFileID = AtomicUInt64(manifest.nextFileID)
-        this.oracle = Oracle(detectConflicts: opt.DetectConflicts)
+        this.oracle = Oracle(isManaged: opt.ManagedTxns, detectConflicts: opt.DetectConflicts)
         this.vlog = vlog
         this.writeCh = CloseableBlockingQueue<WriteRequest>(10000)
         this.running = AtomicBool(false)
@@ -700,6 +700,10 @@ public class Badger <: VLogGCDB {
     
     /** 创建用户侧批量写入对象（自动按单事务上限切分；见 WriteBatch 文档）。 */
     public func newWriteBatch(): WriteBatch {
+        if (oracle.managed()) {
+            throw BadgerException.invalidConfig(
+                "newWriteBatch is not allowed for managed DB; use newWriteBatchAt(commitTs)")
+        }
         WriteBatch(this)
     }
     
@@ -822,6 +826,57 @@ public class Badger <: VLogGCDB {
     
     protected func flushWAL(): Unit {
         mt.flushWAL()
+    }
+    
+    /** managed 模式打开（对齐 go OpenManaged）：事务时间戳由调用方指定。 */
+    public static func openManaged(opt: Config): Badger {
+        var managedOpt = opt
+        managedOpt.ManagedTxns = true
+        Badger.open(managedOpt)
+    }
+    
+    public func isManaged(): Bool {
+        oracle.managed()
+    }
+    
+    /** managed 专用：以指定 readTs 开事务（对齐 go NewTransactionAt）。 */
+    public func newTransactionAt(readTs: UInt64, update!: Bool = true): Transaction {
+        if (!oracle.managed()) {
+            throw BadgerException.invalidConfig("newTransactionAt is only allowed for managed DB")
+        }
+        Transaction(this, update: update, readTs: readTs)
+    }
+    
+    /** managed 专用：设置 discard 水位（<= ts 的旧版本可被 compaction 丢弃）。 */
+    public func setDiscardTs(ts: UInt64): Unit {
+        oracle.setDiscardTs(ts)
+    }
+    
+    /**
+     * 创建单调递增序列（对齐 go GetSequence）；managed DB 不支持。
+     * 序列值直接存在传入的 key 上（大端 uint64 租约）。
+     */
+    public func getSequence(key: Array<Byte>, bandwidth: UInt64): Sequence {
+        if (oracle.managed()) {
+            throw BadgerException.invalidConfig("Cannot use getSequence with managed DB")
+        }
+        if (key.size == 0) {
+            throw BadgerException.invalidConfig("Sequence key cannot be empty")
+        }
+        if (bandwidth == 0) {
+            throw BadgerException.invalidConfig("Sequence bandwidth cannot be zero")
+        }
+        let seq = Sequence(this, key, bandwidth)
+        seq.ensureLease()
+        seq
+    }
+    
+    /** managed 专用：创建以 commitTs 提交的 WriteBatch（对齐 go NewWriteBatchAt）。 */
+    public func newWriteBatchAt(commitTs: UInt64): WriteBatch {
+        if (!oracle.managed()) {
+            throw BadgerException.invalidConfig("newWriteBatchAt is only allowed for managed DB")
+        }
+        WriteBatch(this, commitTs: Some(commitTs))
     }
     
     public func newTransaction(update!: Bool = true): Transaction {
