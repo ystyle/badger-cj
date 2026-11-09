@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-11-09  
-**当前阶段：** ✅ **v2.0.0 已发布**（2.x 主线 = master，2026-11-09 由 v2 特性分支 FF 合并；1.x 维护线 = release/1.6，基 v1.6.23）。阶段 0-7 完成、全量 452/452；后续功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
+**当前阶段：** ✅ **v2.0.0 已发布**（2.x 主线 = master，2026-11-09 由 v2 特性分支 FF 合并；1.x 维护线 = release/1.6，基 v1.6.23）。2.0.1 已发布（中心仓索引/制品核验、sha256 一致、tag v2.0.1）；全量 455/455；后续功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
 
 ---
 
@@ -394,6 +394,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-09 | master | **v2.0.1 发布（发布后问题 patch）**：compaction 摘表后先 close 再 unlink 回收废弃 .sst + open 时按 manifest 清理孤儿表（d1293a5）；memtable arena 对齐 go 公式 2x→约 1.32x（7ee2c88）；README 写明 user key 不应互为前缀。全量 455/455。私有仓预演→中心仓 publish success→索引含 2.0.1、制品 HTTP 200、sha256 与本地一致（e3ee8c2b…）→ tag v2.0.1 推 origin/GitHub。 |
 | 2026-11-09 | fix/2.0.1 | **2.0.1 进行中（发布后问题 patch）**：① **P0-1 .sst 回收**——compaction 摘表后先 close 再 unlink、open 时按 manifest 清理孤儿表；新增 table_cleanup_test（多轮压缩后 sst 数 == 活表数、孤儿被清理、数据完整），全量 454/454 连跑 3 轮绿（d1293a5）。② **P1-5 arena 对齐 go 公式**——2xMemTableSize → MemTableSize+15%+15%（约 1.32x，默认 64MB 时单 memtable 128MB → 约 84MB）；WAL 段容量仍 2x；shouldFlush 改按 arena 用量（go 语义）；新增 MemtableArenaTest；A/B 9 轮写吞吐 +0.76%、p=0.85 不显著；全量 455/455 连跑 2 轮绿（7ee2c88）。③ P0-3 Windows close->unlink 契约已随 P0-1 落地，待 Windows CI 验证。 |
 | 2026-11-09 | master | **v2.0.0 发布**：私有仓预演 → 制品逐字节核对（197 项、无 docs/scripts/AGENTS）→ 中心仓 publish success → 索引含 2.0.0、制品 HTTP 200、sha256 与本地一致 → tag v2.0.0 推 origin/GitHub。 |
 | 2026-11-09 | master | **分支收口**：v2 特性分支 FF 合并进 master（master = 2.x 主线）；从 v1.6.23（fcb2ba0）切出 release/1.6 作 1.x 维护线（只接 hotfix）；删除两远端特性分支。tag v2.0.0 仍在 c9e2f3f（发版提交）。 |
