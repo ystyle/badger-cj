@@ -266,18 +266,18 @@ protected class Compaction {
         let result = ArrayList<TableInterface>()
         let manifestChanges = ManifestChangeSet()
         
-        let allEntries = ArrayList<(Array<Byte>, ValueStruct)>()
-        
+        let builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
+        // k 路归并输入：各表本身按键有序，流式合并即可，不必把 top+bot 全表读进
+        // ArrayList 再冒泡排序（旧实现峰值内存 O(总条目数)、时间 O(n²)）。
+        let mergeIters = ArrayList<SimpleIterator>()
         for (t in cd.top) {
-            collectEntriesFromTable(t, allEntries)
+            mergeIters.add(TableIterWrapper(t.newIterator()))
         }
         for (t in cd.bot) {
-            collectEntriesFromTable(t, allEntries)
+            mergeIters.add(TableIterWrapper(t.newIterator()))
         }
-        
-        sortEntries(allEntries)
-        
-        let builder = TableBuilder(bloomFalsePositive: db.getOpt().BloomFalsePositive, compression: db.getOpt().Compression)
+        let merger = MergeIterator(mergeIters)
+        merger.rewind()
         var lastKey: Array<Byte> = []
         // 本轮丢弃的旧版本里，值在 vlog 中的字节数按 fid 累计——VLog GC 靠它判断哪段垃圾多。
         let discardStats = HashMap<UInt32, Int64>()
@@ -286,20 +286,26 @@ protected class Compaction {
         // 记录整批复活，连 id 都不变）。非最底层一律把 tombstone 写进新表继续压制。
         let bottomMost = cd.nextLevel >= db.getOpt().MaxLevels - 1
         
-        for ((key, vs) in allEntries) {
+        while (merger.valid()) {
+            let key = merger.key()
+            let vs = ValueStruct.decode(merger.value())
             // 同一个 key 的后续条目都是更旧的版本：**无论上一条有没有被写入**都要跳过。
             // 必须先判重再更新 lastKey —— 反过来的话，「丢弃 tombstone」的同一轮里更旧的
             // 值会被当成新 key 写进新表，就是删除复活的机制。
             if (lastKey.size > 0 && sameKey(key, lastKey)) {
                 Compaction.accumulateDiscard(discardStats, vs)
+                merger.next()
                 continue
             }
-            lastKey = key
+            // merger 可能复用 key 缓冲，lastKey 必须持有独立副本
+            lastKey = key.clone()
             if (isDeletedOrExpired(vs.meta, vs.expiresAt) && bottomMost) {
                 Compaction.accumulateDiscard(discardStats, vs)
+                merger.next()
                 continue
             }
             builder.add(key, vs)
+            merger.next()
         }
         
         let data = builder.finish()
@@ -336,36 +342,6 @@ protected class Compaction {
         let vp = ValuePointer.decode(vs.value)
         let current: Int64 = if (stats.contains(vp.fid)) { stats[vp.fid] } else { 0 }
         stats[vp.fid] = current + Int64(vp.len)
-    }
-    
-    private func collectEntriesFromTable(table: TableInterface, entries: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
-        let iter = table.newIterator()
-        iter.seekFirst()
-        while (iter.isValid()) {
-            let key = iter.key()
-            if (let Some(vs) <- iter.valueStruct()) {
-                entries.add((key, vs))
-            }
-            iter.next()
-        }
-    }
-    
-    private func sortEntries(entries: ArrayList<(Array<Byte>, ValueStruct)>): Unit {
-        var i: Int64 = 0
-        while (i < entries.size - 1) {
-            var j: Int64 = i + 1
-            while (j < entries.size) {
-                let (keyI, _) = entries[i]
-                let (keyJ, _) = entries[j]
-                if (compareKeys(keyI, keyJ) > 0) {
-                    let tmp = entries[i]
-                    entries[i] = entries[j]
-                    entries[j] = tmp
-                }
-                j++
-            }
-            i++
-        }
     }
     
     private func deleteTables(handler: LevelHandler, tables: ArrayList<TableInterface>): Unit {
