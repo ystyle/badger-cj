@@ -180,3 +180,35 @@ python3 scripts/bench/heap-sweep.py --bisect \
 
 线上自查：`db.getStats()` 的 `MemTableArenaBytes`（arena 分配总量）、`MemTableUsedBytes`（已用）、
 `MaxBatchBytes`（单批最大预留）；`/proc/<pid>/status` 的 `VmHWM` 是进程峰值 RSS。
+## 10. 后续方向：arena 原生化，以及「编译期开关」怎么选
+
+### 10.1 不要用 cjpm 的 source-set / features
+
+已在 **mmap-cj** 上实测并回退（第一手证据，不是文档推理）：
+
+- `fcb774e` 把 mmap-cj 重构成 source-set 跨平台结构（三个平台各一个源码集），自身构建/测试能过；
+- `698e673` 又**回退**为「单 src + `@When` 条件编译」。commit 原文给的原因：
+  source-set 是 cjpm 的 **experimental** 特性，**消费者必须同样声明 `[profile] experimental = true`**
+  才能编译本库，否则直接报 `path of src directory 'src' ... does not exist`；而该特性正式发布尚需时间；
+- v1.1.0（`cc40de1`）起固定为单 src + `@When`：SDK 自带 cjpm 即可构建，macOS/Windows CI 双绿。
+
+对 badger-cj 的推论：我们的库是给下游用的，**不能要求每个消费方打开 experimental**——这条路直接排除。
+
+### 10.2 平台差异用 `@When`，用户可选走 `Config`
+
+| 切分维度 | 机制 | 成本 |
+|---|---|---|
+| **OS/架构**（Linux `mmap(MAP_ANONYMOUS)` vs Windows `VirtualAlloc`） | `@When[os == ...]`（内置条件） | 零配置、消费方无感；mmap-cj 已验证 |
+| **用户选择**（要不要用原生 arena） | 运行时 `Config.arenaBackend` | 一份二进制、CI 一条矩阵 |
+| 用户选择（误用编译期 cfg） | `@When[自定义cfg]` | 未定义=编译错误；库定义后消费方无法覆盖（`user defined condition's key can not repeat`）；只能全局一份值 |
+
+**推荐形态**：编译期只处理平台差异（`@When`），运行期用一个 `Config.arenaBackend` 决定是否启用原生 arena。
+
+### 10.3 收益、代价与优先级
+
+- **收益**：默认配置（64MB × 5 张）arena 约 420MB 堆占用 → 0；而生产 OOM 的本质正是
+  「堆上限 256MB、live 只有 30~60MB、峰值却没余量」（忆时塔 `library/570` 记录）。
+- **代价**：手工生命周期 + 跨平台 FFI；越界从「抛数组越界异常」变成「进程崩溃」，需要专门的边界/模糊用例与
+  ASan 类验证；GC 不再追踪这块内存（arena 里只放纯字节，前提已满足）。
+- **优先级**：2.3.0 先做低风险两件（流式落盘翻默认、预留收紧），arena 原生化单独一轮（2.4）。
+
