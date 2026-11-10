@@ -71,10 +71,15 @@ def run_once(binary: str, args: str, workdir: str, data_dir: str, heap: str) -> 
     proc = subprocess.run(["unshare", "-rm", "bash", "-c", cmd],
                           capture_output=True, text=True, timeout=1800)
     output = proc.stdout + proc.stderr
+    # 合并进程内**全部** RESULT 行（同名键取最后一次）：探针可能分阶段输出
+    # （phase=start / phase=write / phase=compact …），只看第一行会漏掉真正要比的指标。
+    merged: dict[str, float] = {}
     for line in output.splitlines():
         metrics = parse_metrics(line)
         if metrics:
-            return metrics
+            merged.update(metrics)
+    if merged:
+        return merged
     raise RuntimeError(f"no RESULT line from {binary} {args}:\n{output[-2000:]}")
 
 
