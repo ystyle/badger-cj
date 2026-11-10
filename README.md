@@ -616,49 +616,53 @@ db.Backup(incrementalFile, since: lastBackupVersion)
 | `arenaGrowthStartBytes` | 256 KB | 2.2 arena 渐进扩容起点（首张 memtable 用该值，每轮换翻倍、封顶目标值）；0 = 关闭渐进。单条大于当前 arena 时按需抬升 |
 | `streamingSSTable` | false | 2.2 流式落盘：flush/compaction 边构建边写文件，不再留整表副本；低堆/大表场景建议开 |
 
-## 内存使用
+## 容量规划与调参（cjHeapSize / memTableSize / numMemtables）
 
-**每个库的常驻内存 ≈ arena（约 1.3 × memTableSize）+ 仓颉 GC 堆开销：**
+> 详细版（内存分布、实测最小堆表、症状对照、与 Go 的差异）：[`docs/sizing.md`](docs/sizing.md)
 
-| 项 | 默认值 | 说明 |
-|------|--------|------|
-| `memTableSize` | 64 MB | 单个 MemTable 上限 |
-| arena 目标值 | **memTableSize + 15% 批次预留（约 1.3 × memTableSize；默认 64MB 表约 84MB/库）** | 对齐 badger-go 的 arenaSize()；每张 memtable 用满即轮换 |
-| `arenaGrowthStartBytes` | 256 KB | 2.2 起 arena **渐进扩容**：首张 memtable 用该值，每轮换翻倍、封顶目标值；**0 = 关闭渐进**。单条条目比当前 arena 大时按需抬升（大 value 内联不受起点限制） |
-| `blockCacheSizeMB` | 0（关闭） | 2.1 块缓存：LRU 缓存热 block，把 mmap 随机读拉回堆内水平（128MB 数据 113 → 37 µs/Get）；生产建议 64–256 |
-| 仓颉 GC 堆上限 | **256 MB（默认）** | 仓颉运行时默认堆上限，arena 等原生内存之外的 GC 托管对象均在此配额内 |
+**三句话：**
 
-**仓颉 GC 堆调参（进程级环境变量）：**
+1. 仓颉 GC 堆有**硬上限**（`cjHeapSize`，默认 **256MB**），超了就是 `OutOfMemoryError`——运行时不会按机器内存自动放（这点与 Go 不同）。
+2. **memtable arena 落在 GC 堆里**（底层是 `Array<Byte>`）：每张表约 `1.32 × memTableSize`，在途最多 `numMemtables + 1` 张，这是堆里最大的单项。
+3. **表越大越贵**：4MB 表 48MB 堆可跑，16MB 表要 192~256MB，64MB 表要 768MB 起。低堆部署优先「小表 + 流式落盘」。
 
-```shell
-export cjHeapSize=2GB            # 提高 GC 堆上限（默认 256MB）
-export cjGCThreshold=1GB         # 触发 GC 的堆阈值（配套）
-export cjGCInterval=100ms        # GC 轮询间隔（配套）
-export cjBackupGCInterval=200ms  # 后台 GC 间隔（配套）
+**下限公式（够不够用的判据，实际再留 1.3 倍余量）：**
+
+```text
+cjHeapSize ≥ 32MB                                    # 运行时基线
+           + 1.32 × memTableSize × (1 + numMemtables) # memtable arena
+           + blockCacheSizeMB                         # 块缓存（也在 GC 堆里）
+           + 单批条目字节（≈ 批大小 × 值大小）
+           + flush 额外：流式 ≈ 0.5 × memTableSize；整表字节 ≈ 2.5 × memTableSize
 ```
 
-> 具体环境变量名以当前仓颉运行时版本为准（可用 `cjpm build` 后观察 GC 日志确认）。
+**预算 → 推荐配置（实测最小可用堆；1KB 值、每事务 100 条的写入负载）：**
 
-**嵌入式 / 低内存 / 多库场景建议：**
-
-- 调小 `memTableSize`：`Config().withMemTableSize(16 * 1024 * 1024u64)`（16MB，arena 目标约 21MB；首张表从 256KB 渐进）或 `4 * 1024 * 1024u64`（4MB，arena 目标约 5.3MB）
-
-**低堆 / 大表场景：流式落盘（2.2，建议开启）**
-
-Config(streamingSSTable: true) 让 flush/compaction 边构建边写文件（io_uring 分段提交，失败回退同步写），不再在内存里多留一份整表副本。低堆下这是决定性的（实测 128MB 堆、写 24MB）：
-
-| memTableSize | NumMemtables | 整表字节（默认） | 流式落盘 |
+| 可给 `cjHeapSize` | `memTableSize` | `numMemtables` | 备注 |
 |---|---|---|---|
-| 4MB | 2 | OOM | 通过（632ms） |
-| 4MB | 5 | OOM | OOM |
-| 16MB | 2 | OOM | OOM |
-| 16MB | 5 | OOM | OOM |
+| 64MB | 1~2MB | 2 | 嵌入式 / 多库 / CI |
+| 128MB | 4MB | 2~3 | 实测 4MB + 2 表在 48MB 即通过 |
+| 256MB（仓颉默认） | 8~16MB | 2~3 | **默认 64MB 表在这里跑不动** |
+| 512MB | 16~32MB | 2~3 | |
+| 1GB | 32~64MB | 2~3 | 64MB 表 + 流式在此可跑 |
+| 2GB+ | 64MB（默认） | 5（默认） | 默认配置的舒适区 |
 
-注意：流式落盘解决的是「单次 flush 的整表副本」，memtable 集合本身超堆仍需调小 memTableSize / NumMemtables（上表后三行即为此）。
-- 同时打开多个库时，总内存 ≈ 每个库各一份 arena，请按库数量折算
-- 降低 `cjHeapSize` 可以让 GC 更早回收，但会提高 GC 频率，需按写入负载权衡
-- 纯缓存场景可用 `inMemory: true` 关闭磁盘持久化，但 arena 占用不变
-- 2.0 起 SSTable/VLog/WAL 走 mmap（`mmapSSTable/mmapVLog/mmapWAL` 默认开）：表数据与段数据在页缓存，不占 GC 堆；关闭 mmap 会回退到堆内数组/无缓冲 File 写
+**默认配置的坑**：库默认 `memTableSize=64MB`、`numMemtables=5`，arena 上限约 420MB——已超默认 256MB 堆，
+写到第一次大 flush 就会 OOM 或长时间卡住（flush 反复重试）。三条路：给够堆（`cjHeapSize ≥ 1GB`）、
+调小表（8~16MB + `numMemtables` 2~3）、或开流式落盘（`streamingSSTable: true`：同堆下能跑更大的表，
+compaction 峰值 RSS 低 3 倍）。
+
+**设堆（进程级环境变量）：**
+
+```shell
+export cjHeapSize=1GB            # 堆上限（默认 256MB）
+export cjGCThreshold=768MB       # 触发 GC 的阈值（一般取堆的 70~80%）
+export cjGCInterval=100ms
+export cjBackupGCInterval=200ms
+```
+
+> 容器内存要按「堆 + mmap（WAL/VLog/SST 页缓存）」设：经验是 `cjHeapSize ≈ 容器限额的 60~70%`，
+> 只按 `cjHeapSize` 设容器限额会在高负载时被 OOM-kill。
 
 ## 事务 ACID 特性
 
