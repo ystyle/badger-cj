@@ -231,6 +231,8 @@ for (l in levels) {
 let st = db.getStats()
 println("gets=${st.Gets} flushes=${st.Flushes} compactions=${st.Compactions}")
 println("memtable=${st.MemTableBytes}B imm=${st.ImmCount} tables=${st.TableCount} bytes=${st.TableBytes}")
+// arena：已用 / 分配（之比即利用率；MaxBatchBytes = 历史最大单批预留，用于判断预留是否过肥）
+println("arena used=${st.MemTableUsedBytes}B allocated=${st.MemTableArenaBytes}B maxBatch=${st.MaxBatchBytes}B")
 println("blockCache hits=${st.BlockCache.Hits} misses=${st.BlockCache.Misses} used=${st.BlockCache.UsedBytes}B")
 for (ls in st.Levels) {
     println("Level ${ls.Level}: ${ls.TableCount} tables, ${ls.Bytes} bytes")

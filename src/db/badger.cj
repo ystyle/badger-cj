@@ -41,6 +41,8 @@ public class Badger <: VLogGCDB {
     private let getCount: AtomicInt64
     private let flushCount: AtomicInt64
     private let compactCount: AtomicInt64
+    // 历史最大单批 arena 预留字节（P1-4 调优输入：目标容量里的批次预留是否过肥）
+    private let maxBatchObserved: AtomicInt64
     private let lock: ReadWriteLock
     private var mt: MemTable
     private let imm: ArrayList<MemTable>
@@ -108,6 +110,7 @@ public class Badger <: VLogGCDB {
         this.getCount = AtomicInt64(0)
         this.flushCount = AtomicInt64(0)
         this.compactCount = AtomicInt64(0)
+        this.maxBatchObserved = AtomicInt64(0)
         this.lock = ReadWriteLock()
         this.imm = ArrayList<MemTable>()
         this.version = AtomicUInt64(1)
@@ -634,8 +637,23 @@ public class Badger <: VLogGCDB {
             case Some(c) => BlockCacheStats(c.hits(), c.misses(), c.used())
             case None => BlockCacheStats(0, 0, 0)
         }
+        // arena 利用率（P1-4 判据）：当前 memtable + imm 的已用 / 分配总量。
+        // imm 的增删在写锁内（轮换入队 / flusher 出队），遍历必须持读锁——
+        // 否则并发 flush 会让 ArrayList 迭代抛 ConcurrentModificationException。
+        var mtUsed: Int64 = Int64(mt.sizeInBytes())
+        var mtArena: Int64 = mt.arenaCapacity()
+        lock.readLock.lock()
+        try {
+            for (t in imm) {
+                mtUsed += Int64(t.sizeInBytes())
+                mtArena += t.arenaCapacity()
+            }
+        } finally {
+            lock.readLock.unlock()
+        }
         Stats(getCount.load(), flushCount.load(), compactCount.load(),
-            Int64(mt.sizeInBytes()), immCount.load(), levelStats, tables, tableBytes, cacheStats)
+            Int64(mt.sizeInBytes()), mtUsed, mtArena, immCount.load(), levelStats, tables, tableBytes,
+            cacheStats, maxBatchObserved.load())
     }
     
     /** Block Cache 当前占用字节数（诊断/测试用；关闭时为 0）。 */
@@ -1373,6 +1391,13 @@ public class Badger <: VLogGCDB {
                 }
                 if (!needRoom) {
                     take = mt.putBatch(prepared, idx)
+                    if (take > 0) {
+                        // P1-4：记录实际用到的最大单批预留（调优判据，热路径上一条原子写）
+                        let reserved = mt.maxBatchReserved()
+                        if (reserved > maxBatchObserved.load()) {
+                            maxBatchObserved.store(reserved)
+                        }
+                    }
                 }
             } finally {
                 lock.writeLock.unlock()

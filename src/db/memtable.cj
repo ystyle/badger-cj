@@ -23,6 +23,9 @@ protected class MemTable {
     private let wal: ?WAL
     private let replaying: AtomicBool
     private let maxVersion: AtomicUInt64
+    // 单次 putBatch 的最大 arena 预留字节（含节点开销）：P1-4 arena 调优的输入——
+    // 目标容量里为批次预留的空间是否远大于实际需要，就用它和这个观测值比。
+    private let maxBatchReserved_: AtomicInt64
     // 异步 flusher 完成标志：落盘 + addTable + imm 出队后由 db 置位（dequeueFlushed）。
     // 供 flushMemTable() 精确等待"本表已持久可读"（水位等待无法区分队列中其它表
     // 的出队，会提前返回）。
@@ -65,6 +68,7 @@ protected class MemTable {
         this.sizeInBytes_ = AtomicUInt64(0)
         this.replaying = AtomicBool(false)
         this.maxVersion = AtomicUInt64(0)
+        this.maxBatchReserved_ = AtomicInt64(0)
         this.flushDone = AtomicBool(false)
         
         if (opt.DisableWAL) {
@@ -174,6 +178,9 @@ protected class MemTable {
         if (accepted == 0) {
             return 0
         }
+        if (totalReserved > maxBatchReserved_.load()) {
+            maxBatchReserved_.store(totalReserved)
+        }
         
         if (!opt.DisableWAL && !replaying.load()) {
             if (let Some(w) <- wal) {
@@ -216,6 +223,11 @@ protected class MemTable {
      */
     public func arenaCapacity(): Int64 {
         Int64(arena.size)
+    }
+    
+    /** 本表经历过的最大单批 arena 预留（含节点开销；P1-4 调优输入）。 */
+    public func maxBatchReserved(): Int64 {
+        maxBatchReserved_.load()
     }
     
     public func get(key: Array<Byte>): ?ValueStruct {

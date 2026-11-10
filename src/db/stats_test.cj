@@ -55,6 +55,13 @@ class StatsTest {
             sum += ls.TableCount
         }
         @Assert(sum, st.TableCount)
+        // arena 观测（P1-4）：分配量必须 ≥ 已用量；批量写入后应记录到单批预留
+        @Assert(st.MemTableArenaBytes >= st.MemTableUsedBytes, true)
+        @Assert(st.MemTableArenaBytes > 0, true)
+        @Assert(st.MaxBatchBytes > 0, true)
+        println("[stats] arena=" + st.MemTableArenaBytes.toString() +
+            " used=" + st.MemTableUsedBytes.toString() +
+            " maxBatch=" + st.MaxBatchBytes.toString())
         db.close()
         cleanupDir(dir)
     }
