@@ -394,6 +394,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-10 | master | **2.4 arena 原生化设计稿**：`docs/plans/2026-11-10-arena-native-design.md`（205 行）——证据（arena 是 GC 堆最大单项，默认配置 341MB；生产 OOM 形态是「堆没余量」）、方案（Arena 后端抽象：Gc/Native；`malloc/free` 三平台统一；释放挂 `MemTable.decrRef`；保留显式边界检查 + `@When[test]` canary）、默认值策略（2.4.0 默认 Gc，翻默认 5 条判据）、验收（最小堆 768→≤256MB 等 6 项）、风险对策、分期 A/B/C、触发条件（cjvs 1.3.0 窗口）。**只出设计，不实现** |
 | 2026-11-10 | master | **v2.3.0 发布**：私有预演（制品 186 文件 = cjpm.toml/README/LICENSE/src，sha256 7857aa5e…）→ 中心仓 publish success → 索引含 2.3.0、制品 HTTP 200、下载 sha256 与本地一致 → tag v2.3.0 推 origin/GitHub。闸门：本仓 481/481、下游 5 库 + 忆时塔/cjreg 全绿、GitHub CI(Linux) 绿 |
 | 2026-11-10 | master | **2.3.0：流式落盘默认开 + 批次预留封顶 2MB**（P1-2 / P1-4 落地，只改默认与公式，无新子系统）：① `Config.StreamingSSTable` 默认 true（关掉回退整表字节路径）；② 批次预留改 `min(15%·MemTableSize, 2MB)`，新增 `Config.MemTableBatchReserveBytes`（0=自动，>0 显式、上限 MemTableSize），公式收敛到唯一来源 `arena_sizing.cj`（原 MemTable/Badger 各写一份，易漂移）；③ 新增用例 `arena_sizing_test`（6 例）。实测（同二进制只改预留）：64MB 表 arena 84.2→68.2MB（-19%）、5 张合计 421→341MB、峰值 RSS 644→611MB；16MB 表 -4%；4MB 表不变；**堆边界不变**（预留省的是稳态占用）。全量 481/481 |
 | 2026-11-10 | master | **容量调参文档**：新增 `docs/sizing.md`（内存分布 / 下限公式 / 实测最小堆网格 / 预算→推荐配置 / 默认配置的坑 / 进程与容器设堆 / 症状对照 / 与 Go 的差异）+ README「容量规划与调参」摘要章节（详情链接）；`heap-sweep.py` 加 `--bisect` 自动二分最小可用堆。实测网格：4MB 表 48MB（流式）/96MB（整表），16MB 表 192~256MB，64MB 表 768MB/1024MB；默认 64MB+5 张的 arena 上限约 420MB > 仓颉默认 256MB 堆 |
