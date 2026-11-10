@@ -38,21 +38,9 @@ protected class MemTable {
         this.fid = fid
         this.walExists = walExists
         
-        // arena 大小对齐 badger-go 的 arenaSize()：
-        //   MemTableSize + maxBatchSize + maxBatchCount*MaxNodeSize
-        // 旧实现固定 2x MemTableSize，导致每个 memtable 的堆占用约为 go 的 2 倍
-        // （默认 64MB 时单个 arena 就是 128MB，NumMemtables=5 的背压上限下峰值可达
-        //  约 640MB）。多出来的那部分预留是给「一批写入的 skiplist 节点开销」的，
-        // 公式里的 maxBatchSize/maxBatchCount 已经覆盖，不需要 2 倍。
-        var maxBatchSize = Int64(opt.MemTableSize) * 15 / 100
-        if (maxBatchSize < 1024) {
-            maxBatchSize = 1024
-        }
-        var maxBatchCount = maxBatchSize / 96
-        if (maxBatchCount < 1) {
-            maxBatchCount = 1
-        }
-        let targetArenaSize = Int64(opt.MemTableSize) + maxBatchSize + maxBatchCount * MAX_NODE_SIZE
+        // arena 目标容量：共享公式在 arena_sizing.cj（MemTable 与 Badger 同一来源，避免漂移）。
+        // 2.3 起批次预留改为 min(15% × MemTableSize, 2MB)，见 arenaTargetBytes 的说明。
+        let targetArenaSize = arenaTargetBytes(opt)
         let arenaSize = if (arenaBytes > 0 && arenaBytes < targetArenaSize) {
             arenaBytes
         } else {

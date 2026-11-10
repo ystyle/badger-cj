@@ -6,14 +6,14 @@
 ## 0. 先记住三句
 
 1. **仓颉的 GC 堆是有硬上限的**（`cjHeapSize`，默认 256MB），超了就是 `OutOfMemoryError`，运行时不会像 Go 那样按机器内存自己放。
-2. **memtable arena 就落在 GC 堆里**（底层是 `Array<Byte>`），每张表约 `1.32 × memTableSize`，在途表最多 `numMemtables + 1` 张 → 这是堆里最大的单项。
+2. **memtable arena 就落在 GC 堆里**（底层是 `Array<Byte>`），每张表 = `memTableSize + 批次预留 + 节点项`（小表约 1.32×；2.3 起大表约 1.05~1.07×），在途表最多 `numMemtables + 1` 张 → 这是堆里最大的单项。
 3. **表越大越贵，且不是线性感觉上的贵**：4MB 表 48MB 堆能跑，16MB 表要 192~256MB，64MB 表要 768MB 起（见 §3 实测表）。低堆部署优先「小表 + 流式落盘」。
 
 ## 1. 内存都花在哪
 
 | 区域 | 归属 | 计入 `cjHeapSize`？ | 随什么增长 |
 |---|---|---|---|
-| memtable arena | GC 堆 | **是** | `1.32 × memTableSize × (1 + numMemtables)` |
+| memtable arena | GC 堆 | **是** | 每张 `memTableSize + 预留 + 节点项`，再 × (1 + numMemtables)（见 §2） |
 | skiplist 节点索引（`AtomicStorage`） | GC 堆 | **是** | 条目数（值越小，单条开销占比越大） |
 | flush/compaction 建表临时对象 | GC 堆 | **是** | 整表字节模式 ≈ `2~3 × 表大小`；流式落盘 ≈ 单块 4KB + 索引 |
 | Block Cache（`blockCacheSizeMB`） | GC 堆 | **是** | 容量上限本身 |
@@ -29,7 +29,7 @@
 
 ```text
 cjHeapSize ≥ 32MB                       # 运行时基线（实测 open 后 RSS ≈ 25MB）
-           + 1.32 × memTableSize × (1 + numMemtables)   # arena
+           + (memTableSize + min(15%×memTableSize, 2MB) + 节点项) × (1 + numMemtables)  # arena
            + blockCacheSizeMB
            + 单批条目字节 ≈ 批大小 × 值大小
            + flush 额外：流式 ≈ 0.5 × memTableSize；整表字节 ≈ 2.5 × memTableSize
@@ -65,6 +65,18 @@ cjHeapSize ≥ 32MB                       # 运行时基线（实测 open 后 RS
 2. 低堆下的失败形态有两种：**`OutOfMemoryError`**（直接）和**长时间卡住**（flush 反复重试、写路径等腾位）。
    后者看起来像"慢"，其实是堆已经在临界点——不要当成性能问题去调 `memTableSize` 以外的参数。
 
+### 3.1 2.3 默认变更后的复测（2026-11-10）
+
+- **流式落盘默认开**（`streamingSSTable` 默认 true）：上表「流式」列就是默认行为；关掉会回落到「整表字节」列（回退手段）。
+- **批次预留改为 `min(15% × memTableSize, 2MB)`**：堆边界基本不变（相邻档位本就 ±1 档），但**稳态 arena 占用**显著下降。同一二进制、只改预留的 A/B（mt=64MB、nb=5、写 128MB、12GB 堆）：
+
+| 预留 | arena/表 | 5 张合计 | 峰值 RSS |
+|---|---|---|---|
+| **2.3 默认（封顶 2MB）** | **68.2MB** | **341MB** | **611MB** |
+| 2.2 口径（15% ≈ 9.6MB） | 84.2MB | 421MB | 644MB |
+
+16MB 表：20.2MB vs 21.05MB（-4%），对峰值 RSS 影响 <1MB；4MB 及以下表的预留仍是 15%（未到 2MB 上限），行为不变。单批最大预留实测仍是 28KB~1.65MB（benchmark-report §2.2 P1-4-A），2MB 上限留有 1.2× 以上余量。
+
 ## 4. 预算 → 推荐配置
 
 | 可给 cjHeapSize | 推荐 memTableSize | 推荐 numMemtables | 备注 |
@@ -83,7 +95,7 @@ cjHeapSize ≥ 32MB                       # 运行时基线（实测 open 后 RS
 
 库默认 `memTableSize=64MB`、`numMemtables=5`；仓颉默认 `cjHeapSize=256MB`。两者不是一组：
 
-- arena 上限 = `1.32 × 64MB × 6 ≈ 422MB` —— 已经超过 256MB 堆；
+- arena 上限 = `68.2MB × 6 ≈ 409MB`（2.3 收紧预留后；2.2 是 84.2MB × 6 ≈ 505MB）—— 都超过 256MB 堆；
 - 实测：64MB 表在流式下要 **768MB** 堆、整表字节下要 **1024MB**。
 
 所以在默认堆下用默认表大小，写入到第一次大 flush 就会 OOM（或卡死）。三条路选一：
@@ -153,7 +165,7 @@ mem_limit: 1536m
 
 所以差异**不在「Go 用原生内存、仓颉用 GC 堆」**（两边 memtable 都在各自 GC 堆里），而在
 **堆有没有硬上限**：Go 堆会一直涨到机器能给为止，仓颉默认 256MB 顶住就是 OOM。
-这也解释了一个反直觉现象：同样的 `memTableSize=64MB × numMemtables=5`（约 420MB 堆占用），
+这也解释了一个反直觉现象：同样的 `memTableSize=64MB × numMemtables=5`（2.3 约 341MB 堆占用，2.2 约 421MB），
 Go 版在 16GB 机器上毫无感觉，badger-cj 在默认堆下直接炸。
 
 > 历史记录：2.0 的设计（[`plans/2026-09-01-mmap-wal-vlog-design.md`](./plans/2026-09-01-mmap-wal-vlog-design.md) §3.2）
@@ -206,7 +218,7 @@ python3 scripts/bench/heap-sweep.py --bisect \
 
 ### 10.3 收益、代价与优先级
 
-- **收益**：默认配置（64MB × 5 张）arena 约 420MB 堆占用 → 0；而生产 OOM 的本质正是
+- **收益**：默认配置（64MB × 5 张）arena 约 341MB 堆占用（2.2 口径 421MB）→ 0；而生产 OOM 的本质正是
   「堆上限 256MB、live 只有 30~60MB、峰值却没余量」（忆时塔 `library/570` 记录）。
 - **代价**：手工生命周期 + 跨平台 FFI；越界从「抛数组越界异常」变成「进程崩溃」，需要专门的边界/模糊用例与
   ASan 类验证；GC 不再追踪这块内存（arena 里只放纯字节，前提已满足）。

@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-11-10  
-**当前阶段：** ✅ **v2.2.0 已发布**（2026-11-10，master → 中心仓；tag v2.2.0 → da37d55）：渐进式 arena（P1-6，可配 + 大条目自适应）、Stats API（P2-1）、L2 流式落盘（P1-2，默认关）、**表生命周期引用计数修复**（阻断性缺陷）；全量 **475/475 连跑 3 次**；下一批功能点见 docs/plans/2026-11-09-v2.1-plus-design.md。
+**当前阶段：** **2.3.0 待发**（master）：2.2.0 已发布（表生命周期 refcount + 渐进 arena + Stats + 流式落盘默认关）；2.3.0 把 P1-2/P1-4 的两项评估结论落成默认——**流式落盘默认开**、**批次预留封顶 2MB**（并新增 `Config.MemTableBatchReserveBytes`）；全量 **481/481**。
 
 ---
 
@@ -394,6 +394,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-10 | master | **2.3.0：流式落盘默认开 + 批次预留封顶 2MB**（P1-2 / P1-4 落地，只改默认与公式，无新子系统）：① `Config.StreamingSSTable` 默认 true（关掉回退整表字节路径）；② 批次预留改 `min(15%·MemTableSize, 2MB)`，新增 `Config.MemTableBatchReserveBytes`（0=自动，>0 显式、上限 MemTableSize），公式收敛到唯一来源 `arena_sizing.cj`（原 MemTable/Badger 各写一份，易漂移）；③ 新增用例 `arena_sizing_test`（6 例）。实测（同二进制只改预留）：64MB 表 arena 84.2→68.2MB（-19%）、5 张合计 421→341MB、峰值 RSS 644→611MB；16MB 表 -4%；4MB 表不变；**堆边界不变**（预留省的是稳态占用）。全量 481/481 |
 | 2026-11-10 | master | **容量调参文档**：新增 `docs/sizing.md`（内存分布 / 下限公式 / 实测最小堆网格 / 预算→推荐配置 / 默认配置的坑 / 进程与容器设堆 / 症状对照 / 与 Go 的差异）+ README「容量规划与调参」摘要章节（详情链接）；`heap-sweep.py` 加 `--bisect` 自动二分最小可用堆。实测网格：4MB 表 48MB（流式）/96MB（整表），16MB 表 192~256MB，64MB 表 768MB/1024MB；默认 64MB+5 张的 arena 上限约 420MB > 仓颉默认 256MB 堆 |
 | 2026-11-10 | master | **P1-2 / P1-4 效果评估（只测不改）**：新增探针 `examples/mem_profile`（flush / compact-prepare / compact-run / arena，输出 MB/s + 峰值 RSS + arena 已用/分配 + 单批最大预留）与 `scripts/bench/heap-sweep.py`（真实盘 + cjHeapSize 扫描，区分 oom/exit/timeout）。结论：**P1-2 流式落盘吞吐无代价**（120.4 vs 129.2 MB/s，p=0.083）、**大表 flush 最小可用堆 384→192MB**、**compaction 峰值 RSS 415→120MB（最小堆 256→≤32MB）** → 可以翻转默认值，建议 2.3.0；**P1-4 arena 是 GC 堆内存**，目标 1.32× 里约 24% 是批次预留而实测只需 28KB~1.65MB → 建议预留改 `min(15%,2MB)`（省 12%~21%），arena 原生化属重构不做。数据见 docs/benchmark-report.md §2.2；`Stats` 增加 `MemTableUsedBytes / MemTableArenaBytes / MaxBatchBytes` |
 | 2026-11-10 | master | **v2.2.0 发布**：私有仓预演（制品 183 文件 = cjpm.toml/README/LICENSE/src，sha256 59865df8…）→ 中心仓 publish success → 索引含 2.2.0、制品 HTTP 200、下载 sha256 与本地 bundle 一致（含 LICENSE，`include = ["/src", "/LICENSE"]` 生效）→ tag v2.2.0 推 origin/GitHub。内容：表生命周期 refcount（阻断性缺陷修复）、arena 大条目自适应、渐进式 arena 可配、Stats API、L2 流式落盘（默认关）。发版前闸门全绿：本仓 475/475 连跑 3 次、下游 5 库（storm/storm-v2/tsdb/sunku/holt）+ 忆时塔 249/249 + cjreg 全绿、GitHub CI（Linux）绿 |

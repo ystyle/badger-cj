@@ -3,7 +3,7 @@
   name = "badgercj"
   organization = ""
   description = "一个可嵌入、持久化且速度很快的基于LSM-Tree的键值 (KV) 数据库"
-  version = "2.2.0"
+  version = "2.3.0"
   target-dir = ""
   script-dir = ""
   output-type = "static"

@@ -132,22 +132,10 @@ public class Badger <: VLogGCDB {
         this.flusherFut = None
     }
     
-    // arena 目标容量（与 MemTable 内部公式一致：MemTableSize + 15% 批次预留）
-    private static func targetArenaBytes(opt: Config): Int64 {
-        var maxBatchSize = Int64(opt.MemTableSize) * 15 / 100
-        if (maxBatchSize < 1024) {
-            maxBatchSize = 1024
-        }
-        var maxBatchCount = maxBatchSize / 96
-        if (maxBatchCount < 1) {
-            maxBatchCount = 1
-        }
-        Int64(opt.MemTableSize) + maxBatchSize + maxBatchCount * MAX_NODE_SIZE
-    }
-
     // 渐进扩容起点：min(256KB, 目标值)。小表（目标 < 256KB）等于目标值，无渐进过程。
+    // 目标值来自共享公式 arenaTargetBytes（arena_sizing.cj）。
     private static func initialArenaBytes(opt: Config): Int64 {
-        let target = targetArenaBytes(opt)
+        let target = arenaTargetBytes(opt)
         // 0 = 关闭渐进扩容（直接按目标值分配）
         if (opt.ArenaGrowthStartBytes == 0) {
             return target
@@ -1053,7 +1041,7 @@ public class Badger <: VLogGCDB {
     // 512KB……大条目只是把轮换次数变成报错次数；抬到「够装这一条」才是渐进扩容该有的
     // 自适应用法。到目标值仍装不下 = 真的超过 memtable 容量，由调用方报错。
     private func growNextArenaToFitLocked(entryBytes: Int64): Unit {
-        let target = Badger.targetArenaBytes(opt)
+        let target = arenaTargetBytes(opt)
         var need = entryBytes + MAX_NODE_SIZE + NODE_ALIGN + 8
         if (need > target) {
             need = target
@@ -1068,7 +1056,7 @@ public class Badger <: VLogGCDB {
         let fid = Int64(reserveFileID())
         let newMt = MemTable(opt, fid, false, arenaBytes: memtableArenaBytes)
         // Pebble 式渐进扩容：每新建一张 memtable 翻倍，封顶目标值
-        let target = Badger.targetArenaBytes(opt)
+        let target = arenaTargetBytes(opt)
         let doubled = if (memtableArenaBytes > target / 2) { target } else { memtableArenaBytes * 2 }
         memtableArenaBytes = doubled
         // 阶段 2（不可抛的引用移动 + 入队）：同锁段原子完成

@@ -36,6 +36,8 @@ main(args: Array<String>): Int64 {
     let useIoUring = args[6] == "1"
     let growthStartKB = if (args.size > 7) { Int64.parse(args[7]) } else { 256 }
     let batch = if (args.size > 8) { Int64.parse(args[8]) } else { 100 }
+    // 可选：批次预留（KB）。0 = 默认公式 min(15%·MT, 2MB)；用它对照 2.3 之前的 15% 公式
+    let reserveKB = if (args.size > 9) { Int64.parse(args[9]) } else { 0 }
 
     let dir = "/tmp/badger_mem_profile"
     let freshDir = mode != "compact-run"
@@ -51,6 +53,7 @@ main(args: Array<String>): Int64 {
         numLevelZeroTables: if (mode == "compact-run") { 1 } else { 1000 },
         streamingSSTable: streaming,
         arenaGrowthStartBytes: UInt64(growthStartKB) * 1024u64,
+        memTableBatchReserveBytes: UInt64(reserveKB) * 1024u64,
         useIoUring: useIoUring)
     let baselineRss = peakRssKB()
     let db = Badger.open(opt)
@@ -136,7 +139,7 @@ main(args: Array<String>): Int64 {
         "maxBatchBytes=${st.MaxBatchBytes} peakRssKB=${peakRssKB()}")
 
     if (mode == "arena") {
-        let target = targetArenaBytes(memTableMB)
+        let target = targetArenaBytes(opt)
         let batchReserve = target - memTableMB * 1024 * 1024
         println("RESULT mode=arena valueBytes=${valueBytes} mtMB=${memTableMB} batch=${batch} " +
             "samples=${samples} maxUtilPct=${maxUtil} usedAtMax=${usedAtMax} arenaAtMax=${arenaAtMax} " +
@@ -156,18 +159,9 @@ func profileKey(i: Int64): Array<Byte> {
     ("k" + String.fromUtf8(Array<Byte>(pad, repeat: 0x30)) + raw).toArray()
 }
 
-// 与 MemTable 内部公式一致的目标 arena（MemTableSize + 15% 批次预留 + 节点预留）
-func targetArenaBytes(memTableMB: Int64): Int64 {
-    let memTableSize = memTableMB * 1024 * 1024
-    var maxBatchSize = memTableSize * 15 / 100
-    if (maxBatchSize < 1024) {
-        maxBatchSize = 1024
-    }
-    var maxBatchCount = maxBatchSize / 96
-    if (maxBatchCount < 1) {
-        maxBatchCount = 1
-    }
-    memTableSize + maxBatchSize + maxBatchCount * 106
+// 目标 arena 直接用库里的唯一公式（arena_sizing.cj），避免探针与实现漂移
+func targetArenaBytes(opt: Config): Int64 {
+    arenaTargetBytes(opt)
 }
 
 // 峰值 RSS（Linux /proc/self/status 的 VmHWM，单位 kB；其它平台返回 0）
