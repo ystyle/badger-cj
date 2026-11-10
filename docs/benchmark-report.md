@@ -521,3 +521,121 @@ arena 上限约 5 x 21MB = 105MB，已超堆上限；流式落盘减少的是「
 结论：在「memtable 集合本身放得下」的边界上（4MB 表 + NumMemtables=2），**流式落盘把
 原本 OOM 的场景变成可完成**——这正是 P0-2 想要验证的另一个副本收益；但 memtable 集合超限时
 （16MB 表，或 NumMemtables=5）流式也救不回来，低堆仍需同时约束这两个参数。
+
+### 2.2 P1-2 / P1-4 效果评估（2026-11-10，2.2.0 之后）
+
+> 目的：P1-2（L2 流式落盘）要决定「默认值是否翻转」；P1-4（arena 调优）设计里写的是
+> 「先 profile，有数据再定方案」。本节是这两件事的证据，不是发布记录。
+
+探针与口径：
+
+- `src/examples/mem_profile`（新增）：一次进程做一件事（flush / compact-prepare / compact-run / arena），
+  输出 `RESULT` 行含耗时、MB/s、峰值 RSS（`/proc/self/status` 的 `VmHWM`）、arena 已用/分配、单批最大预留。
+- `scripts/bench/heap-sweep.py`（新增）：`unshare -rm` 里把 `/tmp` bind 到真实盘，按 `cjHeapSize` 扫描，
+  找出**最小可用堆**；失败区分 `oom` / `exit=N` / `timeout`（低堆下写路径可能长时间重试，不当作通过）。
+- 吞吐对照用 `scripts/bench/ab-compare.py`（交替 A/B、配对检验）；数据 128MB，mt=16MB，15 轮。
+- 机器与 2.0/2.1 各节同机（见 §1 环境指纹）；数据目录 `.bench-data/heap`（btrfs，非 tmpfs）。
+
+#### P1-2-A 低堆边界：同一负载要多少堆才能跑完
+
+负载：1KB 值、每次事务 100 条、共 32MB（flush）/ 67MB 输入（compaction）。失败 = 进程内 OOM 或明确报错。
+
+| 负载 | 整表字节（默认） | 流式落盘 | 峰值 RSS（各自最小通过堆） |
+|---|---|---|---|
+| flush：mt=16MB、nbMem=2、32MB 数据 | **384MB** 通过（256MB 失败） | **192MB** 通过（128MB 失败） | 381MB → **220MB** |
+| flush：mt=4MB、nbMem=2、24MB 数据 | **96MB** 通过（64MB 超时） | **64MB** 通过（48MB OOM） | 128MB → **96MB** |
+| compaction：11 张 L0 表、67MB 输入→1 表 | **256MB** 通过（192MB 失败） | **≤32MB 通过** | 415MB → **120MB** |
+
+结论：
+
+- 大表 flush 的最小堆减半（384 → 192MB）；4MB 表这类低堆配置也有 96 → 64MB 的收益。
+- **compaction 才是最大受益方**：压缩要建一张新表，整表字节模式把「输出表」整份放在 GC 堆里，
+  流式落盘后峰值 RSS 从 415MB 降到 120MB（**3.4×**），最小可用堆从 256MB 降到 32MB 以下。
+- 这也解释了旧报告里「16MB 表在 128MB 堆下两种模式都 OOM」：那批测量的瓶颈在**写阶段**
+  （memtable 集合 × arena，见 P1-4），不是 flush 那一份副本——两者要分开看。
+
+#### P1-2-B 吞吐：流式有没有代价
+
+128MB 写入（mt=16MB、nbMem=5、1KB 值、每事务 100 条），交替 15 轮，metric = MB/s（写 + flush 全程）：
+
+| 对照 | A 中位数 | B 中位数 | 配对差 | p |
+|---|---|---|---|---|
+| plain vs stream（io_uring 开） | 120.4 MB/s | **129.2 MB/s** | stream 快 6.8%（SD 13.0） | 0.083 |
+| plain vs stream（io_uring 关） | 125.4 MB/s | 126.2 MB/s | 差 0.7%（SD 6.5） | 0.96 |
+
+结论：**没有可测的吞吐代价**，io_uring 路径上方向甚至略快（`TableFileSink` 按块提交、队列深度由
+`IoUringFileWriter` 控制，避免整表字节一次性落地）。轮间离散度 16%~72%，所以只能说到这个粒度；
+「流式慢」的旧结论（1.5%）也在噪声内。
+
+#### P1-2 建议
+
+把 `Config.StreamingSSTable` **默认改为 true**，依据：
+
+1. 低堆能力实质提升（flush 最小堆减半、compaction 峰值 RSS 降 3.4×）；
+2. 吞吐无代价（配对检验 p=0.08 / 0.96）；
+3. 2.2.0 已把 io_uring 分段提交与同步回退都接好，默认开不会引入平台依赖（非 Linux 自动回退 `File` 写）。
+
+前置与风险：① 需要在 Windows CI 上跑一轮（流式路径走 File 回退，语义应与整表一致，但尚无实测）；
+② 关掉开关必须仍能回到旧路径（现已具备，且这是回滚手段）；③ 建议随 2.3.0 一起发，并在 README 写明
+「低堆/大表默认开启」的口径变化。
+
+#### P1-4-A arena 到底占多少：它是 GC 堆内存
+
+`Arena` 的底层是 `Array<Byte>(size, repeat: 0)`——仓颉数组是 GC 托管对象，**arena 计入 `cjHeapSize`**
+（这也与低堆实测一致：mt=16MB、nbMem=5 时 5×21MB 的 arena 就吃掉 100MB 以上堆）。
+
+目标容量（与 badger-go 同公式）= `MemTableSize + 15%·MemTableSize + (15%·MemTableSize/96)·106`：
+
+| memTableSize | 目标 arena / 表 | 倍数 | 其中批次预留 |
+|---|---|---|---|
+| 4MB | 5.52MB | 1.32× | 1.32MB |
+| 16MB | 21.05MB | 1.32× | 5.03MB |
+| 64MB | 88.29MB | 1.32× | 20.6MB |
+
+稳态利用率（关闭渐进扩容后采样 `MemTableUsedBytes/MemTableArenaBytes`，轮换阈值 = MemTableSize）：
+
+| 值大小 | 采样利用率 | 说明 |
+|---|---|---|
+| 1KB | 74.3% | 稳态轮换在 MemTableSize，故 ≈ MemTableSize/目标 = 76% |
+| 16KB | 76.0% | 同上 |
+| 128B | 60.5% | 小值节点开销（106B/条）不进「已用字节」，是口径差异、不是浪费 |
+
+即：**每个 memtable 有约 24% 的 arena 是为「跨阈值那一批」预留的，写满即轮换，那部分平时不用**。
+实测单批预留的真实需求（`Stats.MaxBatchBytes`）：
+
+| 负载 | 单批最大预留 |
+|---|---|
+| 128B 值 × 100 条/事务 | 28KB |
+| 1KB 值 × 100 条/事务 | 115KB |
+| 1KB 值 × 1000 条/事务 | 1.17MB |
+| 16KB 值 × 100 条/事务 | 1.65MB |
+
+对照目标里的预留：4MB 表给 1.32MB（够用）、64MB 表给 20.6MB（是实测最大批的 12 倍以上）。
+
+#### P1-4-B 渐进扩容（P1-6）的冷启动收益
+
+mt=64MB，open 后立刻读 RSS：
+
+| 配置 | open 后 RSS | 首张 memtable arena |
+|---|---|---|
+| `arenaGrowthStartBytes=256KB`（默认） | **25.2MB** | 256KB |
+| `arenaGrowthStartBytes=0`（关闭渐进） | 57.8MB | 86.2MB |
+
+所以 P1-6 在「打开即吃几百 MB」的嵌入式场景确实成立（省 32MB 起步 RSS）。
+
+#### P1-4 建议（不实现，先定优先级）
+
+1. **收紧批次预留**：把预留从 `15%·MemTableSize` 改成 `min(15%·MemTableSize, 2MB)`（节点项按新预留的比例算）。
+   收益：64MB 表 arena 88.3→66.4MB（**-21%**）、16MB 表 -12%、4MB 表 -12%；5 张 memtable 时
+   64MB 配置的 arena 占用 420→330MB。风险：单批超过预留时会在批中轮换（现有语义已正确，
+   16KB×100 用例就超过 4MB 表的预留并正常完成），代价是偶发多一次 rotate。
+2. **把预留做成配置**（`Config.MemTableBatchReserveBytes`），默认取上一条公式——给「超大批次」场景留出口。
+3. **不做**：把 arena 改成原生内存（FFI `malloc` + 手工生命周期）。收益更大（arena 完全不占 GC 堆），
+   但生命周期/越界风险与 `mmapcj` 已铺好的路径不匹配，收益对不上风险，暂不排期。
+
+#### 一句话
+
+- **P1-2：可以翻转默认值**（吞吐无代价、内存收益 2×~3.4×），建议 2.3.0 做，前置是 Windows 旁路验证。
+- **P1-4：不需要「调优参数」，需要改那个 15% 预留**——它是 GC 堆里的净浪费，改小省 12%~21%；
+  arena 原生化收益更大但属于重构，不在近期。
+
