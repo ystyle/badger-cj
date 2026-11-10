@@ -96,6 +96,8 @@ def main() -> int:
     # 默认 120s：低堆下写路径可能长时间重试（flush 失败 → 等腾位），不能被当成"能跑"
     # 无限等；超时即判失败（并记录 timeout，便于区分"挂住"与"明确 OOM"）。
     ap.add_argument("--timeout", type=int, default=120)
+    # --bisect：在 --heaps 给的候选里二分找「最小可用堆」，比全量扫描省一半以上的跑次
+    ap.add_argument("--bisect", action="store_true")
     args = ap.parse_args()
 
     data_dir = str(Path(args.data_dir).resolve())
@@ -112,22 +114,46 @@ def main() -> int:
     heaps = [int(h) for h in args.heaps.split(",") if h.strip()]
 
     results = []
-    print("[sweep] data_dir=%s cases=%d heaps=%s" % (data_dir, len(cases), heaps), file=sys.stderr)
+    print("[sweep] data_dir=%s cases=%d heaps=%s bisect=%s"
+          % (data_dir, len(cases), heaps, args.bisect), file=sys.stderr)
+
+    def run_one(label, cargs, heap):
+        r = run_case(binary, cargs, workdir, data_dir, heap, args.timeout)
+        peak = 0.0
+        for row in r["rows"]:
+            if "peakRssKB" in row:
+                peak = max(peak, float(row["peakRssKB"]))
+        results.append({"case": label, "heapMB": heap, "ok": r["ok"],
+                        "reason": r["reason"], "peakRssKB": peak, "rows": r["rows"]})
+        status = "OK  " if r["ok"] else "FAIL"
+        print("[sweep] %-24s heap=%5dMB %s %-10s peakRss=%8.1fMB"
+              % (label, heap, status, r["reason"], peak / 1024.0), file=sys.stderr)
+        return r["ok"]
+
     for label, cargs in cases:
         min_ok = None
-        for heap in heaps:
-            r = run_case(binary, cargs, workdir, data_dir, heap, args.timeout)
-            peak = 0.0
-            for row in r["rows"]:
-                if "peakRssKB" in row:
-                    peak = max(peak, float(row["peakRssKB"]))
-            results.append({"case": label, "heapMB": heap, "ok": r["ok"],
-                            "reason": r["reason"], "peakRssKB": peak, "rows": r["rows"]})
-            status = "OK  " if r["ok"] else "FAIL"
-            print("[sweep] %-24s heap=%5dMB %s %-10s peakRss=%8.1fMB"
-                  % (label, heap, status, r["reason"], peak / 1024.0), file=sys.stderr)
-            if r["ok"] and min_ok is None:
-                min_ok = heap
+        if args.bisect:
+            lo, hi = 0, len(heaps) - 1
+            # 先确认上界能过、下界过不去，再二分
+            if not run_one(label, cargs, heaps[hi]):
+                print("[sweep] %s: 上界 %dMB 仍失败（+%s），请抬高 --heaps"
+                      % (label, heaps[hi], ""), file=sys.stderr)
+                continue
+            if run_one(label, cargs, heaps[lo]):
+                print("[sweep] %s: 下界 %dMB 即通过，可再降" % (label, heaps[lo]), file=sys.stderr)
+                min_ok = heaps[lo]
+            else:
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    if run_one(label, cargs, heaps[mid]):
+                        hi = mid
+                    else:
+                        lo = mid
+                min_ok = heaps[hi]
+        else:
+            for heap in heaps:
+                if run_one(label, cargs, heap) and min_ok is None:
+                    min_ok = heap
         print("[sweep] %s: 最小可用堆 = %s MB" % (label, min_ok), file=sys.stderr)
 
     lines = ["| 用例 | cjHeapSize | 结果 | 峰值 RSS (MB) |", "|---|---|---|---|"]
