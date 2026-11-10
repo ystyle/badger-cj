@@ -146,12 +146,26 @@ mem_limit: 1536m
 
 | | Go BadgerDB | badger-cj |
 |---|---|---|
-| memtable arena | 原生内存（`mmap`/`malloc`），**不占 GC 堆** | `Array<Byte>`，**占 GC 堆** |
-| 堆大小 | Go runtime 自动伸缩（可选 `GOGC`/`GOMEMLIMIT`） | `cjHeapSize` 显式上限，默认 256MB，运行时不按机器内存自动调 |
-| 用户心智 | 通常无感 | 必须按本指南显式配 |
+| memtable arena | `make([]byte, n)`（`skl/arena.go`）→ **同样在 GC 堆里** | `Array<Byte>(n)` → **同样在 GC 堆里** |
+| Go 侧的 mmap 用在哪 | WAL / VLog / SSTable 读——与 badger-cj 2.0 的范围**一致** | 同 |
+| 堆大小 | Go runtime 按需增长（无硬上限，`GOGC`/`GOMEMLIMIT` 只是软约束） | `cjHeapSize` **硬上限**，默认 256MB，超了直接 `OutOfMemoryError` |
+| 用户心智 | 通常无感（机器够大就跑得动） | 必须按本指南显式配 |
 
-这是**运行时差异**，不是 badger-cj 单方面能消除的。彻底「无感」需要把 arena 改成原生内存
-（FFI 分配 + 手工生命周期），属重构，暂未排期；在那之前请照 §2~§4 配置。
+所以差异**不在「Go 用原生内存、仓颉用 GC 堆」**（两边 memtable 都在各自 GC 堆里），而在
+**堆有没有硬上限**：Go 堆会一直涨到机器能给为止，仓颉默认 256MB 顶住就是 OOM。
+这也解释了一个反直觉现象：同样的 `memTableSize=64MB × numMemtables=5`（约 420MB 堆占用），
+Go 版在 16GB 机器上毫无感觉，badger-cj 在默认堆下直接炸。
+
+> 历史记录：2.0 的设计（[`plans/2026-09-01-mmap-wal-vlog-design.md`](./plans/2026-09-01-mmap-wal-vlog-design.md) §3.2）
+> 把「arena 内存分配不换 mmap」列为**非目标**——理由是 mmap 的目标就是持久化数据文件，而 arena 是可变运行时结构，
+> 给它上文件映射会引入预分配/删除文件、脏页回写、Windows 先 close 后 unlink 等约束，收益对不上；同时 Go 自己也没这么做。
+> 当时**没有低堆实测证据**（低堆 OOM 是 2.0 之后由下游现场与 P0-2 测量才暴露的），所以这个决定在当时是对的。
+
+要彻底「无感」，路径不是文件 mmap，而是 **arena 换原生匿名内存**（`malloc` / `mmap(MAP_ANONYMOUS)`）：
+不占 GC 堆、可被 OS 换页、没有文件生命周期。仓颉有 FFI（本仓 `io_uring` 已在用 `LibC.malloc`），技术上可行；
+代价是手工生命周期与跨平台 FFI，属重构，暂未排期。按最新实测，它的收益是「把 memtable 从堆里整块摘掉」
+（默认配置 420MB 堆占用 → 0），比 §5 的「预留收紧」（省 12%~21%）彻底得多。
+
 
 ## 9. 复现与自查
 
