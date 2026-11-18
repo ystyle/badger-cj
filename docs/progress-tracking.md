@@ -1,7 +1,7 @@
 # Badger-cj 项目进度跟踪
 
 **最后更新：** 2026-11-18  
-**当前阶段：** 🔧 **master 待发 2.3.1**：开库回收「空 WAL」（一条可恢复条目都没有的遗留 `.mem`）—— **判据从「文件大小 == 0」改成「盘上有没有可恢复条目」**（`WAL.hasValidEntriesOnDisk`：逐段只读映射 + `scanValidLength(earlyExit)`，跨段判断）；删除实现收成 `WAL.deleteSegmentFiles` 一处（`WAL.delete` 共用）；去掉 open 里「重放后为空就丢弃」的过滤，空表走 flush 的统一口径（不落盘 → 出队 → `decrRef` 删 WAL）。**285 个预分配残留：open 23.6ms、全部回收、数据完整**。全量 **486/486**。  
+**当前阶段：** ✅ **v2.3.1 已发布**（2026-11-18，master → 中心仓；tag v2.3.1）：**开库回收遗留 WAL 的判空修正** —— 判据从「文件大小 == 0」改成「盘上有没有可恢复条目」（`WAL.hasValidEntriesOnDisk`：逐段只读映射 + `scanValidLength(earlyExit)`，跨段判断），修掉两个问题：① mmap 后端崩溃残留是**容量大小的稀疏全零文件**，旧判据漏判 → 为每份残留建 replay memtable（每份至少 1 个 `AtomicStorage` 段，≈5MB）又留在 imm → **50 个残留即让开库 OOM**；② 主段被 seal 成 0 字节、数据在 `<base>.1` 时会被整条误删。删除实现收成 `WAL.deleteSegmentFiles`（`WAL.delete` 共用）；回收失败只告警、不阻塞开库。实测 **285 个残留 open 23.6ms、全部回收、数据完整**。全量 **486/486**。下一步：2.4 arena 原生化（等工具链 1.3.0 线）。  
 **上一阶段：** ✅ **v2.3.0 已发布**（2026-11-10，master → 中心仓；tag v2.3.0）：把 P1-2/P1-4 两项评估结论落成默认——**流式落盘默认开**、**批次预留封顶 2MB**（新增 `Config.MemTableBatchReserveBytes`，公式收敛到 `arena_sizing.cj`）；全量 **481/481**、下游 5 库 + 忆时塔/cjreg 全绿、CI 绿。下一步：2.4 arena 原生化（等工具链 1.3.0 线）。
 
 ---
@@ -10,10 +10,10 @@
 
 | 指标 | 状态 |
 |------|------|
-| **测试** | 475/475 通过 ✅（master；本地 -j 4 连跑 3 次 + GitHub CI Linux 绿） |
+| **测试** | 486/486 通过 ✅（master；本地 -j 4 + GitHub CI Linux 绿，run 44251265768） |
 | **性能** | 事务写入 ~694-879K keys/s（v1.6.21 口径）；2.0 的 mmap/分组提交重测见阶段 7.3 |
 | **API 对齐** | P0+P1 完成 + 2.0 补齐 WriteBatch/MergeOperator/Managed/Sequence/EstimateSize，对齐率 ~95% |
-| **版本** | **2.2.0**（2026-11-10 发布中心仓；tag v2.2.0）；1.x 维护线 release/1.6 = v1.6.23 |
+| **版本** | **2.3.1**（2026-11-18 发布中心仓；tag v2.3.1）；1.x 维护线 release/1.6 = v1.6.23 |
 
 ---
 
@@ -23,7 +23,7 @@
 
 | 平台 | 工作流 | 状态 | 说明 |
 |---|---|---|---|
-| linux（ubuntu-24.04） | `ci.yml` | ✅ **绿**（发布口径） | run 42572928822：452/452 通过（安装 `liburing-dev`，`cjpm build/test -j 4`） |
+| linux（ubuntu-24.04） | `ci.yml` | ✅ **绿**（发布口径） | run 44251265768（v2.3.1）：构建 + 单测通过（安装 `liburing-dev`，`cjpm build/test -j 4`） |
 | windows-latest | `ci.yml` | 🔶 可见性（continue-on-error，不阻断 run 结论） | 构建通过；测试约 441 例中若干 ERROR，均为**测试清理阶段 Windows 文件占用**（mmap 表/日志尚未释放即 `remove(recursive)`），见下 |
 | macOS（macos-14） | `ci-macos.yml`（手动/每周） | ⏸ 暂不进门禁 | 公开仓 macos runner 偶发「排队即 cancelled」（无 runner 分配、无 step），放进必跑矩阵会把 run 结论拖成 cancelled |
 
@@ -395,6 +395,7 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-18 | master | **v2.3.1 发布**：准入核对（与中心仓 2.3.0 制品逐文件 sha256 比对：仅 `src/db/badger.cj`、`src/db/wal.cj` 变化，另新增 1 个测试文件）→ 私有预演（制品 216 项 = cjpm.toml/README/LICENSE/src，sha256 6469bffe…）→ 中心仓 publish success → 索引含 2.3.1、制品 HTTP 200、**下载 sha256 与本地/预演一致**（6469bffe…）→ tag v2.3.1 推 origin/GitHub。闸门：本仓 486/486、GitHub CI（run 44251265768）Linux 绿；Windows job 因 `cjv install sts` 工具链下载失败而红（continue-on-error，不阻断 run 结论） |
 | 2026-11-10 | master | **2.4 arena 原生化设计稿**：`docs/plans/2026-11-10-arena-native-design.md`（205 行）——证据（arena 是 GC 堆最大单项，默认配置 341MB；生产 OOM 形态是「堆没余量」）、方案（Arena 后端抽象：Gc/Native；`malloc/free` 三平台统一；释放挂 `MemTable.decrRef`；保留显式边界检查 + `@When[test]` canary）、默认值策略（2.4.0 默认 Gc，翻默认 5 条判据）、验收（最小堆 768→≤256MB 等 6 项）、风险对策、分期 A/B/C、触发条件（cjvs 1.3.0 窗口）。**只出设计，不实现** |
 | 2026-11-10 | master | **v2.3.0 发布**：私有预演（制品 186 文件 = cjpm.toml/README/LICENSE/src，sha256 7857aa5e…）→ 中心仓 publish success → 索引含 2.3.0、制品 HTTP 200、下载 sha256 与本地一致 → tag v2.3.0 推 origin/GitHub。闸门：本仓 481/481、下游 5 库 + 忆时塔/cjreg 全绿、GitHub CI(Linux) 绿 |
 | 2026-11-10 | master | **2.3.0：流式落盘默认开 + 批次预留封顶 2MB**（P1-2 / P1-4 落地，只改默认与公式，无新子系统）：① `Config.StreamingSSTable` 默认 true（关掉回退整表字节路径）；② 批次预留改 `min(15%·MemTableSize, 2MB)`，新增 `Config.MemTableBatchReserveBytes`（0=自动，>0 显式、上限 MemTableSize），公式收敛到唯一来源 `arena_sizing.cj`（原 MemTable/Badger 各写一份，易漂移）；③ 新增用例 `arena_sizing_test`（6 例）。实测（同二进制只改预留）：64MB 表 arena 84.2→68.2MB（-19%）、5 张合计 421→341MB、峰值 RSS 644→611MB；16MB 表 -4%；4MB 表不变；**堆边界不变**（预留省的是稳态占用）。全量 481/481 |
@@ -417,8 +418,8 @@ KV Entry: KeyLen + Key + ValueLen + Value + UserMeta + Version + ExpiresAt + Met
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.2-5.4**：① `MergeOperator`（merge 位增量 + allVersions 折叠 + 后台折叠回写 discard 位；compaction 首版本 discard 位即丢弃旧链）；② Managed DB（`openManaged`/`newTransactionAt`/`commitAt`/`setDiscardTs`/`newWriteBatchAt`，时间戳全由调用方指定）；③ `Sequence`（租约式单调递增，release 退回未用区间）；④ `estimateSize`（此前已完成）。新增 14 例；全量 **448/448**（-j 4）。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.1：compaction 版本保留策略**：① `Oracle.discardAtOrBelow()`（非 managed = 活跃读最小 readTs；managed = `setDiscardTs`）+ `Config.NumVersionsToKeep`（默认 1）；② compaction 按 go addKeys 语义保留（merge 条目必留、>discardTs 必留、<=discardTs 每 key 留 N、tombstone 非最底层保留/最底层可丢）；③ **修掉既有 watermark 并发缺陷**：pending 由 Set 改计数，避免同 readTs 多事务 `done` 互相抵消导致保留水位提前（读事务读到 None）。新增 5 个用例，VLog GC 用例适配保留语义；全量 **434/434**。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 5.4（部分）**：`DB.estimateSize(prefix)` 按前缀统计左右边界都命中的 SSTable（parseKey 剥 ts），返回 (on-disk, 解压后)；未落盘 memtable 不计入（go 同语义）。`TableInterface.dataSize()` 补齐。全量 **429/429**。 |
-| 2026-11-18 | fix/reclaim-empty-wal（master，待发 2.3.1） | **开库回收空 WAL（0 字节 `.mem`）**：进程「开了库但还没写就被杀」（容器重启、超时 kill、宿主提前 return）会留下 0 字节 WAL；它们没有任何可恢复条目，但因为 `open` 里 `if (!replayMt.isEmpty()) immTables.add(...)` 的过滤，空表不进 imm → 没有 flush → 没有 `decrRef` → **永不删除**，只会在目录里越积越多。实测 285 个空 WAL 让每次开库多花 **7 秒**（每个都要 `WAL.open` 预分配 2×MemTableSize 并映射）。修法按生命周期归口而不是在 open 里 ad-hoc 删文件：① `wal.cj` 抽出 `removeWalSegmentFiles(base)`，`WAL.delete` 改为复用它——WAL 段的删除实现只有一处；② `open` 遇到 0 字节 WAL 不再建 memtable（省掉 32MB 预分配/映射），回收交给上面那个函数；③ **去掉**「重放后为空就丢」的过滤：重放表即使为空也留在 imm，由 flush 的统一口径「空表不落盘、直接出队回收」处理（`persistMemTable` 两条路径本就在 `data.size == 0` 时提前 return，出队方才 `decrRef` 删 WAL）。新增 2 用例（空 WAL 回收 + 非空 WAL 重放回归守卫），全量 **484/484**。（⚠️ 本条的「0 字节」判据与「空表留在 imm」在残留较多时会 OOM，见下一条修正） |
-| 2026-11-18 | fix/empty-wal-judge（master，待发 2.3.1） | **空 WAL 回收的判据修正**：上一版按「文件大小 == 0」判空，但 mmap 后端 `WAL.open` 一进来就 `ftruncate` 到 `2×MemTableSize`——崩溃残留的真实形态是**容量大小的稀疏全零文件**，判据漏掉它，于是每个残留都建一个 replay memtable（每份至少一个 `AtomicStorage` 段 = 8192×MAX_HEIGHT 个原子对象，≈5MB），而空表又按新口径留在 imm → **N 份同时驻留**：实测 50 个残留就让 open 抛 `OutOfMemoryError`（旧代码同输入 242ms 通过，只是不删文件）。改为 `WAL.hasValidEntriesOnDisk`（逐段只读映射 + `scanValidLength(earlyExit: true)`，全零段在第一条记录 CRC 失配就返回，代价与段容量无关），顺带覆盖「主段被 seal 成 0 字节、数据在 `<base>.1`」的形态（首条记录大于段容量时 rotate 先封口主段；按大小判空会连唯一副本一起删，实测可复现）。删除实现收成 `WAL.deleteSegmentFiles`（`WAL.delete` 共享），`segmentPath` 重新私有；回收失败只告警、不阻塞开库；`persistMemTable` 空表不再计一次 flush。**285 个预分配残留：open 23.6ms、全部回收、数据完整**。用例：新增「200 个预分配残留」「主段 0 字节 + `.1` 段数据」，并修正原有「遗留非空 WAL」用例（原写法先 close 再开，close 已把 WAL 删掉，等于没有 replay 可测）。全量 **486/486**。 |
+| 2026-11-18 | fix/reclaim-empty-wal（随 v2.3.1 发布） | **开库回收空 WAL（0 字节 `.mem`）**：进程「开了库但还没写就被杀」（容器重启、超时 kill、宿主提前 return）会留下 0 字节 WAL；它们没有任何可恢复条目，但因为 `open` 里 `if (!replayMt.isEmpty()) immTables.add(...)` 的过滤，空表不进 imm → 没有 flush → 没有 `decrRef` → **永不删除**，只会在目录里越积越多。实测 285 个空 WAL 让每次开库多花 **7 秒**（每个都要 `WAL.open` 预分配 2×MemTableSize 并映射）。修法按生命周期归口而不是在 open 里 ad-hoc 删文件：① `wal.cj` 抽出 `removeWalSegmentFiles(base)`，`WAL.delete` 改为复用它——WAL 段的删除实现只有一处；② `open` 遇到 0 字节 WAL 不再建 memtable（省掉 32MB 预分配/映射），回收交给上面那个函数；③ **去掉**「重放后为空就丢」的过滤：重放表即使为空也留在 imm，由 flush 的统一口径「空表不落盘、直接出队回收」处理（`persistMemTable` 两条路径本就在 `data.size == 0` 时提前 return，出队方才 `decrRef` 删 WAL）。新增 2 用例（空 WAL 回收 + 非空 WAL 重放回归守卫），全量 **484/484**。（⚠️ 本条的「0 字节」判据与「空表留在 imm」在残留较多时会 OOM，见下一条修正） |
+| 2026-11-18 | fix/empty-wal-judge（随 v2.3.1 发布） | **空 WAL 回收的判据修正**：上一版按「文件大小 == 0」判空，但 mmap 后端 `WAL.open` 一进来就 `ftruncate` 到 `2×MemTableSize`——崩溃残留的真实形态是**容量大小的稀疏全零文件**，判据漏掉它，于是每个残留都建一个 replay memtable（每份至少一个 `AtomicStorage` 段 = 8192×MAX_HEIGHT 个原子对象，≈5MB），而空表又按新口径留在 imm → **N 份同时驻留**：实测 50 个残留就让 open 抛 `OutOfMemoryError`（旧代码同输入 242ms 通过，只是不删文件）。改为 `WAL.hasValidEntriesOnDisk`（逐段只读映射 + `scanValidLength(earlyExit: true)`，全零段在第一条记录 CRC 失配就返回，代价与段容量无关），顺带覆盖「主段被 seal 成 0 字节、数据在 `<base>.1`」的形态（首条记录大于段容量时 rotate 先封口主段；按大小判空会连唯一副本一起删，实测可复现）。删除实现收成 `WAL.deleteSegmentFiles`（`WAL.delete` 共享），`segmentPath` 重新私有；回收失败只告警、不阻塞开库；`persistMemTable` 空表不再计一次 flush。**285 个预分配残留：open 23.6ms、全部回收、数据完整**。用例：新增「200 个预分配残留」「主段 0 字节 + `.1` 段数据」，并修正原有「遗留非空 WAL」用例（原写法先 close 再开，close 已把 WAL 删掉，等于没有 replay 可测）。全量 **486/486**。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 4：写路径分组提交 + WriteBatch**：① `WAL.writeBatch` 整批一次锁/一次映射写，按条目边界跨段切分；② `MemTable.putBatch` 整批一次 WAL 追加 + 一次 sync（SyncWrites），再逐条进 skiplist，按落盘阈值/arena 余量分段；③ `Badger.putPrepared` 批量分段循环（同批所有请求合并为一次 msync，跨 memtable 轮换/背压语义不变），`writeRequests` 先汇总再统一写；④ 新增 `WriteBatch`（对齐 go batch.go，按 15% MemTableSize 与条数上限自动切分，cancel/错误态语义）。**坑**：arena 预算必须含 skiplist 最坏节点（106+8+8B），否则批量写到一半 arena 溢出 → WAL 已写、条目进不了 skiplist，失败事务数据可能被 replay 复活。新增 10 个用例；全量 **428/428**（-j 4）。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 2（2.4/2.5）+ 阶段 3**：① backup 写/读改流式（Writer 直写输出流，Reader 64KB 缓冲、EOF 短读正常结束）；② compaction 输入改 k 路归并（去掉全量入内存 + O(n²) 冒泡排序），每表一个 TableIterWrapper → MergeIterator；③ 新增 `<dir>/FORMAT` 基线（format=1/features=，缺失=v1.6.x 并补写，过高/未知 feature/损坏拒绝打开）；④ 用 v1.6.22 真实生成数据目录夹具（两张 .sst + vlog 段 + kill -9 保留的 .mem），新增 2.0 打开旧库的端到端兼容测试（inline/vlog/TTL/删除标记/WAL replay）。全量 **418/418**（-j 4）。 |
 | 2026-11-09 | feat/v2-mmap-wal-vlog | **2.0 阶段 2（B2/B3）：VLog GC 接通**：① `addDiscard` 全仓无调用者 → 丢弃率恒 0 → pickLog 恒 None → runGC 空转、大值段永不回收；改为 compaction 丢弃旧版本时按 `(fid, vp.len)` 累计（`DiscardStats.updateBatch` 一次落盘）。② `discardEntry` 旧实现拿 vlog 的 **user key** 去 `parseTs` 与 `vs.version` 比，恒不相等 → 把所有活数据判成可丢；改为只判「删除/过期/非值指针」，指针归属交给 rewriter 比对 `fid+offset`。③ `GCFileRewriter` 此前把活值 `setRaw` 内联进 LSM（vlog 条目不保存 version/expiresAt）：改为走正常提交路径（大值重新落新 vlog 段并更新指针）。④ `rewrite` 改为不持 vlog 锁迭代（写回会再进锁，持锁即死锁），拒绝当前段。⑤ 延迟删除对齐 go（旧段进 pending，活跃迭代器归零才 close+unlink，Windows 约定）。新增 `Config.VLogFileSize`。测试：垃圾统计、段容量、GC 端到端（重写/延迟删除/活值完整/删除不复活）、discardEntry 新语义；全量 **412/412**。 |
