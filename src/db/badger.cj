@@ -196,12 +196,27 @@ public class Badger <: VLogGCDB {
                 }
                 let memPath = "${opt.Dir}/${memFid}.mem"
                 if (exists(Path(memPath))) {
-                    // 0 字节 WAL = 一条可恢复条目都没有（进程开了库还没写就被杀掉时留下）。
-                    // 不为它建 memtable：WAL.open 会按 2×MemTableSize 预分配并映射，几百个
-                    // 空文件就是几秒（实测 285 个空 WAL ≈ 7 秒，全是这一句的代价）。
-                    // 回收交给 WAL 模块的统一实现（与 flush 出队后删 WAL 同一个函数）。
-                    if (FileInfo(memPath).size == 0) {
-                        removeWalSegmentFiles(memPath)
+                    // 判空 = 「盘上还有没有可恢复条目」，不是「文件多大」：
+                    // - mmap 后端开库即把段 ftruncate 到 2×MemTableSize，崩溃残留通常是
+                    //   **容量大小的稀疏全零文件**（按 size == 0 判会漏掉，于是每个残留都建
+                    //   一个 replay memtable——每份至少一个 AtomicStorage 段，几百份同时
+                    //   驻留会直接把 open 打成 OOM）；
+                    // - 主段也可能被 seal 成 0 字节而数据在 `<base>.1`（首条记录大于段容量时
+                    //   rotate 先封口主段），按大小判空还会删掉唯一的数据副本。
+                    var emptyOnDisk = false
+                    try {
+                        emptyOnDisk = !WAL.hasValidEntriesOnDisk(memPath)
+                    } catch (e: Exception) {
+                        // 探测失败按「有数据」处理：走 replay，慢一点也比误删强
+                        println("[badger] inspect leftover WAL failed, replay instead: ${memPath}: ${e.message}")
+                    }
+                    if (emptyOnDisk) {
+                        // 回收失败不阻塞开库（最坏退化成旧行为的「文件留着」，下次再收）
+                        try {
+                            WAL.deleteSegmentFiles(memPath)
+                        } catch (e: Exception) {
+                            println("[badger] remove empty WAL failed (ignored): ${memPath}: ${e.message}")
+                        }
                         continue
                     }
                     let replayMt = MemTable(opt, memFid, true)
@@ -209,9 +224,9 @@ public class Badger <: VLogGCDB {
                     if (mtVersion > maxVersion) {
                         maxVersion = mtVersion
                     }
-                    // 重放后为空的表**也要**留在 imm：flush 的统一口径是「空表不落盘、
-                    // 直接出队回收」（persistMemTable 两条路径都在 data.size == 0 时提前
-                    // return，出队由调用方做，decrRef 顺带删掉 WAL）。这里按「空就丢」
+                    // 重放表即使**重放后**为空（例如 WAL 里只剩事务结束标记）也要留在 imm：
+                    // flush 的统一口径是「空表不落盘、直接出队回收」（persistMemTable 空表
+                    // 提前 return，出队由调用方做，decrRef 顺带删掉 WAL）。这里按「空就丢」
                     // 过滤等于绕过这条生命周期——被丢下的 WAL 再也没有任何环节会处理它。
                     immTables.add(replayMt)
                 }
@@ -1123,6 +1138,12 @@ public class Badger <: VLogGCDB {
     }
 
     private func persistMemTable(mt: MemTable): Unit {
+        // 空表（Skiplist 无条目）不落盘，也不计一次 flush：判空必须在计数之前，否则开库
+        // 回收遗留 WAL 时产生的空表会把 Stats.flushCount 抬高一堆。出队 + decrRef（删 WAL）
+        // 由调用方统一做；只剩事务结束标记的表由下面 data.size == 0 那处兜住。
+        if (mt.isEmpty()) {
+            return
+        }
         flushCount.fetchAdd(1)
         let useStreaming = opt.StreamingSSTable && opt.MmapSSTable && !opt.InMemory
         if (useStreaming) {
