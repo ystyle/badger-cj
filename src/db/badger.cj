@@ -196,14 +196,24 @@ public class Badger <: VLogGCDB {
                 }
                 let memPath = "${opt.Dir}/${memFid}.mem"
                 if (exists(Path(memPath))) {
+                    // 0 字节 WAL = 一条可恢复条目都没有（进程开了库还没写就被杀掉时留下）。
+                    // 不为它建 memtable：WAL.open 会按 2×MemTableSize 预分配并映射，几百个
+                    // 空文件就是几秒（实测 285 个空 WAL ≈ 7 秒，全是这一句的代价）。
+                    // 回收交给 WAL 模块的统一实现（与 flush 出队后删 WAL 同一个函数）。
+                    if (FileInfo(memPath).size == 0) {
+                        removeWalSegmentFiles(memPath)
+                        continue
+                    }
                     let replayMt = MemTable(opt, memFid, true)
                     let mtVersion = replayMt.getMaxVersion()
                     if (mtVersion > maxVersion) {
                         maxVersion = mtVersion
                     }
-                    if (!replayMt.isEmpty()) {
-                        immTables.add(replayMt)
-                    }
+                    // 重放后为空的表**也要**留在 imm：flush 的统一口径是「空表不落盘、
+                    // 直接出队回收」（persistMemTable 两条路径都在 data.size == 0 时提前
+                    // return，出队由调用方做，decrRef 顺带删掉 WAL）。这里按「空就丢」
+                    // 过滤等于绕过这条生命周期——被丢下的 WAL 再也没有任何环节会处理它。
+                    immTables.add(replayMt)
                 }
             }
         }

@@ -54,7 +54,7 @@ public class WAL {
     // ---------------- 段管理 ----------------
 
     /** 第 index 段的路径：0 为主段（外部约定名），其余带 `.N` 后缀。 */
-    private static func segmentPath(base: String, index: Int64): String {
+    internal static func segmentPath(base: String, index: Int64): String {
         if (index == 0) {
             return base
         }
@@ -700,12 +700,8 @@ public class WAL {
                 buf = None
             }
 
-            // 删除所有段
-            var i: Int64 = 0
-            while (exists(Path(segmentPath(pathStr, i)))) {
-                remove(Path(segmentPath(pathStr, i)))
-                i += 1
-            }
+            // 删除所有段（与开库回收空 WAL 共用同一份实现）
+            removeWalSegmentFiles(pathStr)
         } finally {
             lock.unlock()
         }
@@ -713,5 +709,20 @@ public class WAL {
 
     public func path(): String {
         return pathStr
+    }
+}
+
+/**
+ * 删除某个 WAL 的全部段（`<base>`、`<base>.1`、`<base>.2` …）。
+ *
+ * 存在的理由：「WAL 文件怎么删」必须只有一处实现。正常路径是 flush 出队后
+ * `MemTable.decrRef` → `WAL.delete`；开库回收遗留的**空 WAL** 也走这里 ——
+ * 两处各写一份删除逻辑，段命名规则一变就会漏删（漏掉的正是本函数要解决的问题）。
+ */
+internal func removeWalSegmentFiles(base: String): Unit {
+    var i: Int64 = 0
+    while (exists(Path(WAL.segmentPath(base, i)))) {
+        remove(Path(WAL.segmentPath(base, i)))
+        i += 1
     }
 }
