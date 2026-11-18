@@ -54,7 +54,7 @@ public class WAL {
     // ---------------- 段管理 ----------------
 
     /** 第 index 段的路径：0 为主段（外部约定名），其余带 `.N` 后缀。 */
-    internal static func segmentPath(base: String, index: Int64): String {
+    private static func segmentPath(base: String, index: Int64): String {
         if (index == 0) {
             return base
         }
@@ -478,9 +478,17 @@ public class WAL {
      * 段按 capacity 稀疏预分配，后部是 0 填充：全 0 头的条目 CRC 必然不匹配，扫描在该处
      * 停止——与 `decodeEntries` 的「尾部截断」语义一致。**必须按块读取**：内存占用为
      * O(块大小 + 单条记录)，不随段容量增长；整段读入会在容量较大时直接 OOM。
+     *
+     * `earlyExit` 只用于判「段里有没有条目」（`hasValidEntriesOnDisk`）：解出第一条即返回，
+     * 不必扫完整个有效前缀——崩溃残留的段可能是容量大小，全扫一遍纯属浪费。
      */
-    private func scanValidLength(m: MmapFile, total: Int64): Int64 {
-        let chunkSize: Int64 = 1 << 20
+    private func scanValidLength(m: MmapFile, total: Int64, earlyExit!: Bool = false): Int64 {
+        // 判空只关心第一条记录：块开小一点（记录跨块时走下面的「单条读取」分支按准确长度重读），
+        // 让「容量大小但全是 0」的残留段只需读几 KB，而不是 1MB 块。
+        var chunkSize: Int64 = 1 << 20
+        if (earlyExit) {
+            chunkSize = 4096
+        }
         var valid: Int64 = 0
         var blockStart: Int64 = 0
         while (blockStart < total) {
@@ -516,6 +524,9 @@ public class WAL {
                     break
                 }
                 p += entrySize
+                if (earlyExit) {
+                    return valid + p
+                }
             }
             if (p > 0) {
                 valid += p
@@ -548,6 +559,9 @@ public class WAL {
             }
             valid += entrySize
             blockStart += entrySize
+            if (earlyExit) {
+                return valid
+            }
         }
         return valid
     }
@@ -700,8 +714,8 @@ public class WAL {
                 buf = None
             }
 
-            // 删除所有段（与开库回收空 WAL 共用同一份实现）
-            removeWalSegmentFiles(pathStr)
+            // 删除所有段（与开库回收遗留空 WAL 共用同一份实现）
+            deleteSegmentFiles(pathStr)
         } finally {
             lock.unlock()
         }
@@ -710,19 +724,58 @@ public class WAL {
     public func path(): String {
         return pathStr
     }
-}
 
-/**
- * 删除某个 WAL 的全部段（`<base>`、`<base>.1`、`<base>.2` …）。
- *
- * 存在的理由：「WAL 文件怎么删」必须只有一处实现。正常路径是 flush 出队后
- * `MemTable.decrRef` → `WAL.delete`；开库回收遗留的**空 WAL** 也走这里 ——
- * 两处各写一份删除逻辑，段命名规则一变就会漏删（漏掉的正是本函数要解决的问题）。
- */
-internal func removeWalSegmentFiles(base: String): Unit {
-    var i: Int64 = 0
-    while (exists(Path(WAL.segmentPath(base, i)))) {
-        remove(Path(WAL.segmentPath(base, i)))
-        i += 1
+    /**
+     * 删除某个 WAL 的全部段（`<base>`、`<base>.1` …）。
+     *
+     * 「WAL 段怎么删」只有这一处实现：正常路径是 flush 出队后 `MemTable.decrRef` →
+     * `WAL.delete`；开库回收遗留的空 WAL 也走这里。两处各写一份删除逻辑，段命名规则
+     * 一变就会漏删——漏掉的正是「空 WAL 越积越多」这类问题。
+     */
+    internal static func deleteSegmentFiles(base: String): Unit {
+        var i: Int64 = 0
+        while (exists(Path(segmentPath(base, i)))) {
+            remove(Path(segmentPath(base, i)))
+            i += 1
+        }
+    }
+
+    /**
+     * 盘上是否还有**可恢复条目**（只读判断：不建 memtable、不预分配、不改文件内容）。
+     *
+     * 用途：开库时判废遗留 WAL。判据只能是「能不能解出条目」，不能是文件大小——
+     *
+     * - mmap 后端开库即把段 `ftruncate` 到 capacity，崩溃残留通常是**容量大小的稀疏全零
+     *   文件**，`size == 0` 判据覆盖不到；为这种文件建 replay memtable 的代价是每份至少
+     *   一个 `AtomicStorage` 段（8192 × MAX_HEIGHT 个原子对象），几百份同时驻留会 OOM；
+     * - 段按需换段，主段可能被 seal 成 0 字节而数据在 `<base>.1`（首条记录大于段容量时
+     *   `rotate` 先封口主段），按大小判空还会删掉唯一的数据副本。
+     *
+     * 逐段只读映射 + `scanValidLength(earlyExit: true)`：全零段在第一条记录就 CRC 失配，
+     * 代价是一次映射读取，与段容量无关。
+     */
+    internal static func hasValidEntriesOnDisk(path: String): Bool {
+        let probe = WAL(path, 0)
+        for (idx in scanSegments(path)) {
+            let segPath = segmentPath(path, idx)
+            let f = File(Path(segPath), Read)
+            let len = f.length
+            f.close()
+            if (len <= 0) {
+                continue
+            }
+            var valid: Int64 = 0
+            // 只读映射：不 ftruncate、不建缓冲，纯判空
+            let mapped = MmapFile(segPath, len, readOnly: true)
+            try {
+                valid = probe.scanValidLength(mapped, len, earlyExit: true)
+            } finally {
+                mapped.close()
+            }
+            if (valid > 0) {
+                return true
+            }
+        }
+        return false
     }
 }
