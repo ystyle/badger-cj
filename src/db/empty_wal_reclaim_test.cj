@@ -101,4 +101,39 @@ class EmptyWalReclaimTest {
         db2.close()
         cleanupDir(dir)
     }
+
+    // 规模回归：真实事故现场是几百个空 WAL（每次「开库未写即被杀」留一个）。
+    // 这里不测时间（那会在 CI 上抖），只钉住「几百个也要全部回收、数据不受影响」。
+    @TestCase
+    func openReclaimsManyZeroByteWals() {
+        let dir = "/tmp/badger_empty_wal_many"
+        cleanupDir(dir)
+        let opt = Config(dir: dir, memTableSize: 64 * 1024u64)
+
+        let db1 = Badger.open(opt)
+        db1.update({ txn =>
+            txn.set("k1".toArray(), "v1".toArray())
+            txn.set("k2".toArray(), "v2".toArray())
+        })
+        db1.close()
+
+        let n: Int64 = 200
+        for (i in 0..n) {
+            touchEmptyWal(dir, 10000 + i)
+        }
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == n, true)
+
+        let db2 = Badger.open(opt)
+        // 全部回收（只剩 db2 自己当前 memtable 的 WAL）
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 1, true)
+        @Assert(exists(Path("${dir}/10000.mem")), false)
+        @Assert(exists(Path("${dir}/10199.mem")), false)
+        match (db2.get("k2".toArray())) {
+            case Some(vs) => @Assert(vs.value, "v2".toArray())
+            case None => @Fail("k2 lost after reclaiming many empty WALs")
+        }
+        db2.close()
+        @Assert(testCountFilesWithSuffix(dir, ".mem") == 0, true)
+        cleanupDir(dir)
+    }
 }
