@@ -274,4 +274,56 @@ class BackupTest {
         BackupTest.cleanupTestDir(testDir)
         BackupTest.cleanupTestDir(backupDir)
     }
+
+    
+    // 删除必须跨「备份 → 恢复」保持：导出侧不写墓碑 = 恢复后旧值复活
+    //（2.x 的等价修复见 46262b9；本线补回移 + 用例）。
+    @TestCase
+    func testBackupRestoreKeepsDeletes(): Unit {
+        let testDir = "/tmp/badger_backup_del_${DateTime.now().hashCode()}"
+        let backupDir = "/tmp/badger_backup_del_file_${DateTime.now().hashCode()}"
+        BackupTest.cleanupTestDir(testDir)
+        BackupTest.cleanupTestDir(backupDir)
+        Directory.create(backupDir)
+        
+        let config = Config(dir: testDir, memTableSize: 64 * 1024u64, disableWAL: true, valueThreshold: 1024 * 1024u64)
+        let db = Badger.open(config)
+        
+        db.update { txn =>
+            txn.set("keep1".toArray(), "v1".toArray())
+            txn.set("gone1".toArray(), "v2".toArray())
+            txn.set("gone2".toArray(), "v3".toArray())
+        }
+        db.update { txn =>
+            txn.delete("gone1".toArray())
+            txn.delete("gone2".toArray())
+        }
+        
+        let backupPath = "${backupDir}/backup.data"
+        let file = File(backupPath, OpenMode.Write)
+        let version = db.Backup(file)
+        @Assert(version > 0)
+        db.close()
+        BackupTest.cleanupTestDir(testDir)
+        
+        // 恢复到全新库：被删的两个 key 必须仍然不存在（旧值不许复活）
+        let db2 = Badger.open(config)
+        let restoreFile = File(backupPath, OpenMode.Read)
+        db2.Restore(restoreFile)
+        
+        @Assert(db2.view { txn => txn.get("keep1".toArray()) }.isSome())
+        @Assert(db2.view { txn => txn.get("gone1".toArray()) }.isNone())
+        @Assert(db2.view { txn => txn.get("gone2".toArray()) }.isNone())
+        db2.close()
+        
+        // 再重开一次：墓碑走了「备份 → 恢复 → 落盘」整条链，重开后仍不复活
+        let db3 = Badger.open(config)
+        @Assert(db3.view { txn => txn.get("keep1".toArray()) }.isSome())
+        @Assert(db3.view { txn => txn.get("gone1".toArray()) }.isNone())
+        @Assert(db3.view { txn => txn.get("gone2".toArray()) }.isNone())
+        db3.close()
+        
+        BackupTest.cleanupTestDir(testDir)
+        BackupTest.cleanupTestDir(backupDir)
+    }
 }

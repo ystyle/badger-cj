@@ -1416,12 +1416,14 @@ public class Badger <: VLogGCDB {
                     continue
                 }
                 
-                if (item.isDeletedOrExpired()) {
-                    iter.next()
-                    continue
+                // 删除/过期条目也必须导出（带 meta 位），否则恢复后删除不生效、旧值复活
+                //（恢复侧 addEntry 早已按 bitDelete 走 setRaw，问题全在导出这一侧）。
+                // 导出 tombstone 后立即结束该 key 的版本链：更旧版本不需要（go 同语义）。
+                let deleted = item.isDeletedOrExpired()
+                var val: Array<Byte> = []
+                if (!deleted) {
+                    val = item.valueCopy()
                 }
-                
-                let val = item.valueCopy()
                 
                 let meta: Byte = item.meta & (!(Meta.bitTxn | Meta.bitFinTxn | Meta.bitValuePointer))
                 
@@ -1434,6 +1436,15 @@ public class Badger <: VLogGCDB {
                     meta: meta
                 ))
                 
+                if (deleted) {
+                    // 本 key 的版本链到此为止（Stream 契约：返回时迭代器必须已指向下一个 key）
+                    iter.next()
+                    while (iter.valid() && compareKeys(iter.item().key, key) == 0) {
+                        iter.next()
+                    }
+                    break
+                }
+                
                 if (item.discardEarlierVersions()) {
                     list.add(StreamKV(
                         key: item.keyCopy(),
@@ -1443,6 +1454,10 @@ public class Badger <: VLogGCDB {
                         expiresAt: 0,
                         meta: Meta.bitDelete
                     ))
+                    iter.next()
+                    while (iter.valid() && compareKeys(iter.item().key, key) == 0) {
+                        iter.next()
+                    }
                     break
                 }
                 

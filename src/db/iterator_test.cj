@@ -582,6 +582,53 @@ class IteratorTest {
         db.close()
         cleanupIterDir(dir)
     }
+    
+    // allVersions 迭代器必须把**删除标记**也产出来：上层（Stream/Backup）靠它区分
+    // 「key 不存在」与「已删除」。若这里跳过墓碑，备份恢复后旧值会复活
+    //（回归用例见 BackupTest.testBackupRestoreKeepsDeletes）。
+    @TestCase
+    func testAllVersionsIteratorYieldsTombstone() {
+        let dir = "/tmp/badger_iter_allver_tombstone"
+        cleanupIterDir(dir)
+        let opt = Config(dir: dir, memTableSize: 1024 * 1024u64)
+        let db = Badger.open(opt)
+        
+        db.updateOrThrow { txn => txn.set("key1".toArray(), "v1".toArray()) }
+        db.updateOrThrow { txn => txn.delete("key1".toArray()) }
+        
+        // 默认模式：删除的 key 不可见
+        let txn = db.newTransaction(update: false)
+        let plain = txn.newIterator(opt: IteratorOptions())
+        plain.rewind()
+        var plainCount: Int64 = 0
+        while (plain.valid()) {
+            plainCount++
+            plain.next()
+        }
+        plain.close()
+        @Assert(plainCount, 0)
+        
+        // allVersions：必须看得到墓碑（meta 带 bitDelete）
+        let all = txn.newIterator(opt: IteratorOptions(allVersions: true))
+        all.rewind()
+        var tombs: Int64 = 0
+        var versions: Int64 = 0
+        while (all.valid()) {
+            let item = all.item()
+            versions++
+            if (item.isDeletedOrExpired()) {
+                tombs++
+            }
+            all.next()
+        }
+        all.close()
+        txn.discard()
+        @Assert(versions > 0)
+        @Assert(tombs, 1)
+        
+        db.close()
+        cleanupIterDir(dir)
+    }
 
     // 回归：reverse seek 在数据已落盘（SSTable，经 TableIterWrapper）时的语义。
     // 修复前 TableIterWrapper.seek 对 reverse 直接透传前向 seek（定位 ≥ key 的第一条）：

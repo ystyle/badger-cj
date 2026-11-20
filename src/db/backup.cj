@@ -180,6 +180,11 @@ protected class BackupReader {
     }
     
     private func readBytes(n: Int64): Array<Byte> {
+        // 长度为 0 不能读：目标数组为空会抛 IllegalArgumentException——tombstone 的
+        // value 恰好是 0 字节，恢复带删除标记的备份必然走到这里。
+        if (n <= 0) {
+            return []
+        }
         let buf = Array<Byte>(n, repeat: 0)
         reader.read(buf)
         buf
